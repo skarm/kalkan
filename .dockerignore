@@ -1,0 +1,14 @@
+.git
+.worktrees
+worktrees
+*.test
+*.out
+.DS_Store
+.cache
+
+.local/**
+!.local/
+!.local/kalkancrypt/
+!.local/kalkancrypt/lib/
+!.local/kalkancrypt/lib/linux/
+!.local/kalkancrypt/lib/linux/libkalkancryptwr-64.so*

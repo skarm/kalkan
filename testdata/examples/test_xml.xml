@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<companies>
+    <company>
+        <company-id>468219735</company-id>
+        <name lang="ru">Северный Кварц</name>
+        <address lang="ru">город Алматы, ул. Байтурсынова, 42, блок Б</address>
+        <country lang="ru">Казахстан</country>
+        <address-add lang="ru">БЦ Тау, 7 этаж, офис 714</address-add>
+        <phone>
+            <number>+7 (727) 214-58-06</number>
+            <ext>319</ext>
+            <info>ресепшен</info>
+            <type>phone</type>
+        </phone>
+        <phone>
+            <ext/><type>phone</type>
+            <number>+7 (701) 642-90-17</number>
+            <info/>
+        </phone>
+        <email>contact@sever-quartz.example</email>
+        <url>https://sever-quartz.example</url>
+        <add-url>https://sq-labs.example</add-url>
+        <info-page>https://catalog.example/companies/sever-quartz</info-page>
+        <working-time lang="ru">пн-пт 09:30-18:45</working-time>
+        <rubric-id>491802376</rubric-id>
+        <rubric-id>491802412</rubric-id>
+        <inn>771482936501</inn>
+        <ogrn>3197746123456</ogrn>
+        <actualization-date>1762849500</actualization-date>
+        <photos gallery-url="https://catalog.example/companies/sever-quartz/gallery">
+            <photo url="https://cdn.example/fixtures/sq-office-01.jpg" alt="Офисная стойка" type="interior"/>
+            <photo url="https://cdn.example/fixtures/sq-facade-02.jpg" type="exterior"/>
+            <photo url="https://cdn.example/fixtures/sq-room-03.jpg"/>
+            <photo url="https://cdn.example/fixtures/sq-room-04.jpg"/>
+            <photo url="https://cdn.example/fixtures/sq-lobby-05.jpg"/>
+            <photo url="https://cdn.example/fixtures/sq-demo-06.jpg" alt="Демонстрационный зал" type="workspace"/>
+        </photos>
+        <feature-boolean name="parking" value="1"/>
+        <feature-enum-single name="access" value="guest_pass"/>
+        <feature-numeric-single name="meeting_rooms" value="4"/>
+        <feature-enum-multiple name="service_type" value="lab_showroom"/>
+        <feature-text-single value="SQ-Guest-714" name="ssid"/>
+    </company>
+</companies>
