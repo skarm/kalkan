@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"math/big"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,6 +106,24 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	if !reflect.DeepEqual(info.ExtKeyUsages, []string{"clientAuth", "emailProtection"}) {
 		t.Fatalf("ExtKeyUsages = %#v", info.ExtKeyUsages)
 	}
+	if info.SubjectSerialNumber != "IIN990106300596" {
+		t.Fatalf("SubjectSerialNumber = %q", info.SubjectSerialNumber)
+	}
+	if info.IIN != "990106300596" {
+		t.Fatalf("IIN = %q", info.IIN)
+	}
+	if info.SubjectOrganization != `LLP "Test"` {
+		t.Fatalf("SubjectOrganization = %q", info.SubjectOrganization)
+	}
+	if info.SubjectOrganizationalUnit != "BIN230540004989" {
+		t.Fatalf("SubjectOrganizationalUnit = %q", info.SubjectOrganizationalUnit)
+	}
+	if info.BIN != "230540004989" {
+		t.Fatalf("BIN = %q", info.BIN)
+	}
+	if info.SubjectType != CertificateSubjectLegalEntity {
+		t.Fatalf("SubjectType = %q, want legal entity fallback from BIN", info.SubjectType)
+	}
 }
 
 func TestX509CertificateGetInfoFieldsFetchesOnlyRequestedProperties(t *testing.T) {
@@ -145,8 +164,377 @@ func TestX509CertificateGetInfoFieldsFetchesOnlyRequestedProperties(t *testing.T
 	if info.SerialNumber != "certificateSerialNumber=010203" {
 		t.Fatalf("SerialNumber = %q", info.SerialNumber)
 	}
-	if !info.ValidFrom.IsZero() || info.Issuer != "" || len(info.Policies) != 0 {
+	if !info.ValidFrom.IsZero() || info.Issuer != "" || len(info.Policies) != 0 || info.IIN != "" || info.BIN != "" {
 		t.Fatalf("unrequested fields were populated: %+v", info)
+	}
+}
+
+func TestX509CertificateGetInfoFieldsKazakhstanSubject(t *testing.T) {
+	der := testCertificateDER(t, "subject-from-cert")
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse test certificate: %v", err)
+	}
+
+	var gotProps []ckalkan.CertProp
+	native := &fakeNative{
+		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
+			gotProps = append(gotProps, prop)
+			switch prop {
+			case ckalkan.CertPropSubjectSerialNumber:
+				return []byte("serialNumber=IIN990106300596"), nil
+			case ckalkan.CertPropSubjectOrgName:
+				return []byte(`O=LLP "Test"`), nil
+			case ckalkan.CertPropSubjectOrgUnitName:
+				return []byte("OU=BIN230540004989"), nil
+			case ckalkan.CertPropPoliciesID:
+				return []byte("certificatePolicies=1.2.398.3.3.4.1.2, 1.2.398.3.3.4.1.2.2, 1.2.398.3.3.4.3.2.1"), nil
+			default:
+				t.Fatalf("unexpected certificate property %#x", prop)
+				return nil, nil
+			}
+		},
+	}
+	client := &Client{library: native}
+
+	info, err := client.X509CertificateGetInfoFields(
+		context.Background(),
+		cert,
+		CertificateInfoSubjectSerialNumber|
+			CertificateInfoSubjectOrganization|
+			CertificateInfoSubjectOrganizationalUnit|
+			CertificateInfoPolicy,
+	)
+	if err != nil {
+		t.Fatalf("X509CertificateGetInfoFields returned error: %v", err)
+	}
+
+	wantProps := []ckalkan.CertProp{
+		ckalkan.CertPropPoliciesID,
+		ckalkan.CertPropSubjectSerialNumber,
+		ckalkan.CertPropSubjectOrgName,
+		ckalkan.CertPropSubjectOrgUnitName,
+	}
+	if !reflect.DeepEqual(gotProps, wantProps) {
+		t.Fatalf("certificate properties = %#v, want Kazakhstan subject properties", gotProps)
+	}
+	if info.SubjectSerialNumber != "IIN990106300596" {
+		t.Fatalf("SubjectSerialNumber = %q", info.SubjectSerialNumber)
+	}
+	if info.IIN != "990106300596" {
+		t.Fatalf("IIN = %q", info.IIN)
+	}
+	if info.SubjectOrganization != `LLP "Test"` {
+		t.Fatalf("SubjectOrganization = %q", info.SubjectOrganization)
+	}
+	if info.SubjectOrganizationalUnit != "BIN230540004989" {
+		t.Fatalf("SubjectOrganizationalUnit = %q", info.SubjectOrganizationalUnit)
+	}
+	if info.BIN != "230540004989" {
+		t.Fatalf("BIN = %q", info.BIN)
+	}
+	if info.SubjectType != CertificateSubjectLegalEntity {
+		t.Fatalf("SubjectType = %q, want legal entity policy OID", info.SubjectType)
+	}
+	if !reflect.DeepEqual(info.Roles, []CertificateRole{CertificateRoleSigner}) {
+		t.Fatalf("Roles = %#v", info.Roles)
+	}
+}
+
+func TestX509CertificateGetInfoFieldsSDKFixtures(t *testing.T) {
+	tests := []struct {
+		name                    string
+		path                    string
+		nativeSubjectSerial     string
+		nativeSubjectOrg        string
+		nativeSubjectOrgUnit    string
+		nativePolicy            string
+		wantSubjectSerial       string
+		wantSubjectOrganization string
+		wantSubjectOrgUnit      string
+		wantIIN                 string
+		wantBIN                 string
+		wantSubjectType         CertificateSubjectType
+	}{
+		{
+			name:                    "end_entity",
+			path:                    "testdata/examples/test_CERT_GOST.txt",
+			nativeSubjectSerial:     "serialNumber=IIN123456789012",
+			nativeSubjectOrg:        `O=АО "ТЕСТ"`,
+			nativeSubjectOrgUnit:    "OU=BIN123456789021",
+			nativePolicy:            "certificatePolicies=1.2.398.3.3.2.1",
+			wantSubjectSerial:       "IIN123456789012",
+			wantSubjectOrganization: `АО "ТЕСТ"`,
+			wantSubjectOrgUnit:      "BIN123456789021",
+			wantIIN:                 "123456789012",
+			wantBIN:                 "123456789021",
+			wantSubjectType:         CertificateSubjectLegalEntity,
+		},
+		{
+			name:            "intermediate_ca",
+			path:            "testdata/certs/nca_gost2022_test.cer",
+			nativePolicy:    "certificatePolicies=1.2.398.3.3.2",
+			wantSubjectType: CertificateSubjectUnknown,
+		},
+		{
+			name:            "root_ca",
+			path:            "testdata/certs/root_test_gost_2022.cer",
+			nativePolicy:    "certificatePolicies=1.2.398.3.1.2",
+			wantSubjectType: CertificateSubjectUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			certData, err := os.ReadFile(tt.path)
+			if err != nil {
+				t.Fatalf("read SDK certificate fixture: %v", err)
+			}
+			cert, err := parseNativeCertificate(certData)
+			if err != nil {
+				t.Fatalf("parse SDK certificate fixture: %v", err)
+			}
+
+			native := &fakeNative{
+				certificateGetInfoFunc: func(input []byte, prop ckalkan.CertProp) ([]byte, error) {
+					block, _ := pem.Decode(input)
+					if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, cert.Raw) {
+						t.Fatalf("certificate info input is not PEM for the SDK certificate fixture")
+					}
+
+					switch prop {
+					case ckalkan.CertPropSubjectCountryName:
+						return []byte("C=KZ"), nil
+					case ckalkan.CertPropSubjectSerialNumber:
+						if tt.nativeSubjectSerial == "" {
+							return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
+						}
+
+						return []byte(tt.nativeSubjectSerial), nil
+					case ckalkan.CertPropSubjectOrgName:
+						if tt.nativeSubjectOrg == "" {
+							return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
+						}
+
+						return []byte(tt.nativeSubjectOrg), nil
+					case ckalkan.CertPropSubjectOrgUnitName:
+						if tt.nativeSubjectOrgUnit == "" {
+							return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
+						}
+
+						return []byte(tt.nativeSubjectOrgUnit), nil
+					case ckalkan.CertPropPoliciesID:
+						return []byte(tt.nativePolicy), nil
+					default:
+						t.Fatalf("unexpected certificate property %#x", prop)
+						return nil, nil
+					}
+				},
+			}
+			client := &Client{library: native}
+
+			info, err := client.X509CertificateGetInfoFields(
+				context.Background(),
+				cert,
+				CertificateInfoSubjectCountry|
+					CertificateInfoSubjectSerialNumber|
+					CertificateInfoSubjectOrganization|
+					CertificateInfoSubjectOrganizationalUnit|
+					CertificateInfoPolicy,
+			)
+			if err != nil {
+				t.Fatalf("X509CertificateGetInfoFields returned error: %v", err)
+			}
+
+			if info.SubjectCountry != "KZ" {
+				t.Fatalf("SubjectCountry = %q", info.SubjectCountry)
+			}
+			if info.SubjectSerialNumber != tt.wantSubjectSerial {
+				t.Fatalf("SubjectSerialNumber = %q, want %q", info.SubjectSerialNumber, tt.wantSubjectSerial)
+			}
+			if info.SubjectOrganization != tt.wantSubjectOrganization {
+				t.Fatalf("SubjectOrganization = %q, want %q", info.SubjectOrganization, tt.wantSubjectOrganization)
+			}
+			if info.SubjectOrganizationalUnit != tt.wantSubjectOrgUnit {
+				t.Fatalf("SubjectOrganizationalUnit = %q, want %q", info.SubjectOrganizationalUnit, tt.wantSubjectOrgUnit)
+			}
+			if info.IIN != tt.wantIIN {
+				t.Fatalf("IIN = %q, want %q", info.IIN, tt.wantIIN)
+			}
+			if info.BIN != tt.wantBIN {
+				t.Fatalf("BIN = %q, want %q", info.BIN, tt.wantBIN)
+			}
+			if info.SubjectType != tt.wantSubjectType {
+				t.Fatalf("SubjectType = %q, want %q", info.SubjectType, tt.wantSubjectType)
+			}
+			if len(info.Roles) != 0 {
+				t.Fatalf("Roles = %#v, want none for SDK fixture policy %q", info.Roles, info.Policy)
+			}
+		})
+	}
+}
+
+func TestCertificateInfoKazakhstanSubject(t *testing.T) {
+	tests := []struct {
+		name     string
+		info     CertificateInfo
+		wantIIN  string
+		wantBIN  string
+		wantType CertificateSubjectType
+		wantRole []CertificateRole
+	}{
+		{
+			name: "person_policy",
+			info: CertificateInfo{
+				SubjectSerialNumber: "serialNumber=IIN123456789011",
+				Policies:            []string{string(CertificateSubjectPerson)},
+			},
+			wantIIN:  "123456789011",
+			wantType: CertificateSubjectPerson,
+		},
+		{
+			name: "legal_signer_policy",
+			info: CertificateInfo{
+				SubjectSerialNumber:       "serialNumber=IIN990106300596",
+				SubjectOrganizationalUnit: "OU=BIN230540004989",
+				Policies: []string{
+					string(CertificateSubjectLegalEntity),
+					string(CertificateRoleSigner),
+				},
+			},
+			wantIIN:  "990106300596",
+			wantBIN:  "230540004989",
+			wantType: CertificateSubjectLegalEntity,
+			wantRole: []CertificateRole{CertificateRoleSigner},
+		},
+		{
+			name: "legal_from_bin",
+			info: CertificateInfo{
+				SubjectOrganizationalUnit: "OU=BIN123456789021",
+			},
+			wantBIN:  "123456789021",
+			wantType: CertificateSubjectLegalEntity,
+		},
+		{
+			name: "person_from_iin",
+			info: CertificateInfo{
+				SubjectSerialNumber: "serialNumber=IIN123456789011",
+			},
+			wantIIN:  "123456789011",
+			wantType: CertificateSubjectPerson,
+		},
+		{
+			name: "roles_dedup",
+			info: CertificateInfo{
+				SubjectOrganizationalUnit: "OU=Sales, OU=BIN123456789021",
+				Policies: []string{
+					string(CertificateRoleFirstHead),
+					string(CertificateRoleSigner),
+					string(CertificateRoleSigner),
+					string(CertificateRoleFinancialSigner),
+					string(CertificateRoleHR),
+					string(CertificateRoleEmployee),
+					string(CertificateRoleLegalEntitySystem),
+					string(CertificateRoleLegalEntitySystem) + ".71",
+				},
+			},
+			wantBIN:  "123456789021",
+			wantType: CertificateSubjectLegalEntity,
+			wantRole: []CertificateRole{
+				CertificateRoleFirstHead,
+				CertificateRoleSigner,
+				CertificateRoleFinancialSigner,
+				CertificateRoleHR,
+				CertificateRoleEmployee,
+				CertificateRoleLegalEntitySystem,
+			},
+		},
+		{
+			name: "person_system_role",
+			info: CertificateInfo{
+				SubjectSerialNumber: "serialNumber=IIN123456789011",
+				Policies:            []string{string(CertificateRolePersonSystem)},
+			},
+			wantIIN:  "123456789011",
+			wantType: CertificateSubjectPerson,
+			wantRole: []CertificateRole{CertificateRolePersonSystem},
+		},
+		{
+			name: "unknown",
+			info: CertificateInfo{
+				SubjectSerialNumber:       "serialNumber=SN123456",
+				SubjectOrganizationalUnit: "OU=Sales",
+				Policies:                  []string{"1.2.398.3.3.4.3.2.1"},
+			},
+			wantType: CertificateSubjectUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := tt.info
+
+			info.applyKazakhstanSubjectDetails()
+
+			if info.IIN != tt.wantIIN {
+				t.Fatalf("IIN = %q, want %q", info.IIN, tt.wantIIN)
+			}
+			if info.BIN != tt.wantBIN {
+				t.Fatalf("BIN = %q, want %q", info.BIN, tt.wantBIN)
+			}
+			if info.SubjectType != tt.wantType {
+				t.Fatalf("SubjectType = %q, want %q", info.SubjectType, tt.wantType)
+			}
+			if !reflect.DeepEqual(info.Roles, tt.wantRole) {
+				t.Fatalf("Roles = %#v, want %#v", info.Roles, tt.wantRole)
+			}
+		})
+	}
+}
+
+func TestX509CertificateGetInfoFieldsOptionalSubjectProps(t *testing.T) {
+	der := testCertificateDER(t, "subject-from-cert")
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse test certificate: %v", err)
+	}
+
+	native := &fakeNative{
+		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
+			switch prop {
+			case ckalkan.CertPropPoliciesID:
+				return []byte("certificatePolicies=1.2.398.3.3.4.1.1"), nil
+			case ckalkan.CertPropSubjectCountryName,
+				ckalkan.CertPropSubjectSerialNumber,
+				ckalkan.CertPropSubjectOrgName,
+				ckalkan.CertPropSubjectOrgUnitName:
+				return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
+			default:
+				t.Fatalf("unexpected certificate property %#x", prop)
+				return nil, nil
+			}
+		},
+	}
+	client := &Client{library: native}
+
+	info, err := client.X509CertificateGetInfoFields(
+		context.Background(),
+		cert,
+		CertificateInfoPolicy|
+			CertificateInfoSubjectCountry|
+			CertificateInfoSubjectSerialNumber|
+			CertificateInfoSubjectOrganization|
+			CertificateInfoSubjectOrganizationalUnit,
+	)
+	if err != nil {
+		t.Fatalf("X509CertificateGetInfoFields returned error: %v", err)
+	}
+
+	if info.SubjectType != CertificateSubjectPerson {
+		t.Fatalf("SubjectType = %q, want person from policy despite optional subject errors", info.SubjectType)
+	}
+	if info.IIN != "" || info.BIN != "" || info.SubjectCountry != "" || info.SubjectOrganization != "" {
+		t.Fatalf("optional subject fields were populated after native errors: %+v", info)
 	}
 }
 
@@ -521,20 +909,24 @@ func requireKalkanErrorCode(t *testing.T, err error, want ckalkan.ErrorCode) {
 
 func validCertificateInfoProps() map[ckalkan.CertProp]string {
 	return map[ckalkan.CertProp]string{
-		ckalkan.CertPropSubjectDN:    "CN = Native Subject\x00ignored",
-		ckalkan.CertPropCertSN:       "certificateSerialNumber=010203",
-		ckalkan.CertPropNotBefore:    "notBefore=02.01.2024 15:04:05 GMT",
-		ckalkan.CertPropNotAfter:     "notAfter=03.01.2025 16:05:06 GMT",
-		ckalkan.CertPropIssuerDN:     "CN = Native Issuer",
-		ckalkan.CertPropPoliciesID:   "certificatePolicies=1.2.398.3.3.4, 1.2.398.3.3.5",
-		ckalkan.CertPropKeyUsage:     "keyUsage=digitalSignature, nonRepudiation",
-		ckalkan.CertPropExtKeyUsage:  "extendedKeyUsage=clientAuth, emailProtection",
-		ckalkan.CertPropAuthKeyID:    "authorityKeyIdentifier=auth-key-id",
-		ckalkan.CertPropSubjKeyID:    "subjectKeyIdentifier=subj-key-id",
-		ckalkan.CertPropSignatureAlg: "GOST R 34.10-2015",
-		ckalkan.CertPropPubKey:       "PUBLIC-KEY",
-		ckalkan.CertPropOCSP:         "OCSP=http://ocsp.example.test",
-		ckalkan.CertPropGetCRL:       "crlDistributionPoints=http://crl.example.test/root.crl",
-		ckalkan.CertPropGetDeltaCRL:  "freshestCRL=http://crl.example.test/delta.crl",
+		ckalkan.CertPropSubjectDN:           "CN = Native Subject\x00ignored",
+		ckalkan.CertPropCertSN:              "certificateSerialNumber=010203",
+		ckalkan.CertPropNotBefore:           "notBefore=02.01.2024 15:04:05 GMT",
+		ckalkan.CertPropNotAfter:            "notAfter=03.01.2025 16:05:06 GMT",
+		ckalkan.CertPropIssuerDN:            "CN = Native Issuer",
+		ckalkan.CertPropPoliciesID:          "certificatePolicies=1.2.398.3.3.4, 1.2.398.3.3.5",
+		ckalkan.CertPropKeyUsage:            "keyUsage=digitalSignature, nonRepudiation",
+		ckalkan.CertPropExtKeyUsage:         "extendedKeyUsage=clientAuth, emailProtection",
+		ckalkan.CertPropAuthKeyID:           "authorityKeyIdentifier=auth-key-id",
+		ckalkan.CertPropSubjKeyID:           "subjectKeyIdentifier=subj-key-id",
+		ckalkan.CertPropSignatureAlg:        "GOST R 34.10-2015",
+		ckalkan.CertPropPubKey:              "PUBLIC-KEY",
+		ckalkan.CertPropOCSP:                "OCSP=http://ocsp.example.test",
+		ckalkan.CertPropGetCRL:              "crlDistributionPoints=http://crl.example.test/root.crl",
+		ckalkan.CertPropGetDeltaCRL:         "freshestCRL=http://crl.example.test/delta.crl",
+		ckalkan.CertPropSubjectCountryName:  "C=KZ",
+		ckalkan.CertPropSubjectSerialNumber: "serialNumber=IIN990106300596",
+		ckalkan.CertPropSubjectOrgName:      `O=LLP "Test"`,
+		ckalkan.CertPropSubjectOrgUnitName:  "OU=BIN230540004989",
 	}
 }

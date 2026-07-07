@@ -263,6 +263,101 @@ func TestCloseWaitsForInFlightNativeCall(t *testing.T) {
 	}
 }
 
+func TestCloseContextTimesOutDuringNativeCall(t *testing.T) {
+	enteredHash := make(chan struct{})
+	releaseHash := make(chan struct{})
+	closeCalled := make(chan struct{})
+	var closeCalls atomic.Int32
+
+	native := &fakeNative{
+		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
+			close(enteredHash)
+			<-releaseHash
+			return []byte("digest"), nil
+		},
+		closeFunc: func() error {
+			closeCalls.Add(1)
+			close(closeCalled)
+			return nil
+		},
+	}
+	client := &Client{library: native}
+
+	hashDone := make(chan error, 1)
+	go func() {
+		_, err := client.Hash(context.Background(), HashRequest{
+			Data: Bytes([]byte("payload")),
+		})
+		hashDone <- err
+	}()
+
+	<-enteredHash
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	if err := client.CloseContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseContext error = %v, want context deadline exceeded", err)
+	}
+	if got := closeCalls.Load(); got != 0 {
+		t.Fatalf("native Close calls before gate release = %d, want 0", got)
+	}
+
+	select {
+	case <-closeCalled:
+		t.Fatal("CloseContext reached native Close before the in-flight native call completed")
+	default:
+	}
+
+	close(releaseHash)
+	if err := <-hashDone; err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+
+	select {
+	case <-closeCalled:
+	case <-time.After(time.Second):
+		t.Fatal("native Close was not called after the in-flight native call completed")
+	}
+	if got := closeCalls.Load(); got != 1 {
+		t.Fatalf("native Close calls = %d, want 1", got)
+	}
+	if _, err := client.Hash(context.Background(), HashRequest{Data: Bytes([]byte("payload"))}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Hash after CloseContext error = %v, want closed client error", err)
+	}
+}
+
+func TestCloseContextTimesOutDuringConcurrentClose(t *testing.T) {
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	native := &fakeNative{
+		closeFunc: func() error {
+			close(closeStarted)
+			<-releaseClose
+			return nil
+		},
+	}
+	client := &Client{library: native}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- client.Close()
+	}()
+	<-closeStarted
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	if err := client.CloseContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseContext while Close is running error = %v, want context deadline exceeded", err)
+	}
+
+	close(releaseClose)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
 func TestCloseRejectsQueuedOperationAfterCloseBegins(t *testing.T) {
 	closeDone := make(chan error, 1)
 	hashDone := make(chan error, 1)

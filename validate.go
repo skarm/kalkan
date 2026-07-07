@@ -69,7 +69,8 @@ type ValidateCertificateRequest struct {
 
 // CertificateValidation is returned by ValidateCertificate.
 type CertificateValidation struct {
-	// Valid is true when KalkanCrypt returned success.
+	// Valid is always true when err is nil. Invalid certificates are returned
+	// as errors; the field is kept for readability and future compatibility.
 	Valid bool
 	// Info is KalkanCrypt's native validation information string.
 	Info string

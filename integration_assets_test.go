@@ -212,6 +212,8 @@ func collectSDKAssets(t *testing.T, roots []string) sdkAssets {
 
 func registerSDKExample(examples map[string]string, base, path string) {
 	switch strings.TrimSpace(base) {
+	case "test_CERT_GOST":
+		examples["test_CERT_GOST"] = path
 	case "test_xml":
 		examples["test_xml"] = path
 	case "test_wsse", "wsse":

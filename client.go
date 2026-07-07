@@ -93,13 +93,33 @@ func Open(ctx context.Context, options ...Option) (*Client, error) {
 	return openWithLibraryFactory(ctx, options, defaultLibraryFactory)
 }
 
-// Close releases the native KalkanCrypt session. It may be called more than once.
+// Close releases the native KalkanCrypt session. It may be called more than
+// once. Close waits for any in-flight native call to return before closing the
+// native library.
 func (c *Client) Close() error {
+	return c.CloseContext(context.Background())
+}
+
+// CloseContext releases the native KalkanCrypt session with context-aware
+// waiting. It may be called more than once.
+//
+// The context can stop waiting for a close that is queued behind another native
+// call or already running in another goroutine. It cannot interrupt a
+// KalkanCrypt call after control has entered the shared library. Once
+// CloseContext starts closing a client, new operations are rejected even if the
+// caller stops waiting.
+func (c *Client) CloseContext(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
 
-	start := time.Now()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	c.mu.Lock()
 
@@ -107,9 +127,7 @@ func (c *Client) Close() error {
 		closing := c.closing
 		c.mu.Unlock()
 
-		<-closing.done
-
-		return closing.err
+		return waitCloseContext(ctx, closing)
 	}
 
 	library := c.library
@@ -124,6 +142,15 @@ func (c *Client) Close() error {
 	gate := c.libraryGateLocked()
 	c.mu.Unlock()
 
+	start := time.Now()
+	logCtx := context.WithoutCancel(ctx)
+
+	go c.closeLibrary(logCtx, library, gate, closing, start)
+
+	return waitCloseContext(ctx, closing)
+}
+
+func (c *Client) closeLibrary(ctx context.Context, library closer, gate chan struct{}, closing *closeState, start time.Time) {
 	<-gate
 
 	err := library.Close()
@@ -131,15 +158,31 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	c.library = nil
 	closing.err = err
-	close(closing.done)
-	c.closing = nil
 	c.mu.Unlock()
 
 	gate <- struct{}{}
 
-	logNativeCall(c, context.Background(), "Close", start, err)
+	logNativeCall(c, ctx, "Close", start, err)
 
-	return err
+	c.mu.Lock()
+	close(closing.done)
+	c.closing = nil
+	c.mu.Unlock()
+}
+
+func waitCloseContext(ctx context.Context, closing *closeState) error {
+	select {
+	case <-closing.done:
+		return closing.err
+	default:
+	}
+
+	select {
+	case <-closing.done:
+		return closing.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Client) lockLibrary(ctx context.Context) (closer, func(), error) {

@@ -55,6 +55,10 @@ func TestWithSDKFixtures(t *testing.T) {
 		assertSDKCertificateValidation(t, ctx, client, assets)
 	})
 
+	t.Run("CertificateInfo", func(t *testing.T) {
+		assertSDKCertificateInfo(t, ctx, client, assets)
+	})
+
 	t.Run("ZIP", func(t *testing.T) {
 		assertSDKZIP(t, ctx, client, assets, payload)
 	})
@@ -263,6 +267,45 @@ func assertSDKCertificateValidation(t *testing.T, ctx context.Context, client *C
 				requireKalkanError(t, "ValidateCertificate("+test.name+")", err)
 			}
 		})
+	}
+}
+
+func assertSDKCertificateInfo(t *testing.T, ctx context.Context, client *Client, assets sdkAssets) {
+	t.Helper()
+
+	certData := readSDKExample(t, assets, "test_CERT_GOST")
+	cert, err := parseNativeCertificate(certData)
+	if err != nil {
+		t.Fatalf("parse SDK certificate fixture: %v", err)
+	}
+
+	info, err := client.X509CertificateGetInfoFields(
+		ctx,
+		cert,
+		CertificateInfoSubjectCountry|
+			CertificateInfoSubjectSerialNumber|
+			CertificateInfoSubjectOrganization|
+			CertificateInfoSubjectOrganizationalUnit|
+			CertificateInfoPolicy,
+	)
+	if err != nil {
+		t.Fatalf("X509CertificateGetInfoFields(test_CERT_GOST) failed: %v", err)
+	}
+
+	if info.SubjectCountry != "KZ" {
+		t.Fatalf("SubjectCountry = %q, want KZ", info.SubjectCountry)
+	}
+	if info.IIN != "123456789012" {
+		t.Fatalf("IIN = %q, want 123456789012", info.IIN)
+	}
+	if info.BIN != "123456789021" {
+		t.Fatalf("BIN = %q, want 123456789021", info.BIN)
+	}
+	if info.SubjectType != CertificateSubjectLegalEntity {
+		t.Fatalf("SubjectType = %q, want legal entity fallback from BIN", info.SubjectType)
+	}
+	if len(info.Roles) != 0 {
+		t.Fatalf("Roles = %#v, want none for test_CERT_GOST policy %q", info.Roles, info.Policy)
 	}
 }
 

@@ -47,13 +47,77 @@ type CertificateInfo struct {
 	CRLURL string
 	// DeltaCRLURL is the native delta CRL distribution point string.
 	DeltaCRLURL string
+	// SubjectCountry is the native subject country value.
+	SubjectCountry string
+	// SubjectSerialNumber is the native subject serialNumber value.
+	SubjectSerialNumber string
+	// SubjectOrganization is the native subject organization value.
+	SubjectOrganization string
+	// SubjectOrganizationalUnit is the native subject organizational unit value.
+	SubjectOrganizationalUnit string
 	// Policies contains parsed values from Policy.
 	Policies []string
 	// KeyUsages contains parsed values from KeyUsage.
 	KeyUsages []string
 	// ExtKeyUsages contains parsed values from ExtKeyUsage.
 	ExtKeyUsages []string
+	// IIN is parsed from Kazakhstan subject serialNumber values prefixed with "IIN".
+	IIN string
+	// BIN is parsed from Kazakhstan subject OU values prefixed with "BIN".
+	BIN string
+	// SubjectType is inferred from known Kazakhstan NCA policy OIDs or IIN/BIN.
+	SubjectType CertificateSubjectType
+	// Roles contains recognized Kazakhstan NCA role policy OIDs.
+	Roles []CertificateRole
 }
+
+// CertificateSubjectType identifies known Kazakhstan NCA subject type policy OIDs.
+type CertificateSubjectType string
+
+const (
+	// CertificateSubjectUnknown means the subject type could not be inferred.
+	CertificateSubjectUnknown CertificateSubjectType = ""
+	// CertificateSubjectPerson identifies policy OID 1.2.398.3.3.4.1.1.
+	CertificateSubjectPerson CertificateSubjectType = kzPolicyPerson
+	// CertificateSubjectLegalEntity identifies policy OID 1.2.398.3.3.4.1.2.
+	CertificateSubjectLegalEntity CertificateSubjectType = kzPolicyLegalEntity
+)
+
+// CertificateRole identifies known Kazakhstan NCA role policy OIDs.
+type CertificateRole string
+
+const (
+	// CertificateRolePersonSystem identifies policy OID 1.2.398.3.3.4.1.1.1.
+	CertificateRolePersonSystem CertificateRole = kzPolicyPersonSystem
+	// CertificateRoleFirstHead identifies policy OID 1.2.398.3.3.4.1.2.1.
+	CertificateRoleFirstHead CertificateRole = kzPolicyFirstHead
+	// CertificateRoleSigner identifies policy OID 1.2.398.3.3.4.1.2.2.
+	CertificateRoleSigner CertificateRole = kzPolicySigner
+	// CertificateRoleFinancialSigner identifies policy OID 1.2.398.3.3.4.1.2.3.
+	CertificateRoleFinancialSigner CertificateRole = kzPolicyFinancialSigner
+	// CertificateRoleHR identifies policy OID 1.2.398.3.3.4.1.2.4.
+	CertificateRoleHR CertificateRole = kzPolicyHR
+	// CertificateRoleEmployee identifies policy OID 1.2.398.3.3.4.1.2.5.
+	CertificateRoleEmployee CertificateRole = kzPolicyEmployee
+	// CertificateRoleLegalEntitySystem identifies policy OID 1.2.398.3.3.4.1.2.6.
+	CertificateRoleLegalEntitySystem CertificateRole = kzPolicyLegalEntitySystem
+)
+
+const (
+	kzIINPrefix = "IIN"
+	kzBINPrefix = "BIN"
+
+	kzPolicyPerson               = "1.2.398.3.3.4.1.1"
+	kzPolicyPersonSystem         = "1.2.398.3.3.4.1.1.1"
+	kzPolicyLegalEntity          = "1.2.398.3.3.4.1.2"
+	kzPolicyFirstHead            = "1.2.398.3.3.4.1.2.1"
+	kzPolicySigner               = "1.2.398.3.3.4.1.2.2"
+	kzPolicyFinancialSigner      = "1.2.398.3.3.4.1.2.3"
+	kzPolicyHR                   = "1.2.398.3.3.4.1.2.4"
+	kzPolicyEmployee             = "1.2.398.3.3.4.1.2.5"
+	kzPolicyLegalEntitySystem    = "1.2.398.3.3.4.1.2.6"
+	kzPolicyLegalEntitySystemPfx = kzPolicyLegalEntitySystem + "."
+)
 
 // CertificateInfoField selects certificate properties requested from
 // KalkanCrypt. Use X509CertificateGetInfo for the full legacy set.
@@ -90,6 +154,14 @@ const (
 	CertificateInfoCRLURL
 	// CertificateInfoDeltaCRLURL requests the delta CRL distribution point URL.
 	CertificateInfoDeltaCRLURL
+	// CertificateInfoSubjectCountry requests the subject country value.
+	CertificateInfoSubjectCountry
+	// CertificateInfoSubjectSerialNumber requests the subject serialNumber value.
+	CertificateInfoSubjectSerialNumber
+	// CertificateInfoSubjectOrganization requests the subject organization value.
+	CertificateInfoSubjectOrganization
+	// CertificateInfoSubjectOrganizationalUnit requests the subject organizational unit value.
+	CertificateInfoSubjectOrganizationalUnit
 )
 
 // CertificateInfoAllFields requests the same properties as X509CertificateGetInfo.
@@ -107,7 +179,11 @@ const CertificateInfoAllFields = CertificateInfoSubject |
 	CertificateInfoPublicKey |
 	CertificateInfoOCSPURL |
 	CertificateInfoCRLURL |
-	CertificateInfoDeltaCRLURL
+	CertificateInfoDeltaCRLURL |
+	CertificateInfoSubjectCountry |
+	CertificateInfoSubjectSerialNumber |
+	CertificateInfoSubjectOrganization |
+	CertificateInfoSubjectOrganizationalUnit
 
 // X509ExportCertificateFromStore exports the default certificate from
 // KalkanCrypt's native store and parses it as an x509 certificate.
@@ -219,6 +295,22 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 
 			return nil
 		}},
+		{field: CertificateInfoSubjectCountry, prop: ckalkan.CertPropSubjectCountryName, optional: true, apply: func(value string) error {
+			info.SubjectCountry = nativePropertyValue(value)
+			return nil
+		}},
+		{field: CertificateInfoSubjectSerialNumber, prop: ckalkan.CertPropSubjectSerialNumber, optional: true, apply: func(value string) error {
+			info.SubjectSerialNumber = nativePropertyValue(value)
+			return nil
+		}},
+		{field: CertificateInfoSubjectOrganization, prop: ckalkan.CertPropSubjectOrgName, optional: true, apply: func(value string) error {
+			info.SubjectOrganization = nativePropertyValue(value)
+			return nil
+		}},
+		{field: CertificateInfoSubjectOrganizationalUnit, prop: ckalkan.CertPropSubjectOrgUnitName, optional: true, apply: func(value string) error {
+			info.SubjectOrganizationalUnit = nativePropertyValue(value)
+			return nil
+		}},
 		{field: CertificateInfoKeyUsage, prop: ckalkan.CertPropKeyUsage, apply: func(value string) error {
 			info.KeyUsage = value
 			info.KeyUsages = splitNativePropertyValues(value)
@@ -281,6 +373,8 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			return nil, err
 		}
 	}
+
+	info.applyKazakhstanSubjectDetails()
 
 	return info, nil
 }
@@ -453,6 +547,80 @@ func trimNativeCStringBytes(value []byte) []byte {
 	return value
 }
 
+func (info *CertificateInfo) applyKazakhstanSubjectDetails() {
+	info.IIN = prefixedNativeAttributeValue(info.SubjectSerialNumber, kzIINPrefix)
+	info.BIN = prefixedNativeAttributeValue(info.SubjectOrganizationalUnit, kzBINPrefix)
+
+	for _, policy := range info.Policies {
+		info.applyKazakhstanPolicy(policy)
+	}
+
+	if info.SubjectType == CertificateSubjectUnknown {
+		info.SubjectType = inferKazakhstanSubjectType(info)
+	}
+}
+
+func (info *CertificateInfo) applyKazakhstanPolicy(policy string) {
+	switch {
+	case policy == kzPolicyPerson:
+		info.SubjectType = CertificateSubjectPerson
+	case policy == kzPolicyPersonSystem:
+		info.SubjectType = CertificateSubjectPerson
+		info.addCertificateRole(CertificateRolePersonSystem)
+	case policy == kzPolicyLegalEntity:
+		info.SubjectType = CertificateSubjectLegalEntity
+	case policy == kzPolicyFirstHead:
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleFirstHead)
+	case policy == kzPolicySigner:
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleSigner)
+	case policy == kzPolicyFinancialSigner:
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleFinancialSigner)
+	case policy == kzPolicyHR:
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleHR)
+	case policy == kzPolicyEmployee:
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleEmployee)
+	case policy == kzPolicyLegalEntitySystem || strings.HasPrefix(policy, kzPolicyLegalEntitySystemPfx):
+		info.SubjectType = CertificateSubjectLegalEntity
+		info.addCertificateRole(CertificateRoleLegalEntitySystem)
+	}
+}
+
+func (info *CertificateInfo) addCertificateRole(role CertificateRole) {
+	for _, existing := range info.Roles {
+		if existing == role {
+			return
+		}
+	}
+
+	info.Roles = append(info.Roles, role)
+}
+
+func inferKazakhstanSubjectType(info *CertificateInfo) CertificateSubjectType {
+	switch {
+	case info.BIN != "":
+		return CertificateSubjectLegalEntity
+	case info.IIN != "":
+		return CertificateSubjectPerson
+	default:
+		return CertificateSubjectUnknown
+	}
+}
+
+func prefixedNativeAttributeValue(value, prefix string) string {
+	for _, attributeValue := range splitNativeAttributeValues(value) {
+		if v, ok := strings.CutPrefix(attributeValue, prefix); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	return ""
+}
+
 func parseNativeCertificateTime(field, value string) (time.Time, error) {
 	raw := nativePropertyValue(value)
 	if raw == "" {
@@ -488,6 +656,27 @@ func splitNativePropertyValues(value string) []string {
 	values := make([]string, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+
+	return values
+}
+
+func splitNativeAttributeValues(value string) []string {
+	value = nativePropertyValue(value)
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r'
+	})
+
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = nativePropertyValue(part)
 		if part != "" {
 			values = append(values, part)
 		}

@@ -1,6 +1,7 @@
 # kalkan
 
-Go API for applications that use the native KalkanCrypt SDK.
+Go API for applications that use the native KalkanCrypt SDK and the national
+cryptographic standards of the Republic of Kazakhstan.
 
 ## Packages
 
@@ -83,6 +84,11 @@ if err != nil {
 for the in-process serialization lock. It cannot interrupt a KalkanCrypt call
 that has already entered the shared library. Do not treat an in-process context
 deadline as a hard native-call timeout.
+
+`Client.Close()` is the blocking close variant. It can wait forever if another
+goroutine is stuck inside a native KalkanCrypt call. For service shutdown paths,
+use `Client.CloseContext(ctx)`: it returns `ctx.Err()` when the caller stops
+waiting, while the client remains in closing state and rejects new operations.
 
 Backend services that need failure containment or hard native-call time limits
 should isolate KalkanCrypt outside this package, for example behind a separate
@@ -178,6 +184,8 @@ route traffic through a protected proxy under your operational control.
 
 For certificate metadata hot paths, prefer `X509CertificateGetInfoFields` over
 `X509CertificateGetInfo` so only required native properties are fetched.
+`CertificateInfo` includes Kazakhstan-oriented `IIN`, `BIN`, subject type, and
+recognized NCA roles when the relevant subject and policy fields are requested.
 
 ## ZIP containers
 
@@ -233,6 +241,12 @@ Run the full local check:
 ```sh
 make check
 ```
+
+GitHub CI separates public checks from native SDK checks. Public checks run
+`go test ./...`, `go vet ./...`, `go test -race ./...`, golangci-lint,
+`govulncheck -show verbose ./...`, and Windows pure-Go tests. The Linux native
+SDK job requires the `KCSDK_TOKEN` secret for same-repository runs; fork pull
+requests may skip it because secrets are unavailable.
 
 Run real-native tests when the SDK is installed:
 

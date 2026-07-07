@@ -32,6 +32,80 @@ jobs:
       - name: Test
         run: go test ./...
 
+  vet:
+    name: Go vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+  race:
+    name: Go race tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Race tests
+        run: go test -race ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --config .golangci.yml ./...
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck -show verbose ./...
+
   linux:
     name: Linux KalkanCrypto SDK
     runs-on: ubuntu-latest
@@ -110,6 +184,10 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
+      - vet
+      - race
+      - lint
+      - vulncheck
       - linux
       - windows
     if: ${{ always() }}
@@ -121,15 +199,43 @@ jobs:
           set -euo pipefail
 
           test_result="${{ needs.test.result }}"
+          vet_result="${{ needs.vet.result }}"
+          race_result="${{ needs.race.result }}"
+          lint_result="${{ needs.lint.result }}"
+          vulncheck_result="${{ needs.vulncheck.result }}"
           linux_result="${{ needs.linux.result }}"
           windows_result="${{ needs.windows.result }}"
 
           echo "Go tests: ${test_result}"
+          echo "Go vet: ${vet_result}"
+          echo "Go race tests: ${race_result}"
+          echo "golangci-lint: ${lint_result}"
+          echo "govulncheck: ${vulncheck_result}"
           echo "Linux KalkanCrypto SDK: ${linux_result}"
           echo "Windows Go tests: ${windows_result}"
 
           if [[ "${test_result}" != "success" ]]; then
             echo "::error::Go tests failed: ${test_result}"
+            exit 1
+          fi
+
+          if [[ "${vet_result}" != "success" ]]; then
+            echo "::error::Go vet failed: ${vet_result}"
+            exit 1
+          fi
+
+          if [[ "${race_result}" != "success" ]]; then
+            echo "::error::Go race tests failed: ${race_result}"
+            exit 1
+          fi
+
+          if [[ "${lint_result}" != "success" ]]; then
+            echo "::error::golangci-lint failed: ${lint_result}"
+            exit 1
+          fi
+
+          if [[ "${vulncheck_result}" != "success" ]]; then
+            echo "::error::govulncheck failed: ${vulncheck_result}"
             exit 1
           fi
 

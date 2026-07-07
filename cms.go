@@ -96,7 +96,8 @@ type CMS struct {
 
 // Verification is returned by CMS and XML verification operations.
 type Verification struct {
-	// Valid is true when KalkanCrypt returned success.
+	// Valid is always true when err is nil. Invalid signatures are returned as
+	// errors; the field is kept for readability and future compatibility.
 	Valid bool
 	// Info is KalkanCrypt's native verification information string.
 	Info string

@@ -49,7 +49,8 @@ type VerifyZIPRequest struct {
 
 // ZIPVerification is returned by VerifyZIP.
 type ZIPVerification struct {
-	// Valid is true when KalkanCrypt returned success.
+	// Valid is always true when err is nil. Invalid ZIP signatures are returned
+	// as errors; the field is kept for readability and future compatibility.
 	Valid bool
 	// Info is KalkanCrypt's native ZIP verification information string.
 	Info string
