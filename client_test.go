@@ -15,7 +15,7 @@ func TestOpenUsesBackgroundForNilContext(t *testing.T) {
 	var initCalls int
 
 	client, err := openWithLibraryFactory(nil, []Option{ //nolint:staticcheck
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 	}, func(config) (closer, error) {
 		return &fakeNative{
 			initFunc: func() error {
@@ -40,7 +40,7 @@ func TestOpenCanceledBeforeLowLevelClientCreation(t *testing.T) {
 
 	var factoryCalls int
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 	}, func(config) (closer, error) {
 		factoryCalls++
 		return &fakeNative{}, nil
@@ -59,7 +59,7 @@ func TestOpenCanceledAfterLowLevelClientCreationClosesClientBeforeInit(t *testin
 	var closeCalls int
 
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 	}, func(config) (closer, error) {
 		cancel()
 		return &fakeNative{
@@ -89,7 +89,7 @@ func TestOpenCanceledAfterInitClosesClientAndJoinsCloseError(t *testing.T) {
 	closeErr := errors.New("close failed")
 
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 	}, func(config) (closer, error) {
 		return &fakeNative{
 			initFunc: func() error {
@@ -115,7 +115,7 @@ func TestOpenCanceledAfterSetTSAURLClosesClientBeforeProxy(t *testing.T) {
 	var closeCalls int
 
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithTSAURL("http://tsa.example"),
 		WithProxy(Proxy{Enabled: true, Address: "127.0.0.1", Port: "3128"}),
 	}, func(config) (closer, error) {
@@ -151,7 +151,7 @@ func TestOpenCanceledAfterSetProxyClosesClientBeforeTrustedCertificates(t *testi
 	var closeCalls int
 
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithProxy(Proxy{Enabled: true, Address: "127.0.0.1", Port: "3128"}),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("trusted"), Type: CertificateCA, Format: CertificatePEM}),
 	}, func(config) (closer, error) {
@@ -187,7 +187,7 @@ func TestOpenCanceledDuringTrustedCertificateLoopClosesPartialClient(t *testing.
 	var closeCalls int
 
 	_, err := openWithLibraryFactory(ctx, []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("first"), Type: CertificateCA, Format: CertificatePEM}),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("second"), Type: CertificateCA, Format: CertificatePEM}),
 	}, func(config) (closer, error) {

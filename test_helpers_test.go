@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -223,6 +224,20 @@ func sameByteSliceBacking(left, right []byte) bool {
 	}
 
 	return &left[0] == &right[0]
+}
+
+func testLibraryPath() string {
+	if runtime.GOOS == "windows" {
+		return `C:\kalkan\KalkanCrypt.dll`
+	}
+
+	return "/opt/kalkan/libkalkancryptwr-64.so"
+}
+
+func TestTestLibraryPathIsAbsoluteOnCurrentPlatform(t *testing.T) {
+	if !filepath.IsAbs(testLibraryPath()) {
+		t.Fatalf("testLibraryPath() = %q, want platform-absolute path", testLibraryPath())
+	}
 }
 
 func signerIDOverflowValue(t *testing.T) int {

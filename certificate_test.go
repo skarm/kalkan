@@ -234,7 +234,7 @@ func TestOpenWithTrustedCertificateUsesCallerData(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		client, err := openWithLibraryFactory(context.Background(), []Option{
-			WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+			WithLibraryPath(testLibraryPath()),
 			WithTrustedCertificate(TrustedCertificate{
 				Data:   data,
 				Type:   CertificateCA,
@@ -249,7 +249,14 @@ func TestOpenWithTrustedCertificateUsesCallerData(t *testing.T) {
 		done <- err
 	}()
 
-	<-initEntered
+	select {
+	case <-initEntered:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Open returned before Init: %v", err)
+		}
+		t.Fatal("Open returned before Init")
+	}
 	copy(data, []byte("mutated!"))
 	close(releaseInit)
 
@@ -276,7 +283,7 @@ func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
 	}
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithTrustedCertificate(TrustedCertificate{
 			Data:   data,
 			Type:   CertificateCA,
@@ -536,7 +543,7 @@ func TestConfigValidateRejectsInvalidEnabledProxy(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := config{
-				libraryPath: "/opt/kalkan/libkalkancryptwr-64.so",
+				libraryPath: testLibraryPath(),
 				proxy:       &test.proxy,
 			}
 			err := cfg.validate()

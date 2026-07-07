@@ -20,7 +20,7 @@ func TestNewRejectsEmbeddedNULInLibraryBeforeLoader(t *testing.T) {
 }
 
 func TestNewDoesNotApplyPublicLibraryPathPolicy(t *testing.T) {
-	c, err := New(WithLibrary("libkalkancryptwr-64.so"))
+	c, err := New(WithLibrary("ckalkan-test-missing-library.so"))
 	if err == nil {
 		_ = c.Close()
 		t.Fatal("New unexpectedly loaded a relative test library")

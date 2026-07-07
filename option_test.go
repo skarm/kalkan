@@ -14,7 +14,7 @@ import (
 
 func TestOpenRejectsUnknownEnvironmentBeforeLoadingNative(t *testing.T) {
 	_, err := Open(context.Background(),
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithEnvironment(Environment(99)),
 	)
 	if err == nil || !strings.Contains(err.Error(), "unknown environment 99") {
@@ -40,7 +40,7 @@ func TestOpenPreservesLibraryPathWhitespaceBeforeValidation(t *testing.T) {
 	var factoryCalls int
 
 	_, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath(" \t/opt/kalkan/libkalkancryptwr-64.so\n"),
+		WithLibraryPath(" \t" + testLibraryPath() + "\n"),
 	}, func(config) (closer, error) {
 		factoryCalls++
 		return &fakeNative{}, nil
@@ -158,7 +158,7 @@ func TestOpenRejectsInvalidConfiguredURLsBeforeLoadingNative(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var factoryCalls int
 			_, err := openWithLibraryFactory(context.Background(), []Option{
-				WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+				WithLibraryPath(testLibraryPath()),
 				test.option,
 			}, func(config) (closer, error) {
 				factoryCalls++
@@ -193,7 +193,7 @@ func TestOpenTrimsConfiguredTSAAndOCSPURLs(t *testing.T) {
 	}
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithTSAURL(" \thttp://tsa.example/path\n"),
 		WithOCSPURL(" \thttp://ocsp.example/path\n"),
 	}, func(config) (closer, error) {
@@ -219,7 +219,7 @@ func TestOpenPassesMaxOutputBufferSizeToLibraryFactory(t *testing.T) {
 	const wantMaxOutputBufferSize = 2 << 20
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithMaxOutputBufferSize(wantMaxOutputBufferSize),
 	}, func(cfg config) (closer, error) {
 		if cfg.maxOutputBufferSize != wantMaxOutputBufferSize {
@@ -264,7 +264,7 @@ func TestWithLoggerRecordsNativeCallSuccess(t *testing.T) {
 	handler := newRecordingHandler()
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
 	}, func(config) (closer, error) {
 		return &fakeNative{
@@ -295,7 +295,7 @@ func TestWithLoggerRecordsNativeCallError(t *testing.T) {
 	nativeErr := errors.New("native hash failed")
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
 	}, func(config) (closer, error) {
 		return &fakeNative{
@@ -327,7 +327,7 @@ func TestWithLoggerRecordsClose(t *testing.T) {
 	handler := newRecordingHandler()
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
-		WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
+		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
 	}, func(config) (closer, error) {
 		return &fakeNative{}, nil

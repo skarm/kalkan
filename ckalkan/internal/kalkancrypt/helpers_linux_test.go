@@ -299,14 +299,14 @@ func loadSDKCertificates(t *testing.T, ctx *kalkancrypt.Context, assets sdkAsset
 	}
 }
 
-func firstSDKZip(t *testing.T, assets sdkAssets) string {
+func sdkZIPFixtures(t *testing.T, assets sdkAssets) []string {
 	t.Helper()
 
 	if len(assets.zips) == 0 {
 		t.Skip("no SDK ZIP fixtures found")
 	}
 
-	return assets.zips[0]
+	return assets.zips
 }
 
 func firstExistingFile(paths ...string) (string, bool) {

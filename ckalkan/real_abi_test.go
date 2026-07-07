@@ -56,8 +56,10 @@ func TestRealKalkanCryptABISmoke(t *testing.T) {
 
 	_, err = cli.VerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
 	check("VerifyData", err)
-	_, err = cli.UVerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
-	check("UVerifyData", err)
+	if !skipMalformedUVerifyDataSmokeOnWindows(t) {
+		_, err = cli.UVerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
+		check("UVerifyData", err)
+	}
 	_, err = cli.VerifyXML("", ckalkan.XMLInclC14N, []byte("<root/>"))
 	check("VerifyXML", err)
 	_, err = cli.GetCertFromXML([]byte("<root/>"), 0)

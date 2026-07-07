@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  KCSDK_REPOSITORY: skarm/kcsdk
+
+jobs:
+  test:
+    name: Go tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+  linux:
+    name: Linux KalkanCrypto SDK
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate SDK token
+        shell: bash
+        env:
+          KCSDK_TOKEN: ${{ secrets.KCSDK_TOKEN }}
+        run: |
+          if [ -z "${KCSDK_TOKEN}" ]; then
+            echo "::error::KCSDK_TOKEN secret is required to checkout ${KCSDK_REPOSITORY}"
+            exit 1
+          fi
+
+      - name: Checkout KalkanCrypt SDK
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.KCSDK_REPOSITORY }}
+          token: ${{ secrets.KCSDK_TOKEN }}
+          path: .local/kcsdk
+          lfs: true
+          persist-credentials: false
+
+      - name: Prepare Linux native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_dir=".local/kcsdk/linux"
+          target_dir=".local/kalkancrypt/lib/linux"
+
+          test -f "${sdk_dir}/libkalkancryptwr-64.so"
+          test -f "${sdk_dir}/libkalkancryptwr-64.so.2.0.13"
+
+          mkdir -p "${target_dir}"
+          cp -a \
+            "${sdk_dir}/libkalkancryptwr-64.so" \
+            "${sdk_dir}/libkalkancryptwr-64.so.2.0.13" \
+            "${target_dir}/"
+
+          if grep -q "git-lfs.github.com/spec" "${target_dir}/libkalkancryptwr-64.so.2.0.13"; then
+            echo "::error::KalkanCrypt Linux library was checked out as a Git LFS pointer"
+            exit 1
+          fi
+
+      - name: Docker test
+        run: make docker-test
+
+  windows:
+    name: Windows Go tests
+    runs-on: windows-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        shell: pwsh
+        run: go test ./...
+
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - linux
+      - windows
+    if: ${{ always() }}
+
+    steps:
+      - name: Check required jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test_result="${{ needs.test.result }}"
+          linux_result="${{ needs.linux.result }}"
+          windows_result="${{ needs.windows.result }}"
+
+          echo "Go tests: ${test_result}"
+          echo "Linux KalkanCrypto SDK: ${linux_result}"
+          echo "Windows Go tests: ${windows_result}"
+
+          if [[ "${test_result}" != "success" ]]; then
+            echo "::error::Go tests failed: ${test_result}"
+            exit 1
+          fi
+
+          if [[ "${windows_result}" != "success" ]]; then
+            echo "::error::Windows Go tests failed: ${windows_result}"
+            exit 1
+          fi
+
+          is_fork_pr="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
+
+          if [[ "${is_fork_pr}" == "true" ]]; then
+            echo "Fork PR detected: native SDK checks may be skipped because secrets are unavailable."
+
+            if [[ "${linux_result}" != "success" && "${linux_result}" != "skipped" ]]; then
+              echo "::error::Linux KalkanCrypto SDK failed: ${linux_result}"
+              exit 1
+            fi
+
+            exit 0
+          fi
+
+          if [[ "${linux_result}" != "success" ]]; then
+            echo "::error::Linux KalkanCrypto SDK failed: ${linux_result}"
+            exit 1
+          fi
