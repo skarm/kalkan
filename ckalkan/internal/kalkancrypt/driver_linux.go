@@ -57,6 +57,7 @@ func openDriver(path string) (driver, error) {
 	}
 
 	var funcs *C.stKCFunctionsType
+	//nolint:gocritic
 	rc := C.bridge_get_function_list(getListSymbol, &funcs)
 	if rc != 0 {
 		C.dlclose(handle)

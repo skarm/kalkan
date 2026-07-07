@@ -36,7 +36,7 @@ func TestContextZipMethodsWithSDKZip(t *testing.T) {
 			continue
 		}
 		if len(verifyResult.Data) == 0 {
-			failures = append(failures, fmt.Sprintf("%s: empty verify info", filepath.Base(candidate)))
+			failures = append(failures, filepath.Base(candidate)+": empty verify info")
 			continue
 		}
 		if !bytes.Contains(verifyResult.Data, []byte("Verify - OK")) {

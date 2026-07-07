@@ -78,15 +78,13 @@ func openContext(t *testing.T) *kalkancrypt.Context {
 	return ctx
 }
 
-func loadPKCS12Fixture(t *testing.T, ctx *kalkancrypt.Context) string {
+func loadPKCS12Fixture(t *testing.T, ctx *kalkancrypt.Context) {
 	t.Helper()
 
 	p12 := firstPKCS12Fixture(t)
 	if code := ctx.LoadKeyStore(kcstPKCS12, "Qwerty12", p12, ""); code != kcrOK {
 		t.Fatalf("LoadKeyStore(%s) = %#x, want %#x", filepath.Base(p12), code, kcrOK)
 	}
-
-	return p12
 }
 
 func requireBufferOK(t *testing.T, name string, result kalkancrypt.BufferResult, err error) []byte {
