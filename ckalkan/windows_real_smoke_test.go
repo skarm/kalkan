@@ -30,7 +30,7 @@ func TestWindowsRealDLLCyrillicInputsSmoke(t *testing.T) {
 		t.Fatalf("SetTSAURL with Cyrillic path segment failed: %v", err)
 	}
 
-	err := client.LoadKeyStore(ckalkan.StorePKCS12, "пароль", `C:\kalkan-no-such\ключ.p12`, "алиас")
+	err = client.LoadKeyStore(ckalkan.StorePKCS12, "пароль", `C:\kalkan-no-such\ключ.p12`, "алиас")
 	if err == nil {
 		t.Log("LoadKeyStore with Cyrillic path/password/alias unexpectedly succeeded")
 		return

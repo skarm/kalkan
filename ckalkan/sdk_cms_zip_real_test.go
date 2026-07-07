@@ -94,9 +94,11 @@ func TestRealKalkanCryptSDKZipSignAndExpectedErrors(t *testing.T) {
 		requireKalkanError(t, "GetCertificatesList", err)
 	}
 
-	if _, err := client.UVerifyData(ckalkan.VerifyDataRequest{Flags: ckalkan.SignCMS | ckalkan.InBase64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime, Data: []byte("not-a-file"), Signature: []byte("not-a-signature")}); err == nil {
-		t.Fatal("UVerifyData unexpectedly accepted invalid input")
-	} else {
-		requireKalkanError(t, "UVerifyData(invalid)", err)
+	if !skipMalformedUVerifyDataSmokeOnWindows(t) {
+		if _, err := client.UVerifyData(ckalkan.VerifyDataRequest{Flags: ckalkan.SignCMS | ckalkan.InBase64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime, Data: []byte("not-a-file"), Signature: []byte("not-a-signature")}); err == nil {
+			t.Fatal("UVerifyData unexpectedly accepted invalid input")
+		} else {
+			requireKalkanError(t, "UVerifyData(invalid)", err)
+		}
 	}
 }

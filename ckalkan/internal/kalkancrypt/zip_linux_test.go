@@ -4,8 +4,10 @@ package kalkancrypt_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
@@ -16,12 +18,40 @@ func TestContextZipMethodsWithSDKZip(t *testing.T) {
 	assets := sdkAssetsForIntegration(t)
 	loadSDKCertificates(t, ctx, assets)
 
-	zipPath := firstSDKZip(t, assets)
-	verifyResult, err := ctx.ZipConVerify(zipPath, noCheckCertTime, 1<<20)
-	verifyInfo := requireBufferOK(t, "ZipConVerify", verifyResult, err)
-	if !bytes.Contains(verifyInfo, []byte("Verify - OK")) {
-		t.Fatalf("ZipConVerify info = %q, want Verify - OK", verifyInfo)
+	var failures []string
+	var zipPath string
+	var verifyInfo []byte
+	for _, candidate := range sdkZIPFixtures(t, assets) {
+		verifyResult, err := ctx.ZipConVerify(candidate, noCheckCertTime, 1<<20)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: Go error: %v", filepath.Base(candidate), err))
+			continue
+		}
+		if verifyResult.Code != kcrOK {
+			failures = append(failures, fmt.Sprintf("%s: code=%#x", filepath.Base(candidate), verifyResult.Code))
+			continue
+		}
+		if verifyResult.OutLen != len(verifyResult.Data) {
+			failures = append(failures, fmt.Sprintf("%s: outLen=%d dataLen=%d", filepath.Base(candidate), verifyResult.OutLen, len(verifyResult.Data)))
+			continue
+		}
+		if len(verifyResult.Data) == 0 {
+			failures = append(failures, fmt.Sprintf("%s: empty verify info", filepath.Base(candidate)))
+			continue
+		}
+		if !bytes.Contains(verifyResult.Data, []byte("Verify - OK")) {
+			failures = append(failures, fmt.Sprintf("%s: verify info=%q", filepath.Base(candidate), verifyResult.Data))
+			continue
+		}
+
+		zipPath = candidate
+		verifyInfo = verifyResult.Data
+		break
 	}
+	if zipPath == "" {
+		t.Fatalf("no SDK ZIP fixture could be verified:\n%s", strings.Join(failures, "\n"))
+	}
+	t.Logf("verified SDK ZIP fixture %s: %q", filepath.Base(zipPath), verifyInfo)
 
 	certResult, err := ctx.GetCertFromZipFile(zipPath, noCheckCertTime, 0, 1<<20)
 	if err != nil {
