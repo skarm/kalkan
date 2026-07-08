@@ -90,7 +90,8 @@ func TestZIPFixturesMatchManifestAndExpectedPayloads(t *testing.T) {
 				t.Fatalf("manifest signature URI = %q, want %q", manifest.SigReferences[0].URI, signatures[0])
 			}
 
-			var manifestPayloads []string
+			manifestPayloads := make([]string, 0, len(manifest.DataObjectReferences))
+
 			for _, ref := range manifest.DataObjectReferences {
 				if entries[ref.URI] == nil {
 					t.Fatalf("manifest references missing payload %q", ref.URI)

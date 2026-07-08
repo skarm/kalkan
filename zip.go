@@ -163,6 +163,7 @@ func (c *Client) VerifyZIP(ctx context.Context, req VerifyZIPRequest) (*ZIPVerif
 			if err != nil {
 				return zipVerificationNativeResult{}, err
 			}
+
 			if isEmptyNativeCertificate(cert) {
 				return zipVerificationNativeResult{}, fmt.Errorf("%w: ZIP signer certificate output is empty", ErrInvalidInput)
 			}
@@ -211,6 +212,7 @@ func (c *Client) ZIPSignerCertificate(ctx context.Context, req ZIPSignerCertific
 	if err != nil {
 		return nil, err
 	}
+
 	if isEmptyNativeCertificate(cert) {
 		return nil, fmt.Errorf("%w: ZIP signer certificate output is empty", ErrInvalidInput)
 	}
