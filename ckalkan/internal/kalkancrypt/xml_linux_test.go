@@ -12,11 +12,11 @@ import (
 
 func TestContextXMLAndWSSEMethods(t *testing.T) {
 	ctx := openContext(t)
-	assets := sdkAssetsForIntegration(t)
-	loadSDKCertificates(t, ctx, assets)
+	assets := loadFixtureAssets(t)
+	loadCertificates(t, ctx, assets)
 	loadPKCS12Fixture(t, ctx)
 
-	xml := readSDKExample(t, assets, "test_xml")
+	xml := readExample(t, assets, "test_xml")
 	signedXMLResult, err := ctx.SignXML(kalkancrypt.SignXMLCall{
 		Flags:    xmlInclC14N | noCheckCertTime,
 		XML:      xml,
@@ -53,7 +53,7 @@ func TestContextXMLAndWSSEMethods(t *testing.T) {
 
 	wsseResult, err := ctx.SignWSSE(kalkancrypt.SignWSSECall{
 		Flags:      uint64(xmlInclC14N | noCheckCertTime),
-		XML:        readSDKExample(t, assets, "test_wsse"),
+		XML:        readExample(t, assets, "test_wsse"),
 		SignNodeID: "TheBody",
 		Capacity:   1 << 20,
 	})

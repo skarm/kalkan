@@ -241,7 +241,7 @@ func TestX509CertificateGetInfoFieldsKazakhstanSubject(t *testing.T) {
 	}
 }
 
-func TestX509CertificateGetInfoFieldsSDKFixtures(t *testing.T) {
+func TestX509CertificateGetInfoFieldsFixtures(t *testing.T) {
 	tests := []struct {
 		name                    string
 		path                    string
@@ -288,18 +288,18 @@ func TestX509CertificateGetInfoFieldsSDKFixtures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			certData, err := os.ReadFile(tt.path)
 			if err != nil {
-				t.Fatalf("read SDK certificate fixture: %v", err)
+				t.Fatalf("read certificate fixture: %v", err)
 			}
 			cert, err := parseNativeCertificate(certData)
 			if err != nil {
-				t.Fatalf("parse SDK certificate fixture: %v", err)
+				t.Fatalf("parse certificate fixture: %v", err)
 			}
 
 			native := &fakeNative{
 				certificateGetInfoFunc: func(input []byte, prop ckalkan.CertProp) ([]byte, error) {
 					block, _ := pem.Decode(input)
 					if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, cert.Raw) {
-						t.Fatalf("certificate info input is not PEM for the SDK certificate fixture")
+						t.Fatalf("certificate info input is not PEM for the certificate fixture")
 					}
 
 					switch prop {
@@ -368,7 +368,7 @@ func TestX509CertificateGetInfoFieldsSDKFixtures(t *testing.T) {
 				t.Fatalf("SubjectType = %q, want %q", info.SubjectType, tt.wantSubjectType)
 			}
 			if len(info.Roles) != 0 {
-				t.Fatalf("Roles = %#v, want none for SDK fixture policy %q", info.Roles, info.Policy)
+				t.Fatalf("Roles = %#v, want none for fixture policy %q", info.Roles, info.Policy)
 			}
 		})
 	}

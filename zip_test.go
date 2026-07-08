@@ -449,6 +449,26 @@ func TestVerifyZIPCanReturnSignerCertificate(t *testing.T) {
 	}
 }
 
+func TestVerifyZIPRejectsEmptySignerCertificate(t *testing.T) {
+	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
+	client := &Client{library: &fakeNative{
+		zipConVerifyFunc: func(string, ckalkan.Flag) (string, error) {
+			return "Checking zip - OK", nil
+		},
+		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
+			return []byte("\x00"), nil
+		},
+	}}
+
+	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
+		Path:                    sourcePath,
+		ReturnSignerCertificate: true,
+	})
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP signer certificate output is empty") {
+		t.Fatalf("VerifyZIP error = %v, want empty signer certificate rejection", err)
+	}
+}
+
 func TestVerifyZIPReturnsNativeSignerCertificateWithoutExtraClone(t *testing.T) {
 	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
 	nativeCert := []byte("zip-cert")
@@ -470,6 +490,20 @@ func TestVerifyZIPReturnsNativeSignerCertificateWithoutExtraClone(t *testing.T) 
 	}
 	if !sameByteSliceBacking(verification.SignerCert, nativeCert) {
 		t.Fatal("VerifyZIP cloned native signer certificate output")
+	}
+}
+
+func TestZIPSignerCertificateRejectsEmptyNativeCertificate(t *testing.T) {
+	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
+	client := &Client{library: &fakeNative{
+		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
+			return nil, nil
+		},
+	}}
+
+	_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{Path: sourcePath})
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP signer certificate output is empty") {
+		t.Fatalf("ZIPSignerCertificate error = %v, want empty signer certificate rejection", err)
 	}
 }
 

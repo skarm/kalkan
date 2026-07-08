@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	sdkTestPassword       = "Qwerty12"
-	defaultSDKTestdataDir = "testdata"
+	fixturePassword    = "Qwerty12"
+	defaultTestdataDir = "testdata"
 )
 
-type sdkTestAssets struct {
+type fixtureAssets struct {
 	Root     string
 	P12      []string
 	Certs    []string
@@ -26,10 +26,10 @@ type sdkTestAssets struct {
 	ZIPs     []string
 }
 
-func TestDefaultSDKAssetSearchUsesRepositoryTestdata(t *testing.T) {
-	roots := defaultSDKAssetRoots()
+func TestDefaultAssetSearchUsesRepositoryTestdata(t *testing.T) {
+	roots := defaultAssetRoots()
 	if len(roots) == 0 {
-		t.Fatal("default SDK asset roots are empty")
+		t.Fatal("default asset roots are empty")
 	}
 	for _, root := range roots {
 		slashRoot := filepath.ToSlash(root)
@@ -37,27 +37,27 @@ func TestDefaultSDKAssetSearchUsesRepositoryTestdata(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("default SDK asset roots %q do not include repository testdata", roots)
+	t.Fatalf("default asset roots %q do not include repository testdata", roots)
 }
 
-// TestSDKTestdataAssets documents the SDK fixture subset committed for real
-// integration tests. It does not load the native library.
-func TestSDKTestdataAssets(t *testing.T) {
-	assets := repositorySDKTestAssets(t)
+// TestRepositoryFixtureAssets documents the fixture subset committed for real
+// native-backed tests. It does not load the native library.
+func TestRepositoryFixtureAssets(t *testing.T) {
+	assets := repositoryFixtureAssets(t)
 	if len(assets.P12) != 24 {
-		t.Fatalf("SDK P12 fixture count = %d, want 24", len(assets.P12))
+		t.Fatalf("PKCS#12 fixture count = %d, want 24", len(assets.P12))
 	}
 	for _, name := range []string{"test_xml", "test_wsse", "test_CMS_GOST", "CMS_for_double_sign", "text"} {
 		if assets.Examples[name] == "" {
-			t.Fatalf("missing SDK example %q", name)
+			t.Fatalf("missing fixture example %q", name)
 		}
 	}
 	if len(assets.ZIPs) < 5 {
-		t.Fatalf("SDK ZIP fixture count = %d, want at least 5", len(assets.ZIPs))
+		t.Fatalf("ZIP fixture fixture count = %d, want at least 5", len(assets.ZIPs))
 	}
 }
 
-func realSDKBufferOptions() []ckalkan.Option {
+func largeBufferOptions() []ckalkan.Option {
 	return []ckalkan.Option{
 		ckalkan.WithBufferSize(1 << 20),
 		ckalkan.WithListBufferSize(1 << 20),
@@ -65,42 +65,42 @@ func realSDKBufferOptions() []ckalkan.Option {
 	}
 }
 
-func sdkAssetsForIntegration(t *testing.T) sdkTestAssets {
+func loadFixtureAssets(t *testing.T) fixtureAssets {
 	t.Helper()
 	assetSpec := strings.TrimSpace(os.Getenv("KALKANCRYPT_SDK_ASSETS"))
 	if assetSpec != "" {
 		roots := materializeAssetRoots(t, filepath.SplitList(assetSpec))
-		assets := collectSDKTestAssets(t, roots)
+		assets := collectFixtureAssets(t, roots)
 		if len(assets.P12) == 0 {
 			explainSkipNoAssets(t, assetSpec)
 		}
 		return assets
 	}
-	return repositorySDKTestAssets(t)
+	return repositoryFixtureAssets(t)
 }
 
-func repositorySDKTestAssets(t *testing.T) sdkTestAssets {
+func repositoryFixtureAssets(t *testing.T) fixtureAssets {
 	t.Helper()
-	for _, root := range defaultSDKAssetRoots() {
+	for _, root := range defaultAssetRoots() {
 		info, err := os.Stat(root)
 		if err == nil && info.IsDir() {
-			return collectSDKTestAssets(t, []string{root})
+			return collectFixtureAssets(t, []string{root})
 		}
 	}
-	explainSkipNoAssets(t, strings.Join(defaultSDKAssetRoots(), string(os.PathListSeparator)))
-	return sdkTestAssets{}
+	explainSkipNoAssets(t, strings.Join(defaultAssetRoots(), string(os.PathListSeparator)))
+	return fixtureAssets{}
 }
 
-func defaultSDKAssetRoots() []string {
+func defaultAssetRoots() []string {
 	return []string{
-		filepath.FromSlash(defaultSDKTestdataDir),
-		filepath.Join("..", filepath.FromSlash(defaultSDKTestdataDir)),
+		filepath.FromSlash(defaultTestdataDir),
+		filepath.Join("..", filepath.FromSlash(defaultTestdataDir)),
 	}
 }
 
-func collectSDKTestAssets(t *testing.T, roots []string) sdkTestAssets {
+func collectFixtureAssets(t *testing.T, roots []string) fixtureAssets {
 	t.Helper()
-	assets := sdkTestAssets{Examples: make(map[string]string)}
+	assets := fixtureAssets{Examples: make(map[string]string)}
 	if len(roots) == 1 {
 		assets.Root = roots[0]
 	}
@@ -137,9 +137,9 @@ func collectSDKTestAssets(t *testing.T, roots []string) sdkTestAssets {
 					strings.Contains(lowerBase, "nca_") {
 					assets.Certs = append(assets.Certs, path)
 				}
-				registerSDKExample(assets.Examples, base, path)
+				registerExample(assets.Examples, base, path)
 			case ".txt", ".xml":
-				registerSDKExample(assets.Examples, base, path)
+				registerExample(assets.Examples, base, path)
 			case ".zip":
 				if strings.HasPrefix(base, "zip_") || base == "sign" {
 					assets.ZIPs = append(assets.ZIPs, path)
@@ -148,7 +148,7 @@ func collectSDKTestAssets(t *testing.T, roots []string) sdkTestAssets {
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("scan SDK assets in %s: %v", root, err)
+			t.Fatalf("scan fixture assets in %s: %v", root, err)
 		}
 	}
 	sort.Strings(assets.P12)
@@ -157,7 +157,7 @@ func collectSDKTestAssets(t *testing.T, roots []string) sdkTestAssets {
 	return assets
 }
 
-func registerSDKExample(examples map[string]string, base, path string) {
+func registerExample(examples map[string]string, base, path string) {
 	key := strings.TrimSpace(base)
 	switch key {
 	case "test_xml":
@@ -175,10 +175,10 @@ func registerSDKExample(examples map[string]string, base, path string) {
 	}
 }
 
-func chooseSDKStore(t *testing.T, stores []string) string {
+func chooseStore(t *testing.T, stores []string) string {
 	t.Helper()
 	if len(stores) == 0 {
-		t.Fatal("no SDK PKCS#12 stores found")
+		t.Fatal("no PKCS#12 stores found")
 	}
 	for _, store := range stores {
 		lower := strings.ToLower(filepath.ToSlash(store))
@@ -191,7 +191,7 @@ func chooseSDKStore(t *testing.T, stores []string) string {
 	return stores[0]
 }
 
-func loadSDKCertificates(t *testing.T, client *ckalkan.Client, assets sdkTestAssets) {
+func loadCertificates(t *testing.T, client *ckalkan.Client, assets fixtureAssets) {
 	t.Helper()
 	for _, certPath := range assets.Certs {
 		data, err := os.ReadFile(certPath)
@@ -221,17 +221,33 @@ func loadSDKCertificates(t *testing.T, client *ckalkan.Client, assets sdkTestAss
 	}
 }
 
-func readSDKExample(t *testing.T, assets sdkTestAssets, name string) []byte {
+func readExample(t *testing.T, assets fixtureAssets, name string) []byte {
 	t.Helper()
 	path := assets.Examples[name]
 	if path == "" {
-		t.Fatalf("SDK example %q not found", name)
+		t.Fatalf("fixture example %q not found", name)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read SDK example %s: %v", path, err)
+		t.Fatalf("read fixture example %s: %v", path, err)
 	}
 	return data
+}
+
+func copyZIPFixture(t *testing.T, srcPath string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read source ZIP fixture %s: %v", srcPath, err)
+	}
+
+	dstPath := filepath.Join(t.TempDir(), filepath.Base(srcPath))
+	if err := os.WriteFile(dstPath, content, 0o644); err != nil {
+		t.Fatalf("write isolated ZIP fixture %s: %v", dstPath, err)
+	}
+
+	return dstPath
 }
 
 func materializeAssetRoots(t *testing.T, paths []string) []string {

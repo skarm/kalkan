@@ -7,10 +7,10 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptSDKSignVerifyVariants(t *testing.T) {
-	assets := sdkAssetsForIntegration(t)
-	client := newRealClient(t, realSDKBufferOptions()...)
-	if err := client.LoadKeyStore(ckalkan.StorePKCS12, sdkTestPassword, chooseSDKStore(t, assets.P12), ""); err != nil {
+func TestSignVerifyVariants(t *testing.T) {
+	assets := loadFixtureAssets(t)
+	client := newRealClient(t, largeBufferOptions()...)
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixturePassword, chooseStore(t, assets.P12), ""); err != nil {
 		t.Fatalf("LoadKeyStore failed: %v", err)
 	}
 
@@ -21,9 +21,9 @@ func TestRealKalkanCryptSDKSignVerifyVariants(t *testing.T) {
 		t.Fatalf("SetTSAURL failed: %v", err)
 	}
 
-	data := readSDKExample(t, assets, "text")
+	data := readExample(t, assets, "text")
 	if len(bytes.TrimSpace(data)) == 0 {
-		data = []byte("ckalkan SDK CMS data")
+		data = []byte("ckalkan CMS fixture data")
 	}
 
 	variants := []struct {

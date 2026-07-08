@@ -10,13 +10,13 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptSDKCertificateAndHashMethods(t *testing.T) {
-	assets := sdkAssetsForIntegration(t)
-	client := newRealClient(t, realSDKBufferOptions()...)
-	loadSDKCertificates(t, client, assets)
+func TestCertificateAndHashMethods(t *testing.T) {
+	assets := loadFixtureAssets(t)
+	client := newRealClient(t, largeBufferOptions()...)
+	loadCertificates(t, client, assets)
 
-	primaryStore := chooseSDKStore(t, assets.P12)
-	if err := client.LoadKeyStore(ckalkan.StorePKCS12, sdkTestPassword, primaryStore, ""); err != nil {
+	primaryStore := chooseStore(t, assets.P12)
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixturePassword, primaryStore, ""); err != nil {
 		t.Fatalf("LoadKeyStore(%s) failed: %v", primaryStore, err)
 	}
 	cert, err := client.X509ExportCertificateFromStore("", ckalkan.CertPEM)
@@ -115,7 +115,7 @@ func TestRealKalkanCryptSDKCertificateAndHashMethods(t *testing.T) {
 		}
 	}
 
-	data := []byte("ckalkan SDK hash data")
+	data := []byte("ckalkan fixture hash data")
 	sha, err := client.HashData(ckalkan.SHA256, 0, data)
 	if err != nil {
 		t.Fatalf("HashData(sha256) failed: %v", err)
@@ -140,11 +140,11 @@ func TestRealKalkanCryptSDKCertificateAndHashMethods(t *testing.T) {
 		OutputCapacity: 1 << 20,
 		OCSPCapacity:   1 << 20,
 	})
-	// The SDK certificates bundled here are historical test certificates. Current
+	// The fixture certificates bundled here are historical test certificates. Current
 	// KalkanCrypt builds report an expected chain/date error, but this still covers
 	// the ABI and native error path with a real GOST certificate.
 	if err == nil {
-		t.Log("X509ValidateCertificate accepted the SDK certificate")
+		t.Log("X509ValidateCertificate accepted the fixture certificate")
 	} else {
 		requireKalkanError(t, "X509ValidateCertificate", err)
 	}

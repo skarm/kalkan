@@ -119,7 +119,7 @@ func TestKalkanErrorCanBeFormattedInRussian(t *testing.T) {
 	}
 }
 
-func TestErrorCodeHexPadsSDKCodesToEightDigits(t *testing.T) {
+func TestErrorCodeHexPadsCodesToEightDigits(t *testing.T) {
 	tests := map[ckalkan.ErrorCode]string{
 		ckalkan.ErrorOK:                "0x00000000",
 		ckalkan.ErrorInvalidFlag:       "0x08F00007",
