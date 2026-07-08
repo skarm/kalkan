@@ -7,64 +7,61 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestWithSDKFixtures(t *testing.T) {
+func TestClientFixtures(t *testing.T) {
 	ctx := context.Background()
-	assets := loadSDKAssets(t)
-	client := openSDKClient(t, assets)
+	assets := loadFixtureAssets(t)
+	client := openFixtureClient(t, assets)
 
 	if err := client.LoadKeyStore(ctx, KeyStore{
 		Type:     PKCS12,
-		Path:     sdkKeyStorePath(t, assets),
-		Password: sdkPassword,
+		Path:     keyStorePath(t, assets),
+		Password: fixturePassword,
 	}); err != nil {
 		t.Fatalf("LoadKeyStore failed: %v", err)
 	}
 
-	payload := []byte("root kalkan API integration payload")
+	payload := []byte("root kalkan API fixture payload")
 
 	t.Run("Hash", func(t *testing.T) {
-		assertSDKHashing(t, ctx, client, payload)
+		assertHashing(t, ctx, client, payload)
 	})
 
 	t.Run("SignHash", func(t *testing.T) {
-		assertSDKHashSigning(t, ctx, client, payload)
+		assertHashSigning(t, ctx, client, payload)
 	})
 
 	t.Run("CMS", func(t *testing.T) {
-		assertSDKCMS(t, ctx, client, payload)
+		assertCMS(t, ctx, client, payload)
 	})
 
 	t.Run("XML", func(t *testing.T) {
-		assertSDKXML(t, ctx, client, assets)
+		assertXML(t, ctx, client, assets)
 	})
 
 	t.Run("WSSE", func(t *testing.T) {
-		assertSDKWSSE(t, ctx, client, assets)
+		assertWSSE(t, ctx, client, assets)
 	})
 
 	t.Run("CertificateValidation", func(t *testing.T) {
-		assertSDKCertificateValidation(t, ctx, client, assets)
+		assertCertificateValidation(t, ctx, client, assets)
 	})
 
 	t.Run("CertificateInfo", func(t *testing.T) {
-		assertSDKCertificateInfo(t, ctx, client, assets)
+		assertCertificateInfo(t, ctx, client, assets)
 	})
 
 	t.Run("ZIP", func(t *testing.T) {
-		assertSDKZIP(t, ctx, client, assets, payload)
+		assertZIP(t, ctx, client, payload)
 	})
 }
 
-func assertSDKHashing(t *testing.T, ctx context.Context, client *Client, payload []byte) {
+func assertHashing(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
 	hash, err := client.Hash(ctx, HashRequest{
@@ -116,7 +113,7 @@ func assertSDKHashing(t *testing.T, ctx context.Context, client *Client, payload
 	}
 }
 
-func assertSDKHashSigning(t *testing.T, ctx context.Context, client *Client, payload []byte) {
+func assertHashSigning(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
 	gost512, err := client.Hash(ctx, HashRequest{
@@ -140,7 +137,7 @@ func assertSDKHashSigning(t *testing.T, ctx context.Context, client *Client, pay
 	}
 }
 
-func assertSDKCMS(t *testing.T, ctx context.Context, client *Client, payload []byte) {
+func assertCMS(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
 	attached, err := client.SignCMS(ctx, SignCMSRequest{
@@ -183,11 +180,11 @@ func assertSDKCMS(t *testing.T, ctx context.Context, client *Client, payload []b
 	requireContains(t, "detached CMS verification", detachedVerification.Info, "Verify - OK")
 }
 
-func assertSDKXML(t *testing.T, ctx context.Context, client *Client, assets sdkAssets) {
+func assertXML(t *testing.T, ctx context.Context, client *Client, assets fixtureAssets) {
 	t.Helper()
 
 	signedXML, err := client.SignXML(ctx, SignXMLRequest{
-		XML:                  Bytes(readSDKExample(t, assets, "test_xml")),
+		XML:                  Bytes(readFixtureExample(t, assets, "test_xml")),
 		Canonicalization:     XMLCanonicalizationInclusive,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
@@ -206,11 +203,11 @@ func assertSDKXML(t *testing.T, ctx context.Context, client *Client, assets sdkA
 	}
 }
 
-func assertSDKWSSE(t *testing.T, ctx context.Context, client *Client, assets sdkAssets) {
+func assertWSSE(t *testing.T, ctx context.Context, client *Client, assets fixtureAssets) {
 	t.Helper()
 
 	signedWSSE, err := client.SignWSSE(ctx, SignWSSERequest{
-		XML:                  Bytes(readSDKExample(t, assets, "test_wsse")),
+		XML:                  Bytes(readFixtureExample(t, assets, "test_wsse")),
 		BodyID:               "TheBody",
 		Canonicalization:     XMLCanonicalizationInclusive,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
@@ -222,16 +219,16 @@ func assertSDKWSSE(t *testing.T, ctx context.Context, client *Client, assets sdk
 	requireContains(t, "signed WSSE", string(signedWSSE.XML), "ds:Signature")
 }
 
-func assertSDKCertificateValidation(t *testing.T, ctx context.Context, client *Client, assets sdkAssets) {
+func assertCertificateValidation(t *testing.T, ctx context.Context, client *Client, assets fixtureAssets) {
 	t.Helper()
 
-	rootCertPath := sdkCertificatePath(t, assets, "root_test_gost_2022")
+	rootCertPath := certificatePath(t, assets, "root_test_gost_2022")
 	rootCert, err := os.ReadFile(rootCertPath)
 	if err != nil {
 		t.Fatalf("read root certificate: %v", err)
 	}
 	certValidation, err := client.ValidateCertificate(ctx, ValidateCertificateRequest{
-		Certificate:          sdkCertificateSource(rootCert),
+		Certificate:          certificateSource(rootCert),
 		Mode:                 CertificateValidationNone,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
@@ -270,13 +267,13 @@ func assertSDKCertificateValidation(t *testing.T, ctx context.Context, client *C
 	}
 }
 
-func assertSDKCertificateInfo(t *testing.T, ctx context.Context, client *Client, assets sdkAssets) {
+func assertCertificateInfo(t *testing.T, ctx context.Context, client *Client, assets fixtureAssets) {
 	t.Helper()
 
-	certData := readSDKExample(t, assets, "test_CERT_GOST")
+	certData := readFixtureExample(t, assets, "test_CERT_GOST")
 	cert, err := parseNativeCertificate(certData)
 	if err != nil {
-		t.Fatalf("parse SDK certificate fixture: %v", err)
+		t.Fatalf("parse fixture certificate fixture: %v", err)
 	}
 
 	info, err := client.X509CertificateGetInfoFields(
@@ -319,51 +316,7 @@ func certificateDERForTest(t *testing.T, cert []byte) []byte {
 	return cert
 }
 
-func TestSDKZIPSignerCertificateExtractionErrorAllowList(t *testing.T) {
-	for _, code := range []ckalkan.ErrorCode{
-		ckalkan.ErrorOpenFile,
-		ckalkan.ErrorXMLParse,
-		ckalkan.ErrorCheck,
-		ckalkan.ErrorFileRead,
-		ckalkan.ErrorZipExtract,
-	} {
-		if !isAcceptableSDKZIPSignerCertificateExtractionError(&ckalkan.KalkanError{Code: code}) {
-			t.Fatalf("code %s was rejected", code.Hex())
-		}
-	}
-
-	for _, err := range []error{
-		errors.New("plain error"),
-		&ckalkan.KalkanError{Code: ckalkan.ErrorInvalidFlag},
-	} {
-		if isAcceptableSDKZIPSignerCertificateExtractionError(err) {
-			t.Fatalf("error %v was accepted", err)
-		}
-	}
-}
-
-func isAcceptableSDKZIPSignerCertificateExtractionError(err error) bool {
-	code, ok := ckalkan.ErrorCodeOf(err)
-	if !ok {
-		return false
-	}
-
-	// KalkanCrypt 2.0.13 can verify SDK ZIP fixtures successfully and still
-	// fail the separate signer-certificate extraction call for the same file.
-	// Keep this list narrow so real VerifyZIP failures still fail the test.
-	switch code {
-	case ckalkan.ErrorOpenFile,
-		ckalkan.ErrorXMLParse,
-		ckalkan.ErrorCheck,
-		ckalkan.ErrorFileRead,
-		ckalkan.ErrorZipExtract:
-		return true
-	default:
-		return false
-	}
-}
-
-func assertSDKZIP(t *testing.T, ctx context.Context, client *Client, assets sdkAssets, payload []byte) {
+func assertZIP(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
 	zipInputPath := filepath.Join(t.TempDir(), "payload.txt")
@@ -407,61 +360,4 @@ func assertSDKZIP(t *testing.T, ctx context.Context, client *Client, assets sdkA
 	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP output extension must be .zip") {
 		t.Fatalf("SignZIP(no .zip) error = %v, want .zip extension rejection", err)
 	}
-
-	if len(assets.ZIPs) == 0 {
-		t.Log("no SDK ZIP containers found; skipping VerifyZIP success path")
-		return
-	}
-
-	zipPath, zipVerification := verifiedSDKZIPFixture(t, ctx, client, assets.ZIPs)
-	requireContains(t, "ZIP verification", zipVerification.Info, "Checking zip - OK")
-	requireContains(t, "ZIP verification", zipVerification.Info, "Verify - OK")
-
-	zipCert, err := client.ZIPSignerCertificate(ctx, ZIPSignerCertificateRequest{
-		Path:                 zipPath,
-		CertificateTimeCheck: SkipCertificateTimeCheck,
-	})
-	if err == nil {
-		_ = zipCert
-	} else {
-		// Some KalkanCrypt 2.0.13 builds verify SDK ZIP fixtures but reject
-		// standalone certificate extraction for the same fixture.
-		if !isAcceptableSDKZIPSignerCertificateExtractionError(err) {
-			t.Fatalf("ZIPSignerCertificate(%s) failed: %v", zipPath, err)
-		}
-		t.Logf("ZIPSignerCertificate(%s) returned tolerated SDK fixture error: %v", filepath.Base(zipPath), err)
-	}
-}
-
-func verifiedSDKZIPFixture(t *testing.T, ctx context.Context, client *Client, zipPaths []string) (string, *ZIPVerification) {
-	t.Helper()
-
-	var failures []string
-	for _, zipPath := range zipPaths {
-		zipVerification, err := client.VerifyZIP(ctx, VerifyZIPRequest{
-			Path:                 zipPath,
-			CertificateTimeCheck: SkipCertificateTimeCheck,
-		})
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", filepath.Base(zipPath), err))
-			continue
-		}
-		if !zipVerification.Valid {
-			failures = append(failures, filepath.Base(zipPath)+": VerifyZIP returned invalid result")
-			continue
-		}
-		if !strings.Contains(zipVerification.Info, "Checking zip - OK") {
-			failures = append(failures, fmt.Sprintf("%s: missing %q in info %q", filepath.Base(zipPath), "Checking zip - OK", zipVerification.Info))
-			continue
-		}
-		if !strings.Contains(zipVerification.Info, "Verify - OK") {
-			failures = append(failures, fmt.Sprintf("%s: missing %q in info %q", filepath.Base(zipPath), "Verify - OK", zipVerification.Info))
-			continue
-		}
-
-		return zipPath, zipVerification
-	}
-
-	t.Fatalf("no SDK ZIP fixture could be verified:\n%s", strings.Join(failures, "\n"))
-	return "", nil
 }

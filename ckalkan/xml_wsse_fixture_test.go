@@ -8,17 +8,17 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptSDKXMLAndWSSE(t *testing.T) {
-	assets := sdkAssetsForIntegration(t)
-	client := newRealClient(t, realSDKBufferOptions()...)
-	loadSDKCertificates(t, client, assets)
-	if err := client.LoadKeyStore(ckalkan.StorePKCS12, sdkTestPassword, chooseSDKStore(t, assets.P12), ""); err != nil {
+func TestXMLAndWSSE(t *testing.T) {
+	assets := loadFixtureAssets(t)
+	client := newRealClient(t, largeBufferOptions()...)
+	loadCertificates(t, client, assets)
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixturePassword, chooseStore(t, assets.P12), ""); err != nil {
 		t.Fatalf("LoadKeyStore failed: %v", err)
 	}
 
 	signedXML, err := client.SignXML(ckalkan.SignXMLRequest{
 		Flags:          ckalkan.XMLInclC14N | ckalkan.NoCheckCertTime,
-		XML:            readSDKExample(t, assets, "test_xml"),
+		XML:            readExample(t, assets, "test_xml"),
 		OutputCapacity: 1 << 20,
 	})
 	if err != nil {
@@ -44,14 +44,14 @@ func TestRealKalkanCryptSDKXMLAndWSSE(t *testing.T) {
 	if info, err := client.VerifyXML("", ckalkan.XMLInclC14N|ckalkan.NoCheckCertTime, signedXML); err == nil {
 		requireStringContains(t, "VerifyXML info", info, "OK")
 	} else {
-		// The SDK certificates are expired historical test certificates and the
+		// The fixture certificates are expired historical test certificates and the
 		// Linux library often refuses XML trust loading even with NoCheckCertTime.
 		requireKalkanError(t, "VerifyXML", err)
 	}
 
 	wsse, err := client.SignWSSE(ckalkan.SignWSSERequest{
 		Flags:          ckalkan.XMLInclC14N | ckalkan.NoCheckCertTime,
-		XML:            readSDKExample(t, assets, "test_wsse"),
+		XML:            readExample(t, assets, "test_wsse"),
 		SignNodeID:     "TheBody",
 		OutputCapacity: 1 << 20,
 	})

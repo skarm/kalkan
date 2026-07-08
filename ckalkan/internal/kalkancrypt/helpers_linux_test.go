@@ -40,7 +40,7 @@ const (
 	kcrOK = 0
 )
 
-type sdkAssets struct {
+type fixtureAssets struct {
 	root     string
 	p12      []string
 	certs    []string
@@ -148,15 +148,15 @@ func requireVerifyNativeFailure(t *testing.T, name string, result kalkancrypt.Ve
 func firstPKCS12Fixture(t *testing.T) string {
 	t.Helper()
 
-	assets := sdkAssetsForIntegration(t)
+	assets := loadFixtureAssets(t)
 	if len(assets.p12) == 0 {
-		t.Skip("no PKCS#12 fixtures found in SDK test assets")
+		t.Skip("no PKCS#12 fixtures found in fixture test assets")
 	}
 
 	return assets.p12[0]
 }
 
-func sdkAssetsForIntegration(t *testing.T) sdkAssets {
+func loadFixtureAssets(t *testing.T) fixtureAssets {
 	t.Helper()
 
 	var roots []string
@@ -176,7 +176,7 @@ func sdkAssetsForIntegration(t *testing.T) sdkAssets {
 		roots = append(roots, filepath.Join(wd, "..", "..", "..", "testdata"))
 	}
 
-	assets := sdkAssets{examples: make(map[string]string)}
+	assets := fixtureAssets{examples: make(map[string]string)}
 	for _, root := range roots {
 		info, err := os.Stat(root)
 		if err != nil || !info.IsDir() {
@@ -206,9 +206,9 @@ func sdkAssetsForIntegration(t *testing.T) sdkAssets {
 				assets.p12 = append(assets.p12, path)
 			case ".cer", ".crt", ".pem", ".der":
 				assets.certs = append(assets.certs, path)
-				registerSDKExample(assets.examples, base, path)
+				registerExample(assets.examples, base, path)
 			case ".txt", ".xml":
-				registerSDKExample(assets.examples, base, path)
+				registerExample(assets.examples, base, path)
 			case ".zip":
 				if strings.HasPrefix(base, "zip_") || base == "sign" {
 					assets.zips = append(assets.zips, path)
@@ -217,20 +217,20 @@ func sdkAssetsForIntegration(t *testing.T) sdkAssets {
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("scan SDK assets in %s: %v", root, err)
+			t.Fatalf("scan fixture assets in %s: %v", root, err)
 		}
 	}
 	sort.Strings(assets.p12)
 	sort.Strings(assets.certs)
 	sort.Strings(assets.zips)
 	if assets.root == "" {
-		t.Skip("no usable KalkanCrypt SDK assets found")
+		t.Skip("no usable KalkanCrypt fixture assets found")
 	}
 
 	return assets
 }
 
-func registerSDKExample(examples map[string]string, base, path string) {
+func registerExample(examples map[string]string, base, path string) {
 	switch strings.TrimSpace(base) {
 	case "test_xml":
 		examples["test_xml"] = path
@@ -247,12 +247,12 @@ func registerSDKExample(examples map[string]string, base, path string) {
 	}
 }
 
-func readSDKExample(t *testing.T, assets sdkAssets, name string) []byte {
+func readExample(t *testing.T, assets fixtureAssets, name string) []byte {
 	t.Helper()
 
 	path := assets.examples[name]
 	if path == "" {
-		t.Fatalf("SDK example %q not found", name)
+		t.Fatalf("fixture example %q not found", name)
 	}
 
 	return readFile(t, path)
@@ -269,11 +269,27 @@ func readFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func loadSDKCertificates(t *testing.T, ctx *kalkancrypt.Context, assets sdkAssets) {
+func copyZIPFixture(t *testing.T, srcPath string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read source ZIP fixture %s: %v", srcPath, err)
+	}
+
+	dstPath := filepath.Join(t.TempDir(), filepath.Base(srcPath))
+	if err := os.WriteFile(dstPath, content, 0o644); err != nil {
+		t.Fatalf("write isolated ZIP fixture %s: %v", dstPath, err)
+	}
+
+	return dstPath
+}
+
+func loadCertificates(t *testing.T, ctx *kalkancrypt.Context, assets fixtureAssets) {
 	t.Helper()
 
 	if len(assets.certs) == 0 {
-		t.Skip("no SDK certificate fixtures found")
+		t.Skip("no fixture certificate fixtures found")
 	}
 
 	var loaded int
@@ -293,15 +309,15 @@ func loadSDKCertificates(t *testing.T, ctx *kalkancrypt.Context, assets sdkAsset
 		}
 	}
 	if loaded == 0 {
-		t.Fatal("no SDK certificates could be loaded")
+		t.Fatal("no fixture certificates could be loaded")
 	}
 }
 
-func sdkZIPFixtures(t *testing.T, assets sdkAssets) []string {
+func zipFixtures(t *testing.T, assets fixtureAssets) []string {
 	t.Helper()
 
 	if len(assets.zips) == 0 {
-		t.Skip("no SDK ZIP fixtures found")
+		t.Skip("no ZIP fixture fixtures found")
 	}
 
 	return assets.zips

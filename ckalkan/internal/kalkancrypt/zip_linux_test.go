@@ -4,64 +4,51 @@ package kalkancrypt_test
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestContextZipMethodsWithSDKZip(t *testing.T) {
+func TestContextZipConVerifyWithFixtures(t *testing.T) {
 	ctx := openContext(t)
-	assets := sdkAssetsForIntegration(t)
-	loadSDKCertificates(t, ctx, assets)
+	assets := loadFixtureAssets(t)
+	loadCertificates(t, ctx, assets)
 
-	var failures []string
-	var zipPath string
-	var verifyInfo []byte
-	for _, candidate := range sdkZIPFixtures(t, assets) {
-		verifyResult, err := ctx.ZipConVerify(candidate, noCheckCertTime, 1<<20)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: Go error: %v", filepath.Base(candidate), err))
-			continue
-		}
-		if verifyResult.Code != kcrOK {
-			failures = append(failures, fmt.Sprintf("%s: code=%#x", filepath.Base(candidate), verifyResult.Code))
-			continue
-		}
-		if verifyResult.OutLen != len(verifyResult.Data) {
-			failures = append(failures, fmt.Sprintf("%s: outLen=%d dataLen=%d", filepath.Base(candidate), verifyResult.OutLen, len(verifyResult.Data)))
-			continue
-		}
-		if len(verifyResult.Data) == 0 {
-			failures = append(failures, filepath.Base(candidate)+": empty verify info")
-			continue
-		}
-		if !bytes.Contains(verifyResult.Data, []byte("Verify - OK")) {
-			failures = append(failures, fmt.Sprintf("%s: verify info=%q", filepath.Base(candidate), verifyResult.Data))
-			continue
-		}
+	for _, zipPath := range zipFixtures(t, assets) {
+		t.Run(filepath.Base(zipPath), func(t *testing.T) {
+			result, err := ctx.ZipConVerify(copyZIPFixture(t, zipPath), noCheckCertTime, 1<<20)
+			requireBufferOK(t, "ZipConVerify", result, err)
+			if !bytes.Contains(result.Data, []byte("Verify - OK")) {
+				t.Fatalf("ZipConVerify info = %q, want Verify - OK", result.Data)
+			}
+		})
+	}
+}
 
-		zipPath = candidate
-		verifyInfo = verifyResult.Data
-		break
-	}
-	if zipPath == "" {
-		t.Fatalf("no SDK ZIP fixture could be verified:\n%s", strings.Join(failures, "\n"))
-	}
-	t.Logf("verified SDK ZIP fixture %s: %q", filepath.Base(zipPath), verifyInfo)
+func TestContextGetCertFromZipFileWithVerifiedFixtures(t *testing.T) {
+	ctx := openContext(t)
+	assets := loadFixtureAssets(t)
+	loadCertificates(t, ctx, assets)
 
-	certResult, err := ctx.GetCertFromZipFile(zipPath, noCheckCertTime, 0, 1<<20)
-	if err != nil {
-		t.Fatalf("GetCertFromZipFile returned Go error: %v", err)
-	}
-	if certResult.Code != kcrOK {
-		t.Fatalf("GetCertFromZipFile code = %#x, want %#x", certResult.Code, kcrOK)
-	}
-	if certResult.OutLen != len(certResult.Data) {
-		t.Fatalf("GetCertFromZipFile OutLen = %d, data length = %d", certResult.OutLen, len(certResult.Data))
+	for _, zipPath := range zipFixtures(t, assets) {
+		t.Run(filepath.Base(zipPath), func(t *testing.T) {
+			isolatedPath := copyZIPFixture(t, zipPath)
+			result, err := ctx.ZipConVerify(isolatedPath, noCheckCertTime, 1<<20)
+			requireBufferOK(t, "ZipConVerify", result, err)
+
+			cert, err := ctx.GetCertFromZipFile(isolatedPath, noCheckCertTime, 0, 1<<20)
+			if err != nil {
+				t.Fatalf("GetCertFromZipFile returned Go error: %v", err)
+			}
+			if cert.Code != kcrOK {
+				t.Fatalf("GetCertFromZipFile code = %#x, want %#x", cert.Code, kcrOK)
+			}
+			if cert.OutLen != len(cert.Data) {
+				t.Fatalf("GetCertFromZipFile OutLen = %d, data length = %d", cert.OutLen, len(cert.Data))
+			}
+		})
 	}
 }
 

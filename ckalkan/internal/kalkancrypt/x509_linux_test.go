@@ -13,9 +13,9 @@ import (
 
 func TestContextX509LoadCertificateFromFileAndBuffer(t *testing.T) {
 	ctx := openContext(t)
-	assets := sdkAssetsForIntegration(t)
+	assets := loadFixtureAssets(t)
 	if len(assets.certs) == 0 {
-		t.Skip("no SDK certificate fixtures found")
+		t.Skip("no fixture certificate fixtures found")
 	}
 
 	certPath := assets.certs[0]
@@ -31,7 +31,7 @@ func TestContextX509LoadCertificateFromFileAndBuffer(t *testing.T) {
 		t.Fatalf("X509LoadCertificateFromFile(%s) = %#x, want %#x", certPath, code, kcrOK)
 	}
 
-	certPEMData := readSDKExample(t, assets, "test_CERT_GOST")
+	certPEMData := readExample(t, assets, "test_CERT_GOST")
 	if code := ctx.X509LoadCertificateFromBuffer(certPEMData, certPEM); code != kcrOK {
 		t.Fatalf("X509LoadCertificateFromBuffer(test_CERT_GOST) = %#x, want %#x", code, kcrOK)
 	}
@@ -45,9 +45,9 @@ func TestContextX509LoadCertificateFromFileAndBuffer(t *testing.T) {
 
 func TestContextX509ValidateCertificateReturnsNativeResultForRealCertificate(t *testing.T) {
 	ctx := openContext(t)
-	assets := sdkAssetsForIntegration(t)
+	assets := loadFixtureAssets(t)
 	if len(assets.certs) == 0 {
-		t.Skip("no SDK certificate fixtures found")
+		t.Skip("no fixture certificate fixtures found")
 	}
 
 	cert := readFile(t, assets.certs[0])

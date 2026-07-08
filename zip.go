@@ -3,6 +3,7 @@ package kalkan
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -162,6 +163,9 @@ func (c *Client) VerifyZIP(ctx context.Context, req VerifyZIPRequest) (*ZIPVerif
 			if err != nil {
 				return zipVerificationNativeResult{}, err
 			}
+			if isEmptyNativeCertificate(cert) {
+				return zipVerificationNativeResult{}, fmt.Errorf("%w: ZIP signer certificate output is empty", ErrInvalidInput)
+			}
 		}
 
 		return zipVerificationNativeResult{info: info, cert: cert}, nil
@@ -206,6 +210,9 @@ func (c *Client) ZIPSignerCertificate(ctx context.Context, req ZIPSignerCertific
 	})
 	if err != nil {
 		return nil, err
+	}
+	if isEmptyNativeCertificate(cert) {
+		return nil, fmt.Errorf("%w: ZIP signer certificate output is empty", ErrInvalidInput)
 	}
 
 	return cert, nil

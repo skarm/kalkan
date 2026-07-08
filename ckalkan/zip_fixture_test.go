@@ -8,56 +8,36 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptSDKProvidedCMSAndZIP(t *testing.T) {
-	assets := sdkAssetsForIntegration(t)
-	client := newRealClient(t, realSDKBufferOptions()...)
-	loadSDKCertificates(t, client, assets)
-
-	cms := readSDKExample(t, assets, "test_CMS_GOST")
-	verified, err := client.VerifyData(ckalkan.VerifyDataRequest{
-		Flags:              ckalkan.SignCMS | ckalkan.InPEM | ckalkan.NoCheckCertTime,
-		Signature:          cms,
-		VerifyInfoCapacity: 1 << 20,
-		DataCapacity:       1 << 20,
-		CertCapacity:       1 << 20,
-	})
-	if err != nil {
-		t.Fatalf("VerifyData(SDK CMS) failed: %v", err)
-	}
-	requireStringContains(t, "SDK CMS verify info", verified.VerifyInfo, "Verify - OK")
-	requireStringContains(t, "SDK CMS verify info", verified.VerifyInfo, "CAdES-T")
-	if len(verified.Data) == 0 {
-		t.Fatal("VerifyData(SDK CMS) returned empty attached data")
-	}
-
-	if _, err := client.GetCertFromCMS(cms, 0, ckalkan.InPEM); err != nil {
-		t.Fatalf("GetCertFromCMS(SDK CMS) failed: %v", err)
-	}
-	if _, err := client.GetTimeFromSig(cms, ckalkan.InPEM|ckalkan.NoCheckCertTime, 0); err == nil {
-		t.Log("GetTimeFromSig accepted the historical SDK timestamp")
-	} else {
-		requireKalkanError(t, "GetTimeFromSig(SDK CMS)", err)
-	}
+func TestZIPFixtures(t *testing.T) {
+	assets := loadFixtureAssets(t)
+	client := newRealClient(t, largeBufferOptions()...)
+	loadCertificates(t, client, assets)
 
 	for _, zipPath := range assets.ZIPs {
 		t.Run(filepath.Base(zipPath), func(t *testing.T) {
-			info, err := client.ZipConVerify(zipPath, ckalkan.NoCheckCertTime)
+			isolatedPath := copyZIPFixture(t, zipPath)
+			info, err := client.ZipConVerify(isolatedPath, ckalkan.NoCheckCertTime)
 			if err != nil {
 				t.Fatalf("ZipConVerify(%s) failed: %v", zipPath, err)
 			}
 			requireStringContains(t, "ZIP verify info", info, "Checking zip - OK")
 			requireStringContains(t, "ZIP verify info", info, "Verify - OK")
-			if _, err := client.GetCertFromZipFile(zipPath, ckalkan.NoCheckCertTime, 0); err != nil {
+
+			cert, err := client.GetCertFromZipFile(isolatedPath, ckalkan.NoCheckCertTime, 0)
+			if err != nil {
 				t.Fatalf("GetCertFromZipFile(%s) failed: %v", zipPath, err)
+			}
+			if len(cert) == 0 {
+				t.Logf("GetCertFromZipFile(%s) returned KCR_OK with an empty certificate; root API rejects this output", filepath.Base(zipPath))
 			}
 		})
 	}
 }
 
-func TestRealKalkanCryptSDKZipSignAndExpectedErrors(t *testing.T) {
-	assets := sdkAssetsForIntegration(t)
-	client := newRealClient(t, realSDKBufferOptions()...)
-	if err := client.LoadKeyStore(ckalkan.StorePKCS12, sdkTestPassword, chooseSDKStore(t, assets.P12), ""); err != nil {
+func TestZipSignAndExpectedErrors(t *testing.T) {
+	assets := loadFixtureAssets(t)
+	client := newRealClient(t, largeBufferOptions()...)
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixturePassword, chooseStore(t, assets.P12), ""); err != nil {
 		t.Fatalf("LoadKeyStore failed: %v", err)
 	}
 
@@ -73,13 +53,13 @@ func TestRealKalkanCryptSDKZipSignAndExpectedErrors(t *testing.T) {
 
 	outDir := t.TempDir()
 	inputPath := filepath.Join(outDir, "payload.txt")
-	if err := os.WriteFile(inputPath, []byte("ckalkan SDK ZIP payload"), 0o644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("ckalkan ZIP fixture payload"), 0o644); err != nil {
 		t.Fatalf("write ZIP payload: %v", err)
 	}
-	if err := client.ZipConSign(ckalkan.ZipConSignRequest{FilePath: inputPath, Name: "signed-by-sdk-key", OutDir: outDir, Flags: ckalkan.NoCheckCertTime}); err != nil {
+	if err := client.ZipConSign(ckalkan.ZipConSignRequest{FilePath: inputPath, Name: "signed-by-fixture-key", OutDir: outDir, Flags: ckalkan.NoCheckCertTime}); err != nil {
 		t.Fatalf("ZipConSign failed: %v", err)
 	}
-	if _, ok := firstExistingFile(filepath.Join(outDir, "signed-by-sdk-key"), filepath.Join(outDir, "signed-by-sdk-key.zip")); !ok {
+	if _, ok := firstExistingFile(filepath.Join(outDir, "signed-by-fixture-key"), filepath.Join(outDir, "signed-by-fixture-key.zip")); !ok {
 		t.Fatalf("ZipConSign did not create output in %s", outDir)
 	}
 

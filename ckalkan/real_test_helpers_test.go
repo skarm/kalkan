@@ -196,5 +196,5 @@ func firstExistingFile(paths ...string) (string, bool) {
 
 func explainSkipNoAssets(t *testing.T, where string) {
 	t.Helper()
-	t.Skip("no usable KalkanCrypt SDK assets found in " + where)
+	t.Skip("no usable KalkanCrypt test assets found in " + where)
 }
