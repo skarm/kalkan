@@ -7,7 +7,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestClientCMSFixtures(t *testing.T) {
+func TestVerifyCMSFixtures(t *testing.T) {
 	ctx := context.Background()
 	assets := loadFixtureAssets(t)
 	client := openFixtureClient(t, assets)

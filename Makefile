@@ -1,9 +1,7 @@
 KALKANCRYPT_LIBRARY ?=
 KALKANCRYPT_SDK_ASSETS ?= $(CURDIR)/testdata
-KALKAN_DOCKER_PLATFORM ?= linux/amd64
-KALKAN_DOCKER_TAG ?= kalkan-test
 
-.PHONY: fmt vet test test-race test-native docker-test lint check
+.PHONY: fmt vet test test-race test-native docker-test docker-lint lint check
 
 fmt:
 	go fmt ./...
@@ -27,7 +25,14 @@ test-native:
 	go test ./...
 
 docker-test:
-	docker build --build-arg KALKAN_DOCKER_PLATFORM="$(KALKAN_DOCKER_PLATFORM)" --target test -t "$(KALKAN_DOCKER_TAG)" .
+	docker build --platform linux/amd64 .
+
+docker-lint:
+	docker run --rm \
+		-v "$(CURDIR):/src:ro" \
+		-w /src \
+		golangci/golangci-lint:@latest \
+		golangci-lint run -v --config .golangci.yml ./...
 
 lint:
 	golangci-lint run -v --config .golangci.yml ./...

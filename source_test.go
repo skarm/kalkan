@@ -96,7 +96,7 @@ func TestFileSourcePathValidation(t *testing.T) {
 	}
 }
 
-func TestFileSourceValidationRunsBeforeNativeCall(t *testing.T) {
+func TestFileSourceValidatesPath(t *testing.T) {
 	t.Run("Hash", func(t *testing.T) {
 		native := &fakeNative{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
@@ -152,7 +152,7 @@ func TestFileSourceValidationRunsBeforeNativeCall(t *testing.T) {
 	})
 }
 
-func TestFileSourcePassesPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestFileSourceDoesNotStatPath(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("symlink", func(t *testing.T) {

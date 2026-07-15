@@ -8,11 +8,6 @@ import (
 	"strings"
 )
 
-type outputPolicy struct {
-	label string
-	dir   string
-}
-
 func zipOutputPlan(outputPath string) (zipPlan, error) {
 	outputPath, err := validateNativePathString("ZIP output path", outputPath)
 	if err != nil {
@@ -73,27 +68,7 @@ func createdZIPPath(plan zipPlan) (string, error) {
 		return "", fmt.Errorf("kalkan: ZIP output is not a regular file: %s", path)
 	}
 
-	if err := validateCreatedOutput(path, info, outputPolicy{label: "ZIP output", dir: plan.outDir}); err != nil {
-		return "", err
-	}
-
 	return path, nil
-}
-
-func cleanupZIPOutput(plan zipPlan) error {
-	if !outputDirectoryIsPrivate(plan.outDir) {
-		return nil
-	}
-
-	var errs []error
-
-	for _, path := range plan.outputPaths() {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			errs = append(errs, err)
-		}
-	}
-
-	return errors.Join(errs...)
 }
 
 func (p zipPlan) outputPaths() []string {

@@ -9,7 +9,7 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestWindowsRealDLLCyrillicInputsSmoke(t *testing.T) {
+func TestWindowsDLLAcceptsCyrillicInputs(t *testing.T) {
 	client := newRealClient(t)
 
 	code, message := client.GetLastErrorString()

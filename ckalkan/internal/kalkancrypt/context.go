@@ -31,8 +31,8 @@ type driverLifecycle interface {
 }
 
 type driverTokenStore interface {
-	GetTokens(storage uint64, capacity int) (ListResult, error)
-	GetCertificatesList(capacity int) (ListResult, error)
+	GetTokens(storage uint64, bufferSize int) (ListResult, error)
+	GetCertificatesList(bufferSize int) (ListResult, error)
 	LoadKeyStore(storage int, password, container, alias string) uint64
 }
 

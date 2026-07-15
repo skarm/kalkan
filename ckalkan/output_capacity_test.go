@@ -6,7 +6,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestCallBufferWithCapacityUsesOperationInitialBelowConservativeSize(t *testing.T) {
+func TestCallBufferUsesSmallInitialSize(t *testing.T) {
 	var capacities []int
 	cli := &Client{config: defaultConfig()}
 
@@ -25,7 +25,7 @@ func TestCallBufferWithCapacityUsesOperationInitialBelowConservativeSize(t *test
 	}
 }
 
-func TestOperationDefaultInitialOutputCapacities(t *testing.T) {
+func TestDefaultOutputBufferSizes(t *testing.T) {
 	const (
 		wantHashOutput      = 128
 		wantInfoOutput      = 4 << 10
@@ -156,7 +156,7 @@ func TestOperationDefaultInitialOutputCapacities(t *testing.T) {
 	}
 }
 
-func TestConfiguredBufferSizeOverridesOperationInitialCapacity(t *testing.T) {
+func TestConfiguredBufferSizeOverridesDefaults(t *testing.T) {
 	var firstCapacity int
 	ctx := &fakeNativeContext{}
 	ctx.hashDataFunc = func(_ string, _ int, _ []byte, capacity int) (kalkancrypt.BufferResult, error) {
@@ -199,7 +199,7 @@ func BenchmarkCallBufferSmallInitialOutput(b *testing.B) {
 	}
 }
 
-func TestSignatureOperationsUseConservativeInitialOutputCapacity(t *testing.T) {
+func TestSignatureOutputBufferSizes(t *testing.T) {
 	largeInput := bytesOf('x', conservativeOutputBufferSize*3)
 
 	tests := []struct {
@@ -285,7 +285,7 @@ func TestLastErrorStringRetriesAfterBufferTooSmall(t *testing.T) {
 	}
 }
 
-func TestLastErrorStringRetriesWhenOKReportsOversizedOutput(t *testing.T) {
+func TestLastErrorStringRetriesOversizedOutput(t *testing.T) {
 	ctx := &fakeNativeContext{}
 	var capacities []int
 	ctx.lastErrorStringFunc = func(capacity int) (kalkancrypt.BufferResult, error) {

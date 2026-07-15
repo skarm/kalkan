@@ -4,10 +4,10 @@ package kalkancrypt
 
 import "runtime"
 
-func (h *windowsDriver) GetTokens(storage uint64, capacity int) (ListResult, error) {
-	// KC_GetTokens has no capacity parameter in KalkanCrypt.h; capacity only
+func (h *windowsDriver) GetTokens(storage uint64, bufferSize int) (ListResult, error) {
+	// KC_GetTokens has no capacity parameter in KalkanCrypt.h; bufferSize only
 	// sizes the Go allocation before entering the native library.
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(bufferSize)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -19,10 +19,10 @@ func (h *windowsDriver) GetTokens(storage uint64, capacity int) (ListResult, err
 	return ListResult{Code: code, Data: string(trimCStringBytes(buf)), Count: uint64(count)}, nil
 }
 
-func (h *windowsDriver) GetCertificatesList(capacity int) (ListResult, error) {
-	// KC_GetCertificatesList has no capacity parameter in KalkanCrypt.h; capacity
+func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
+	// KC_GetCertificatesList has no capacity parameter in KalkanCrypt.h; bufferSize
 	// only sizes the Go allocation before entering the native library.
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(bufferSize)
 	if err != nil {
 		return ListResult{}, err
 	}

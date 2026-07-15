@@ -29,7 +29,7 @@ func TestLoadKeyStoreValidatesTypeAndPath(t *testing.T) {
 	}
 }
 
-func TestLoadKeyStorePreservesPathWhitespaceBeforeNativeCall(t *testing.T) {
+func TestLoadKeyStorePreservesPath(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "key.p12", []byte("p12"))
 	pathWithWhitespace := " \t" + path + "\n"
 	native := &fakeNative{
@@ -51,7 +51,7 @@ func TestLoadKeyStorePreservesPathWhitespaceBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestLoadKeyStoreRejectsEmbeddedNULBeforeNativeCall(t *testing.T) {
+func TestLoadKeyStoreRejectsNUL(t *testing.T) {
 	native := &fakeNative{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			t.Fatal("LoadKeyStore called native with embedded NUL")
@@ -102,7 +102,7 @@ func TestLoadKeyStorePassesPKCS12ToNative(t *testing.T) {
 	}
 }
 
-func TestLoadKeyStoreAllowsCyrillicPathPasswordAndAlias(t *testing.T) {
+func TestLoadKeyStoreAcceptsCyrillicInput(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "ключ.p12", []byte("p12"))
 	native := &fakeNative{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
@@ -131,7 +131,7 @@ func TestLoadKeyStoreAllowsCyrillicPathPasswordAndAlias(t *testing.T) {
 	}
 }
 
-func TestLoadTrustedCertificatePassesBufferAndFileToNative(t *testing.T) {
+func TestLoadTrustedCertificateMapsSources(t *testing.T) {
 	certPath := writeTestFile(t, t.TempDir(), "ca.pem", []byte("cert"))
 	bufferLoaded := false
 	fileLoaded := false
@@ -312,7 +312,7 @@ func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
 	}
 }
 
-func TestLoadTrustedCertificateRejectsPathAndDataTogetherBeforeNativeCall(t *testing.T) {
+func TestLoadTrustedCertificateRejectsMultipleSources(t *testing.T) {
 	native := &fakeNative{
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 			t.Fatal("LoadTrustedCertificate called native buffer loader with both Path and Data")
@@ -336,7 +336,7 @@ func TestLoadTrustedCertificateRejectsPathAndDataTogetherBeforeNativeCall(t *tes
 	}
 }
 
-func TestLoadTrustedCertificatePreservesPathWhitespaceAndRejectsEmbeddedNUL(t *testing.T) {
+func TestLoadTrustedCertificatePath(t *testing.T) {
 	t.Run("preserve path whitespace", func(t *testing.T) {
 		certPath := writeTestFile(t, t.TempDir(), "ca.pem", []byte("cert"))
 		certPathWithWhitespace := " \n" + certPath + "\t"
@@ -378,7 +378,7 @@ func TestLoadTrustedCertificatePreservesPathWhitespaceAndRejectsEmbeddedNUL(t *t
 	})
 }
 
-func TestLoadKeyStorePassesPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestLoadKeyStoreDoesNotStatPath(t *testing.T) {
 	t.Run("directory", func(t *testing.T) {
 		assertLoadKeyStoreReceivesPath(t, t.TempDir())
 	})
@@ -395,7 +395,7 @@ func TestLoadKeyStorePassesPathToNativeWithoutRegularFilePreflight(t *testing.T)
 	})
 }
 
-func TestLoadTrustedCertificatePassesPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestLoadTrustedCertificateDoesNotStatPath(t *testing.T) {
 	t.Run("directory", func(t *testing.T) {
 		assertLoadTrustedCertificateReceivesPath(t, t.TempDir())
 	})

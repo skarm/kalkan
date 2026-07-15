@@ -11,7 +11,7 @@ import (
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestContextX509LoadCertificateFromFileAndBuffer(t *testing.T) {
+func TestX509LoadCertificateFromFileAndBuffer(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)
 	if len(assets.certs) == 0 {
@@ -43,7 +43,7 @@ func TestContextX509LoadCertificateFromFileAndBuffer(t *testing.T) {
 	}
 }
 
-func TestContextX509ValidateCertificateReturnsNativeResultForRealCertificate(t *testing.T) {
+func TestX509ValidateCertificateFixture(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)
 	if len(assets.certs) == 0 {

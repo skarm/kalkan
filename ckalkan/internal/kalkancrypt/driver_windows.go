@@ -5,11 +5,22 @@ package kalkancrypt
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
 
 const driverAvailable = true
+
+const (
+	// LOAD_LIBRARY_SEARCH_* values from libloaderapi.h.
+	loadLibrarySearchDLLLoadDir  = 0x00000100
+	loadLibrarySearchDefaultDirs = 0x00001000
+	dependencySearchFlags        = loadLibrarySearchDLLLoadDir | loadLibrarySearchDefaultDirs
+)
+
+//nolint:gochecknoglobals // Process-wide Windows API procedure handle.
+var loadLibraryExW = syscall.NewLazyDLL("kernel32.dll").NewProc("LoadLibraryExW")
 
 type windowsDriver struct {
 	dll        *syscall.DLL
@@ -54,9 +65,13 @@ type kcFunctionList struct {
 }
 
 func openDriver(path string) (driver, error) {
-	dll, err := syscall.LoadDLL(path)
+	return openDriverWithLoader(path, loadLibraryEx)
+}
+
+func openDriverWithLoader(path string, load func(string, uintptr) (*syscall.DLL, error)) (driver, error) {
+	dll, err := load(path, dependencySearchFlags)
 	if err != nil {
-		return nil, fmt.Errorf("LoadLibrary %s failed: %w", path, err)
+		return nil, fmt.Errorf("LoadLibraryExW %s failed: %w", path, err)
 	}
 
 	getList, err := dll.FindProc("KC_GetFunctionList")
@@ -89,6 +104,30 @@ func openDriver(path string) (driver, error) {
 	}
 
 	return &windowsDriver{dll: dll, funcs: funcs, clearError: clearError}, nil
+}
+
+func loadLibraryEx(path string, flags uintptr) (*syscall.DLL, error) {
+	pathPtr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+
+	handle, _, callErr := loadLibraryExW.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		flags,
+	)
+	runtime.KeepAlive(pathPtr)
+
+	if handle == 0 {
+		if errors.Is(callErr, syscall.Errno(0)) {
+			callErr = errors.New("LoadLibraryExW returned a null handle")
+		}
+
+		return nil, callErr
+	}
+
+	return &syscall.DLL{Name: path, Handle: syscall.Handle(handle)}, nil
 }
 
 func (h *windowsDriver) Close() error {

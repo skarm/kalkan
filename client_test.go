@@ -53,7 +53,7 @@ func TestOpenCanceledBeforeLowLevelClientCreation(t *testing.T) {
 	}
 }
 
-func TestOpenCanceledAfterLowLevelClientCreationClosesClientBeforeInit(t *testing.T) {
+func TestOpenClosesClientWhenCanceledBeforeInit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var initCalls int
 	var closeCalls int
@@ -84,7 +84,7 @@ func TestOpenCanceledAfterLowLevelClientCreationClosesClientBeforeInit(t *testin
 	}
 }
 
-func TestOpenCanceledAfterInitClosesClientAndJoinsCloseError(t *testing.T) {
+func TestOpenJoinsCloseErrorAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	closeErr := errors.New("close failed")
 
@@ -145,7 +145,7 @@ func TestOpenCanceledAfterSetTSAURLClosesClientBeforeProxy(t *testing.T) {
 	}
 }
 
-func TestOpenCanceledAfterSetProxyClosesClientBeforeTrustedCertificates(t *testing.T) {
+func TestOpenClosesClientWhenCanceledAfterProxy(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var loadCalls int
 	var closeCalls int
@@ -181,7 +181,7 @@ func TestOpenCanceledAfterSetProxyClosesClientBeforeTrustedCertificates(t *testi
 	}
 }
 
-func TestOpenCanceledDuringTrustedCertificateLoopClosesPartialClient(t *testing.T) {
+func TestOpenClosesClientWhenCanceledDuringCertificateLoad(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var loadCalls int
 	var closeCalls int
@@ -628,7 +628,7 @@ func TestClientMethodUsesBackgroundForNilContext(t *testing.T) {
 	}
 }
 
-func TestClientMethodsReturnCanceledContextBeforePreprocessing(t *testing.T) {
+func TestClientMethodsHonorCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -682,7 +682,7 @@ func TestClientMethodsReturnCanceledContextBeforePreprocessing(t *testing.T) {
 			return "", nil
 		},
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ZIPSignerCertificate called native after context cancellation")
+			t.Fatal("ExtractZIPSignerCertificate called native after context cancellation")
 			return nil, nil
 		},
 	}
@@ -738,8 +738,8 @@ func TestClientMethodsReturnCanceledContextBeforePreprocessing(t *testing.T) {
 			_, err := client.VerifyZIP(ctx, VerifyZIPRequest{})
 			return err
 		}},
-		{name: "ZIPSignerCertificate", call: func() error {
-			_, err := client.ZIPSignerCertificate(ctx, ZIPSignerCertificateRequest{})
+		{name: "ExtractZIPSignerCertificate", call: func() error {
+			_, err := client.ExtractZIPSignerCertificate(ctx, ExtractZIPSignerCertificateRequest{})
 			return err
 		}},
 	}

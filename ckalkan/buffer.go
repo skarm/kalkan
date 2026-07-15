@@ -6,7 +6,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func (c *Client) callListLocked(call func(capacity int) (kalkancrypt.ListResult, error)) (ListResult, error) {
+func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResult, error)) (ListResult, error) {
 	size := boundedConfiguredBufferSize(c.config.listBufferSize, defaultListBufferSize, c.config.maxBufferSize)
 
 	for {
@@ -101,22 +101,14 @@ func normalizeConfiguredBufferSize(value, fallback int) int {
 		size = value
 	}
 
-	if size < conservativeOutputBufferSize {
-		return conservativeOutputBufferSize
-	}
-
-	return size
+	return max(size, conservativeOutputBufferSize)
 }
 
 func boundedConfiguredBufferSize(value, fallback, maximum int) int {
 	size := normalizeConfiguredBufferSize(value, fallback)
 	maximum = normalizeMaxOutputBufferSize(maximum)
 
-	if size > maximum {
-		return maximum
-	}
-
-	return size
+	return min(size, maximum)
 }
 
 func boundedOutputCapacity(value, maximum int) int {
@@ -126,11 +118,8 @@ func boundedOutputCapacity(value, maximum int) int {
 	}
 
 	maximum = normalizeMaxOutputBufferSize(maximum)
-	if size > maximum {
-		return maximum
-	}
 
-	return size
+	return min(size, maximum)
 }
 
 func (c config) outputInitialCapacity(defaultInitial int) int {
@@ -158,11 +147,7 @@ func normalizeMaxOutputBufferSize(maximum int) int {
 		maximum = defaultMaxOutputBufferSize
 	}
 
-	if maximum < conservativeOutputBufferSize {
-		return conservativeOutputBufferSize
-	}
-
-	return maximum
+	return max(maximum, conservativeOutputBufferSize)
 }
 
 func growCapacity(current, requested, maximum int) int {

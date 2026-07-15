@@ -7,7 +7,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestClosedClientReturnsErrClosedForRepresentativeMethods(t *testing.T) {
+func TestClosedClientMethodsReturnErrClosed(t *testing.T) {
 	if !kalkancrypt.Available() {
 		t.Skip("ErrClosed is observable only when the native loader is available")
 	}

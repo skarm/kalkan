@@ -71,7 +71,6 @@ func ExampleClient_VerifyCMS() {
 	}
 	defer client.Close()
 
-	_ = verification.Valid
 	_ = verification.SignerCert
 }
 
@@ -194,8 +193,7 @@ func ExampleClient_VerifyZIP() {
 	client := openExampleClient(ctx)
 
 	verification, err := client.VerifyZIP(ctx, kalkan.VerifyZIPRequest{
-		Path:                    "/data/document.signed.zip",
-		ReturnSignerCertificate: true,
+		Path: "/data/document.signed.zip",
 	})
 	if err != nil {
 		_ = client.Close()
@@ -203,8 +201,23 @@ func ExampleClient_VerifyZIP() {
 	}
 	defer client.Close()
 
-	_ = verification.Valid
-	_ = verification.SignerCert
+	_ = verification.Info
+}
+
+func ExampleClient_ExtractZIPSignerCertificate() {
+	ctx := context.Background()
+	client := openExampleClient(ctx)
+
+	certificate, err := client.ExtractZIPSignerCertificate(ctx, kalkan.ExtractZIPSignerCertificateRequest{
+		Path: "/data/document.signed.zip",
+	})
+	if err != nil {
+		_ = client.Close()
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	_ = certificate
 }
 
 func ExampleClient_ValidateCertificate() {
@@ -228,7 +241,6 @@ func ExampleClient_ValidateCertificate() {
 	}
 	defer client.Close()
 
-	_ = validation.Valid
 	_ = validation.OCSPResponse
 }
 

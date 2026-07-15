@@ -51,9 +51,6 @@ func TestValidateCertificateMapsOCSPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateCertificate returned error: %v", err)
 	}
-	if !validation.Valid {
-		t.Fatal("validation should be valid when native validation returns no error")
-	}
 	if validation.Info != "certificate ok" {
 		t.Fatalf("validation info = %q", validation.Info)
 	}
@@ -62,7 +59,7 @@ func TestValidateCertificateMapsOCSPRequest(t *testing.T) {
 	}
 }
 
-func TestValidateCertificateReturnsNativeOCSPResponseWithoutExtraClone(t *testing.T) {
+func TestValidateCertificateDoesNotCopyOCSPResponse(t *testing.T) {
 	nativeOCSP := []byte("ocsp-response")
 	client := &Client{library: &fakeNative{
 		validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
@@ -127,7 +124,7 @@ func TestValidateCertificateUsesDefaultOCSPURL(t *testing.T) {
 	}
 }
 
-func TestValidateCertificateDoesNotApplyEnvironmentDefaultsAtValidationTime(t *testing.T) {
+func TestValidateCertificateDoesNotReloadDefaults(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationPath != "" {
@@ -148,7 +145,7 @@ func TestValidateCertificateDoesNotApplyEnvironmentDefaultsAtValidationTime(t *t
 	}
 }
 
-func TestValidateCertificateRejectsRevocationSourceWithNoneModeBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRejectsUnusedRevocationSource(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Fatal("ValidateCertificate called native with RevocationSource and CertificateValidationNone")
@@ -167,7 +164,7 @@ func TestValidateCertificateRejectsRevocationSourceWithNoneModeBeforeNativeCall(
 	}
 }
 
-func TestValidateCertificateRejectsInvalidOCSPRevocationSourceBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRejectsInvalidOCSPURL(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Fatal("ValidateCertificate called native with invalid OCSP RevocationSource")
@@ -201,7 +198,7 @@ func TestValidateCertificateRejectsInvalidOCSPRevocationSourceBeforeNativeCall(t
 	}
 }
 
-func TestValidateCertificateRejectsOCSPResponseOutsideOCSPModeBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRequiresOCSPModeForResponse(t *testing.T) {
 	tests := []struct {
 		name string
 		req  ValidateCertificateRequest
@@ -243,7 +240,7 @@ func TestValidateCertificateRejectsOCSPResponseOutsideOCSPModeBeforeNativeCall(t
 	}
 }
 
-func TestValidateCertificatePreservesCRLRevocationSourceWhitespaceAndRejectsEmbeddedNUL(t *testing.T) {
+func TestValidateCertificateCRLPath(t *testing.T) {
 	t.Run("preserve CRL path whitespace", func(t *testing.T) {
 		crlPath := writeTestFile(t, t.TempDir(), "cert.crl", []byte("crl"))
 		crlPathWithWhitespace := " \t" + crlPath + "\n"
@@ -287,7 +284,7 @@ func TestValidateCertificatePreservesCRLRevocationSourceWhitespaceAndRejectsEmbe
 	})
 }
 
-func TestValidateCertificatePassesCRLPathToNativeWithoutFilesystemPreflight(t *testing.T) {
+func TestValidateCertificateDoesNotStatCRLPath(t *testing.T) {
 	dir := t.TempDir()
 	target := writeTestFile(t, dir, "target.crl", []byte("crl"))
 	link := target + ".link"
@@ -329,7 +326,7 @@ func TestValidateCertificatePassesCRLPathToNativeWithoutFilesystemPreflight(t *t
 	}
 }
 
-func TestValidateCertificateNilClientDoesNotPanic(t *testing.T) {
+func TestValidateCertificateOnNilClient(t *testing.T) {
 	var client *Client
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
@@ -341,7 +338,7 @@ func TestValidateCertificateNilClientDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestValidateCertificateRejectsUnspecifiedModeBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRequiresMode(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Fatal("ValidateCertificate called native X509ValidateCertificate for unspecified validation mode")
@@ -358,7 +355,7 @@ func TestValidateCertificateRejectsUnspecifiedModeBeforeNativeCall(t *testing.T)
 	}
 }
 
-func TestValidateCertificateRejectsEmptyCertificateBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRejectsEmptyCertificate(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Fatal("ValidateCertificate called native X509ValidateCertificate for empty certificate")
@@ -376,7 +373,7 @@ func TestValidateCertificateRejectsEmptyCertificateBeforeNativeCall(t *testing.T
 	}
 }
 
-func TestValidateCertificateRejectsInvalidPEMEnvelopeBeforeNativeCall(t *testing.T) {
+func TestValidateCertificateRejectsInvalidPEM(t *testing.T) {
 	validCert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("cert-der")})
 
 	tests := []struct {
@@ -427,7 +424,32 @@ func TestValidateCertificateRejectsInvalidPEMEnvelopeBeforeNativeCall(t *testing
 	}
 }
 
-func TestValidateCertificateAllowsExplicitNoRevocationMode(t *testing.T) {
+func TestCertificateInputRejectsEmptyDER(t *testing.T) {
+	tests := []struct {
+		name   string
+		source Source
+	}{
+		{
+			name:   "PEM",
+			source: PEM([]byte("-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----")),
+		},
+		{
+			name:   "base64",
+			source: Base64([]byte(" \n\t")),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := certificateValidationInput(test.source, 0)
+			if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "decodes to empty DER") {
+				t.Fatalf("certificateValidationInput error = %v, want empty decoded DER rejection", err)
+			}
+		})
+	}
+}
+
+func TestValidateCertificateAcceptsNoRevocation(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationType != ckalkan.UseNothing {

@@ -9,7 +9,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestVerifyDataValidatesCertIDRangeBeforeNativeCall(t *testing.T) {
+func TestVerifyDataValidatesCertID(t *testing.T) {
 	t.Run("negative rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			verifyDataFunc: func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
@@ -58,7 +58,7 @@ func TestVerifyDataValidatesCertIDRangeBeforeNativeCall(t *testing.T) {
 	})
 }
 
-func TestCertificateExtractionValidatesSignIDRangeBeforeNativeCall(t *testing.T) {
+func TestCertificateExtractionValidatesSignID(t *testing.T) {
 	tests := []struct {
 		name string
 		call func(*Client, int) ([]byte, error)
@@ -154,7 +154,7 @@ func TestCertificateExtractionValidatesSignIDRangeBeforeNativeCall(t *testing.T)
 	}
 }
 
-func TestGetTimeFromSigValidatesSigIDRangeBeforeNativeCall(t *testing.T) {
+func TestGetTimeFromSigValidatesSigID(t *testing.T) {
 	t.Run("negative rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			getTimeFromSigFunc: func(data []byte, flags, sigID int) (uint64, int64) {

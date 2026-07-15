@@ -4,11 +4,7 @@ import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
 // GetTokens calls KC_GetTokens and returns the raw token list plus native count.
 //
-// The KalkanCrypt SDK header used by this package exposes KC_GetTokens without
-// a buffer-capacity parameter. The wrapper can retry after KCR_BUFFER_TOO_SMALL,
-// but it cannot make this native call memory-safe in-process because the native
-// library is not told the Go allocation size. Backend services should run this
-// method behind a worker process or process pool.
+// The native ABI does not receive the output-buffer capacity.
 func (c *Client) GetTokens(storage Store) (ListResult, error) {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -23,18 +19,15 @@ func (c *Client) GetTokens(storage Store) (ListResult, error) {
 		return ListResult{}, err
 	}
 
-	return c.callListLocked(func(capacity int) (kalkancrypt.ListResult, error) {
-		return ctx.GetTokens(nativeStorage, capacity)
+	return c.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+		return ctx.GetTokens(nativeStorage, bufferSize)
 	})
 }
 
 // GetCertificatesList calls KC_GetCertificatesList and returns the raw alias list
 // plus native count.
 //
-// The SDK function used here is not length-aware: it receives a char* and count
-// pointer, but no buffer capacity. Retries after KCR_BUFFER_TOO_SMALL improve
-// compatibility; they are not an in-process memory-safety guarantee. Backend
-// services should run this method behind a worker process or process pool.
+// The native ABI does not receive the output-buffer capacity.
 func (c *Client) GetCertificatesList() (ListResult, error) {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -44,8 +37,8 @@ func (c *Client) GetCertificatesList() (ListResult, error) {
 		return ListResult{}, err
 	}
 
-	return c.callListLocked(func(capacity int) (kalkancrypt.ListResult, error) {
-		return ctx.GetCertificatesList(capacity)
+	return c.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+		return ctx.GetCertificatesList(bufferSize)
 	})
 }
 

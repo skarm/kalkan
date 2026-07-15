@@ -8,10 +8,10 @@ import (
 
 func TestCallListRetriesAfterBufferTooSmall(t *testing.T) {
 	ctx := &fakeNativeContext{}
-	var capacities []int
-	ctx.getTokensFunc = func(_ uint64, capacity int) (kalkancrypt.ListResult, error) {
-		capacities = append(capacities, capacity)
-		if len(capacities) == 1 {
+	var bufferSizes []int
+	ctx.getTokensFunc = func(_ uint64, bufferSize int) (kalkancrypt.ListResult, error) {
+		bufferSizes = append(bufferSizes, bufferSize)
+		if len(bufferSizes) == 1 {
 			return kalkancrypt.ListResult{
 				Code: uint64(ErrorBufferTooSmall),
 			}, nil
@@ -31,21 +31,21 @@ func TestCallListRetriesAfterBufferTooSmall(t *testing.T) {
 	if tokens.Data != "token-a;token-b" || tokens.Count != 2 {
 		t.Fatalf("GetTokens returned %+v", tokens)
 	}
-	if want := []int{defaultListBufferSize, defaultListBufferSize * 2}; !equalInts(capacities, want) {
-		t.Fatalf("capacities = %v, want %v", capacities, want)
+	if want := []int{defaultListBufferSize, defaultListBufferSize * 2}; !equalInts(bufferSizes, want) {
+		t.Fatalf("buffer sizes = %v, want %v", bufferSizes, want)
 	}
 }
 
-func TestWithListBufferSizeIsInitialAllocationNotSafetyLimit(t *testing.T) {
+func TestWithListBufferSizeSetsInitialAllocation(t *testing.T) {
 	cfg := defaultConfig()
 	WithListBufferSize(conservativeOutputBufferSize)(&cfg)
 	WithMaxBufferSize(conservativeOutputBufferSize * 4)(&cfg)
 
 	cli := &Client{config: cfg}
-	var capacities []int
-	_, err := cli.callListLocked(func(capacity int) (kalkancrypt.ListResult, error) {
-		capacities = append(capacities, capacity)
-		if len(capacities) == 1 {
+	var bufferSizes []int
+	_, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+		bufferSizes = append(bufferSizes, bufferSize)
+		if len(bufferSizes) == 1 {
 			return kalkancrypt.ListResult{Code: uint64(ErrorBufferTooSmall)}, nil
 		}
 
@@ -54,17 +54,21 @@ func TestWithListBufferSizeIsInitialAllocationNotSafetyLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("callListLocked failed: %v", err)
 	}
-	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2}; !equalInts(capacities, want) {
-		t.Fatalf("capacities = %v, want growth beyond WithListBufferSize initial allocation %v", capacities, want)
+	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2}; !equalInts(bufferSizes, want) {
+		t.Fatalf("buffer sizes = %v, want %v", bufferSizes, want)
 	}
 }
 
-func TestCallListReturnsBufferTooSmallWhenCapacityCannotGrow(t *testing.T) {
+func TestCallListStopsAtMaxBufferSize(t *testing.T) {
 	var calls int
-	cli := &Client{config: config{listBufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize}}
+	cli := &Client{config: config{listBufferSize: defaultListBufferSize, maxBufferSize: conservativeOutputBufferSize}}
 
-	_, err := cli.callListLocked(func(capacity int) (kalkancrypt.ListResult, error) {
+	_, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
 		calls++
+		if bufferSize != conservativeOutputBufferSize {
+			t.Fatalf("buffer size = %d, want max %d", bufferSize, conservativeOutputBufferSize)
+		}
+
 		return kalkancrypt.ListResult{Code: uint64(ErrorBufferTooSmall)}, nil
 	})
 	if err == nil {
@@ -129,7 +133,7 @@ func TestCallBufferHandlesSmallExactAndLargerOutputs(t *testing.T) {
 	}
 }
 
-func TestCallBufferReturnsBufferTooSmallWhenCapacityCannotGrow(t *testing.T) {
+func TestCallBufferStopsAtMaxSize(t *testing.T) {
 	var calls int
 	cli := &Client{config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize}}
 
@@ -148,7 +152,7 @@ func TestCallBufferReturnsBufferTooSmallWhenCapacityCannotGrow(t *testing.T) {
 	}
 }
 
-func TestCallBufferRetriesWhenOKReportsOversizedOutput(t *testing.T) {
+func TestCallBufferRetriesOversizedOutput(t *testing.T) {
 	var capacities []int
 	cli := &Client{config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize * 2}}
 
@@ -243,4 +247,23 @@ func TestGrowCapacityCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzOutputCapacityBounds(f *testing.F) {
+	f.Add(0, 0, 0)
+	f.Add(conservativeOutputBufferSize, conservativeOutputBufferSize+1, conservativeOutputBufferSize*2)
+	f.Add(-1, int(^uint(0)>>1), 1)
+
+	f.Fuzz(func(t *testing.T, initial, reported, maximum int) {
+		limit := normalizeMaxOutputBufferSize(maximum)
+		current := boundedOutputCapacity(initial, maximum)
+		if current <= 0 || current > limit {
+			t.Fatalf("boundedOutputCapacity(%d, %d) = %d, want 1..%d", initial, maximum, current, limit)
+		}
+
+		next := growCapacity(current, reported, maximum)
+		if next < current || next > limit {
+			t.Fatalf("growCapacity(%d, %d, %d) = %d, want %d..%d", current, reported, maximum, next, current, limit)
+		}
+	})
 }

@@ -53,7 +53,7 @@ func TestValidateCertificateRetriesInfoAndOCSPBuffers(t *testing.T) {
 	}
 }
 
-func TestValidateCertificateRetriesWhenOKReportsOversizedOutput(t *testing.T) {
+func TestValidateCertificateRetriesOversizedOutput(t *testing.T) {
 	ctx := &fakeNativeContext{}
 	var capacities []kalkancrypt.ValidateCertificateCall
 	ctx.validateCertificateFunc = func(call kalkancrypt.ValidateCertificateCall) (kalkancrypt.ValidateResult, error) {

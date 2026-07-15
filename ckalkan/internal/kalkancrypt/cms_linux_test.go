@@ -9,7 +9,7 @@ import (
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestContextVerifyDataAndCMSHelpersWithCMSFixture(t *testing.T) {
+func TestCMSFixtureOperations(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)
 	loadCertificates(t, ctx, assets)

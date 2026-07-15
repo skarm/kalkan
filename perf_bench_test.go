@@ -33,7 +33,6 @@ var (
 	benchmarkCMSSink        *CMS
 	benchmarkSignedXMLSink  *SignedXML
 	benchmarkVerifySink     *Verification
-	benchmarkZIPSink        *ZIPVerification
 	benchmarkValidationSink *CertificateValidation
 	benchmarkSourceSink     Source
 )
@@ -278,6 +277,26 @@ func BenchmarkSignXMLWrapSOAP(b *testing.B) {
 	}
 }
 
+func BenchmarkVerifyXMLSOAPBinding(b *testing.B) {
+	client := benchmarkClient()
+	document := []byte(validSignedSOAP("#TheBody", ""))
+	request := VerifyXMLRequest{XML: Bytes(document), ExpectedBodyID: "TheBody"}
+	ctx := context.Background()
+
+	b.SetBytes(int64(len(document)))
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		verification, err := client.VerifyXML(ctx, request)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		benchmarkVerifySink = verification
+	}
+}
+
 func BenchmarkValidateCertificatePEM(b *testing.B) {
 	client := benchmarkClient()
 	cert := benchmarkPayload(2 << 10)
@@ -445,6 +464,9 @@ func benchmarkClient() *Client {
 			},
 			verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 				return ckalkan.VerifyDataResult{VerifyInfo: benchmarkVerifyInfo}, nil
+			},
+			verifyXMLFunc: func(string, ckalkan.Flag, []byte) (string, error) {
+				return benchmarkVerifyInfo, nil
 			},
 			signXMLFunc: func(ckalkan.SignXMLRequest) ([]byte, error) {
 				return benchmarkXMLOutput, nil

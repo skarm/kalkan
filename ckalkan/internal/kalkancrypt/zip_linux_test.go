@@ -11,7 +11,7 @@ import (
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestContextZipConVerifyWithFixtures(t *testing.T) {
+func TestZipConVerifyFixtures(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)
 	loadCertificates(t, ctx, assets)
@@ -27,18 +27,14 @@ func TestContextZipConVerifyWithFixtures(t *testing.T) {
 	}
 }
 
-func TestContextGetCertFromZipFileWithVerifiedFixtures(t *testing.T) {
+func TestGetCertFromZipFileFixtures(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)
 	loadCertificates(t, ctx, assets)
 
 	for _, zipPath := range zipFixtures(t, assets) {
 		t.Run(filepath.Base(zipPath), func(t *testing.T) {
-			isolatedPath := copyZIPFixture(t, zipPath)
-			result, err := ctx.ZipConVerify(isolatedPath, noCheckCertTime, 1<<20)
-			requireBufferOK(t, "ZipConVerify", result, err)
-
-			cert, err := ctx.GetCertFromZipFile(isolatedPath, noCheckCertTime, 0, 1<<20)
+			cert, err := ctx.GetCertFromZipFile(copyZIPFixture(t, zipPath), noCheckCertTime, 0, 1<<20)
 			if err != nil {
 				t.Fatalf("GetCertFromZipFile returned Go error: %v", err)
 			}
@@ -52,7 +48,7 @@ func TestContextGetCertFromZipFileWithVerifiedFixtures(t *testing.T) {
 	}
 }
 
-func TestContextZipConSignCreatesContainer(t *testing.T) {
+func TestZipConSignCreatesContainer(t *testing.T) {
 	ctx := openContext(t)
 	loadPKCS12Fixture(t, ctx)
 

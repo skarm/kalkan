@@ -2,7 +2,7 @@ package ckalkan
 
 import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
-// SetTSAURL calls KC_TSASetUrl and configures the timestamp authority endpoint.
+// SetTSAURL configures the timestamp authority URL through KC_TSASetUrl.
 func (c *Client) SetTSAURL(tsaURL string) error {
 	process.mu.Lock()
 	defer process.mu.Unlock()

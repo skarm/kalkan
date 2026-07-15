@@ -16,9 +16,7 @@ import (
 type CertificateValidationMode int
 
 const (
-	// CertificateValidationUnspecified is the zero value and is rejected by
-	// ValidateCertificate. Select OCSP, CRL, or CertificateValidationNone
-	// explicitly.
+	// CertificateValidationUnspecified is rejected by ValidateCertificate.
 	CertificateValidationUnspecified CertificateValidationMode = iota
 	// CertificateValidationNone disables external CRL/OCSP validation.
 	CertificateValidationNone
@@ -45,18 +43,14 @@ func (m CertificateValidationMode) native() (ckalkan.ValidationType, error) {
 
 // ValidateCertificateRequest describes certificate validation input.
 type ValidateCertificateRequest struct {
-	// Certificate contains the certificate bytes to validate. File sources are
-	// not supported because KalkanCrypt's validation function accepts certificate
-	// bytes, not a certificate path. DER is passed through as DER; PEM and
-	// base64 sources are decoded to DER before the native call. Raw/auto sources
-	// are passed through unchanged for KalkanCrypt's native autodetection.
+	// Certificate is the certificate to validate. File sources are unsupported;
+	// PEM and base64 are decoded to DER, while raw, auto, and DER are passed
+	// unchanged.
 	Certificate Source
-	// Mode selects no external validation, CRL validation, or OCSP validation.
-	// The zero value is rejected; choose CertificateValidationNone explicitly
-	// only when revocation checking is intentionally disabled.
+	// Mode selects the revocation check. The zero value is invalid.
 	Mode CertificateValidationMode
-	// RevocationSource is the CRL path or OCSP URL. For OCSP, an empty value uses
-	// the client's environment default or WithOCSPURL override.
+	// RevocationSource is a CRL path or OCSP URL. An empty OCSP source uses the
+	// configured OCSP URL.
 	RevocationSource string
 	// CheckTime is the validation time. Zero lets KalkanCrypt use its own
 	// default behavior.
@@ -69,9 +63,6 @@ type ValidateCertificateRequest struct {
 
 // CertificateValidation is returned by ValidateCertificate.
 type CertificateValidation struct {
-	// Valid is always true when err is nil. Invalid certificates are returned
-	// as errors; the field is kept for readability and future compatibility.
-	Valid bool
 	// Info is KalkanCrypt's native validation information string.
 	Info string
 	// OCSPResponse contains the optional raw OCSP response returned by
@@ -138,7 +129,6 @@ func (c *Client) ValidateCertificate(ctx context.Context, req ValidateCertificat
 	}
 
 	return &CertificateValidation{
-		Valid:        true,
 		Info:         result.Info,
 		OCSPResponse: result.OCSPResponse,
 	}, nil
@@ -231,11 +221,19 @@ func certificateValidationInput(source Source, maxInputSize int64) ([]byte, erro
 			return nil, fmt.Errorf("%w: certificate PEM input contains trailing data", ErrInvalidInput)
 		}
 
+		if len(block.Bytes) == 0 {
+			return nil, fmt.Errorf("%w: certificate PEM input decodes to empty DER", ErrInvalidInput)
+		}
+
 		return block.Bytes, nil
 	case EncodingBase64:
 		der, err := base64.StdEncoding.AppendDecode(nil, bytes.TrimSpace(cert))
 		if err != nil {
 			return nil, fmt.Errorf("%w: certificate base64 input is invalid: %w", ErrInvalidInput, err)
+		}
+
+		if len(der) == 0 {
+			return nil, fmt.Errorf("%w: certificate base64 input decodes to empty DER", ErrInvalidInput)
 		}
 
 		return der, nil

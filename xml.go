@@ -19,6 +19,7 @@ const (
 	xmlnsSOAP12 = "http://www.w3.org/2003/05/soap-envelope"
 	xmlnsWSU    = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
 	xmlnsDSig   = "http://www.w3.org/2000/09/xmldsig#"
+	xmlnsXML    = "http://www.w3.org/XML/1998/namespace"
 )
 
 // XMLCanonicalization selects the XML canonicalization algorithm passed to
@@ -67,9 +68,8 @@ type VerifyXMLRequest struct {
 	Alias string
 	// XML is the signed XML document to verify.
 	XML Source
-	// ExpectedBodyID, when set, requires the verified XML signature to reference
-	// the single SOAP Body with this wsu:Id. Empty value preserves legacy VerifyXML
-	// behavior and does not bind verification to a SOAP Body.
+	// ExpectedBodyID binds verification to a SOAP Body wsu:Id. It is required for
+	// SOAP 1.1 and SOAP 1.2 and must be empty for non-SOAP XML.
 	ExpectedBodyID string
 	// Canonicalization selects the XML canonicalization algorithm.
 	Canonicalization XMLCanonicalization
@@ -173,6 +173,10 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 
 	flags |= checkFlags
 
+	if err := validateXMLVerificationStructure(input, req.ExpectedBodyID); err != nil {
+		return nil, err
+	}
+
 	info, err := withLockedLibraryResult(c, ctx, "VerifyXML", func(native xmlSignatures) (string, error) {
 		return native.VerifyXML(req.Alias, flags, input)
 	})
@@ -180,13 +184,7 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 		return nil, err
 	}
 
-	if req.ExpectedBodyID != "" {
-		if err := validateSignedSOAPBodyReference(input, req.ExpectedBodyID); err != nil {
-			return nil, err
-		}
-	}
-
-	return &Verification{Valid: true, Info: info}, nil
+	return &Verification{Info: info}, nil
 }
 
 // SignWSSE signs a SOAP/WS-Security document.
@@ -414,16 +412,41 @@ func validateSingleXMLElement(payload []byte) error {
 }
 
 type signedSOAPBodyReference struct {
+	documentElementCount   int
+	root                   xml.Name
 	soapBodyCount          int
+	directSOAPBodyCount    int
 	expectedBodyCount      int
-	expectedWSUIDCount     int
+	expectedIDCount        int
 	signatureCount         int
+	signedInfoCount        int
+	directSignedInfoCount  int
 	expectedReferenceCount int
 }
 
-func validateSignedSOAPBodyReference(document []byte, expectedID string) error {
-	if err := validateSOAPBodyID(expectedID); err != nil {
+func validateXMLVerificationStructure(document []byte, expectedID string) error {
+	if expectedID != "" {
+		if err := validateSOAPBodyID(expectedID); err != nil {
+			return err
+		}
+	}
+
+	root, err := xmlDocumentRoot(document)
+	if err != nil {
 		return err
+	}
+
+	if !isSOAPEnvelope(root) {
+		if expectedID != "" {
+			return fmt.Errorf("%w: ExpectedBodyID requires a SOAP 1.1 or SOAP 1.2 Envelope", ErrInvalidInput)
+		}
+
+		// Non-SOAP XML retains native verification semantics.
+		return nil
+	}
+
+	if expectedID == "" {
+		return fmt.Errorf("%w: ExpectedBodyID is required for SOAP verification", ErrInvalidInput)
 	}
 
 	binding, err := collectSignedSOAPBodyReference(document, expectedID)
@@ -431,36 +454,75 @@ func validateSignedSOAPBodyReference(document []byte, expectedID string) error {
 		return err
 	}
 
-	if binding.soapBodyCount != 1 {
-		return fmt.Errorf("%w: signed XML must contain exactly one SOAP Body, got %d", ErrInvalidInput, binding.soapBodyCount)
-	}
-
-	if binding.expectedWSUIDCount != 1 {
-		return fmt.Errorf("%w: signed XML must contain a unique wsu:Id %q, got %d", ErrInvalidInput, expectedID, binding.expectedWSUIDCount)
-	}
-
-	if binding.expectedBodyCount != 1 {
-		return fmt.Errorf("%w: signed XML SOAP Body must have wsu:Id %q", ErrInvalidInput, expectedID)
+	if binding.documentElementCount != 1 {
+		return fmt.Errorf("%w: signed XML must contain exactly one document element, got %d", ErrInvalidInput, binding.documentElementCount)
 	}
 
 	if binding.signatureCount != 1 {
 		return fmt.Errorf("%w: signed XML must contain exactly one ds:Signature, got %d", ErrInvalidInput, binding.signatureCount)
 	}
 
+	if binding.signedInfoCount != 1 {
+		return fmt.Errorf("%w: signed XML must contain exactly one ds:SignedInfo, got %d", ErrInvalidInput, binding.signedInfoCount)
+	}
+
+	if binding.directSignedInfoCount != 1 {
+		return fmt.Errorf("%w: the ds:SignedInfo must be a direct child of ds:Signature", ErrInvalidInput)
+	}
+
+	if binding.soapBodyCount != 1 {
+		return fmt.Errorf("%w: signed XML must contain exactly one SOAP Body, got %d", ErrInvalidInput, binding.soapBodyCount)
+	}
+
+	if binding.directSOAPBodyCount != 1 {
+		return fmt.Errorf("%w: signed XML SOAP Body must be the direct child of the SOAP Envelope", ErrInvalidInput)
+	}
+
+	if binding.expectedIDCount != 1 {
+		return fmt.Errorf("%w: signed XML must contain exactly one XML ID with value %q, got %d", ErrInvalidInput, expectedID, binding.expectedIDCount)
+	}
+
+	if binding.expectedBodyCount != 1 {
+		return fmt.Errorf("%w: signed XML SOAP Body must have wsu:Id %q", ErrInvalidInput, expectedID)
+	}
+
 	if binding.expectedReferenceCount != 1 {
-		return fmt.Errorf("%w: signed XML must contain exactly one ds:Reference URI=\"#%s\", got %d", ErrInvalidInput, expectedID, binding.expectedReferenceCount)
+		return fmt.Errorf("%w: signed XML must contain exactly one direct ds:Reference URI=\"#%s\", got %d", ErrInvalidInput, expectedID, binding.expectedReferenceCount)
 	}
 
 	return nil
+}
+
+func xmlDocumentRoot(document []byte) (xml.Name, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(document))
+	// Treat declared ASCII-compatible encodings as byte-compatible while reading
+	// an ASCII root tag.
+	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
+		return input, nil
+	}
+
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return xml.Name{}, fmt.Errorf("%w: signed XML has no document element", ErrInvalidInput)
+		}
+
+		if err != nil {
+			return xml.Name{}, fmt.Errorf("%w: signed XML must be well-formed: %w", ErrInvalidInput, err)
+		}
+
+		if start, ok := token.(xml.StartElement); ok {
+			return start.Name, nil
+		}
+	}
 }
 
 func collectSignedSOAPBodyReference(document []byte, expectedID string) (signedSOAPBodyReference, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(document))
 
 	var (
-		binding         signedSOAPBodyReference
-		signatureDepth  int
-		signedInfoDepth int
+		binding signedSOAPBodyReference
+		stack   = make([]xml.Name, 0, 16)
 	)
 
 	for {
@@ -475,50 +537,75 @@ func collectSignedSOAPBodyReference(document []byte, expectedID string) (signedS
 
 		switch tok := token.(type) {
 		case xml.StartElement:
-			enteringSignature := isDSigSignature(tok.Name)
-
-			if enteringSignature {
-				binding.signatureCount++
+			if err := validateUniqueXMLAttributes(tok); err != nil {
+				return signedSOAPBodyReference{}, err
 			}
 
-			if enteringSignature || signatureDepth > 0 {
-				signatureDepth++
-			}
-
-			enteringSignedInfo := signatureDepth > 0 && isDSigSignedInfo(tok.Name)
-			if enteringSignedInfo || signedInfoDepth > 0 {
-				signedInfoDepth++
-			}
-
-			hasExpectedID := hasWSUID(tok, expectedID)
-			if hasExpectedID {
-				binding.expectedWSUIDCount++
-			}
-
-			if isSOAPBody(tok.Name) {
-				binding.soapBodyCount++
-				if hasExpectedID {
-					binding.expectedBodyCount++
-				}
-			}
-
-			if signedInfoDepth > 0 && isDSigReference(tok.Name) && referenceURI(tok) == "#"+expectedID {
-				binding.expectedReferenceCount++
-			}
+			observeXMLVerificationElement(&binding, tok, expectedID, stack)
+			stack = append(stack, tok.Name)
 		case xml.EndElement:
-			if signedInfoDepth > 0 {
-				signedInfoDepth--
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
 			}
-
-			if signatureDepth > 0 {
-				signatureDepth--
+		case xml.CharData:
+			if len(stack) == 0 && len(bytes.TrimSpace(tok)) != 0 {
+				return signedSOAPBodyReference{}, fmt.Errorf("%w: signed XML must not contain text outside the document element", ErrInvalidInput)
 			}
+		case xml.Directive:
+			return signedSOAPBodyReference{}, fmt.Errorf("%w: signed XML directives and DTDs are not allowed", ErrInvalidInput)
 		default:
 			continue
 		}
 	}
 
 	return binding, nil
+}
+
+func observeXMLVerificationElement(binding *signedSOAPBodyReference, start xml.StartElement, expectedID string, ancestors []xml.Name) {
+	depth := len(ancestors)
+	if depth == 0 {
+		binding.documentElementCount++
+		if binding.documentElementCount == 1 {
+			binding.root = start.Name
+		}
+	}
+
+	binding.expectedIDCount += matchingXMLIDCount(start, expectedID)
+	if isDSigSignature(start.Name) {
+		binding.signatureCount++
+	}
+
+	if isDSigSignedInfo(start.Name) {
+		binding.signedInfoCount++
+		if depth > 0 && isDSigSignature(ancestors[depth-1]) {
+			binding.directSignedInfoCount++
+		}
+	}
+
+	if isDSigReference(start.Name) && depth >= 2 &&
+		isDSigSignedInfo(ancestors[depth-1]) && isDSigSignature(ancestors[depth-2]) {
+		if referenceURI(start) == "#"+expectedID {
+			binding.expectedReferenceCount++
+		}
+	}
+
+	if !isSOAPBody(start.Name) {
+		return
+	}
+
+	binding.soapBodyCount++
+	if len(ancestors) != 1 || !isSOAPEnvelope(binding.root) || start.Name.Space != binding.root.Space {
+		return
+	}
+
+	binding.directSOAPBodyCount++
+	if hasWSUID(start, expectedID) {
+		binding.expectedBodyCount++
+	}
+}
+
+func isSOAPEnvelope(name xml.Name) bool {
+	return name.Local == "Envelope" && (name.Space == xmlnsSOAP || name.Space == xmlnsSOAP12)
 }
 
 func isSOAPBody(name xml.Name) bool {
@@ -539,12 +626,40 @@ func isDSigSignedInfo(name xml.Name) bool {
 
 func hasWSUID(start xml.StartElement, id string) bool {
 	for _, attr := range start.Attr {
-		if attr.Name.Space == xmlnsWSU && attr.Name.Local == "Id" && attr.Value == id {
+		if attr.Name.Space == xmlnsWSU && attr.Name.Local == "Id" && xmlIDEquals(attr.Value, id) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func matchingXMLIDCount(start xml.StartElement, id string) int {
+	if id == "" {
+		return 0
+	}
+
+	count := 0
+
+	for _, attr := range start.Attr {
+		if !xmlIDEquals(attr.Value, id) {
+			continue
+		}
+
+		if attr.Name.Space == xmlnsWSU && attr.Name.Local == "Id" ||
+			attr.Name.Space == xmlnsXML && attr.Name.Local == "id" ||
+			attr.Name.Space == "" && (attr.Name.Local == "Id" || attr.Name.Local == "ID") {
+			count++
+		}
+	}
+
+	return count
+}
+
+func xmlIDEquals(value, expected string) bool {
+	// ExpectedBodyID is an NCName, so ID whitespace collapse reduces to trimming
+	// XML whitespace.
+	return strings.Trim(value, " \t\r\n") == expected
 }
 
 func referenceURI(start xml.StartElement) string {
@@ -555,6 +670,19 @@ func referenceURI(start xml.StartElement) string {
 	}
 
 	return ""
+}
+
+func validateUniqueXMLAttributes(start xml.StartElement) error {
+	seen := make(map[xml.Name]struct{}, len(start.Attr))
+	for _, attr := range start.Attr {
+		if _, ok := seen[attr.Name]; ok {
+			return fmt.Errorf("%w: signed XML element %q contains duplicate attribute %q", ErrInvalidInput, start.Name.Local, attr.Name.Local)
+		}
+
+		seen[attr.Name] = struct{}{}
+	}
+
+	return nil
 }
 
 func xmlInput(source Source, maxInputSize int64) ([]byte, error) {

@@ -19,6 +19,10 @@ root package does not expose the native operation you need. Direct `ckalkan`
 callers are responsible for native flags, encodings, buffer sizes, ABI limits,
 and process isolation.
 
+`WithListBufferSize` sets the allocation for `KC_GetTokens` and
+`KC_GetCertificatesList`, but the SDK functions do not receive its capacity and
+cannot enforce that bound.
+
 ## Supported platforms
 
 The KalkanCrypt SDK and native libraries are not stored in this repository. Pass
@@ -35,10 +39,11 @@ Unsupported targets:
 - Linux with `CGO_ENABLED=0`
 - Other operating systems
 
-The KalkanCrypt library path must be absolute. Dependent SDK libraries must live
-in a trusted, read-only deployment directory controlled by the service operator.
-Do not rely on writable working directories or user-controlled DLL/shared-object
-search paths.
+`WithLibraryPath` requires an absolute KalkanCrypt library path.
+
+On Windows, `LoadLibraryExW` searches the target DLL directory and the default
+application, user-added, and System32 directories. It excludes the current
+working directory and `PATH`.
 
 On Windows, use the x64 KalkanCrypt DLL. The Windows driver passes narrow
 `char*` strings as UTF-8 bytes plus a terminating NUL; run the real-DLL smoke
@@ -80,21 +85,15 @@ if err != nil {
 
 ## Runtime model
 
-`context.Context` can cancel waiting to enter a native call, including waiting
-for the in-process serialization lock. It cannot interrupt a KalkanCrypt call
-that has already entered the shared library. Do not treat an in-process context
-deadline as a hard native-call timeout.
+`context.Context` can cancel a wait for the process lock. It cannot interrupt an
+active KalkanCrypt call.
 
 `Client.Close()` is the blocking close variant. It can wait forever if another
 goroutine is stuck inside a native KalkanCrypt call. For service shutdown paths,
 use `Client.CloseContext(ctx)`: it returns `ctx.Err()` when the caller stops
 waiting, while the client remains in closing state and rejects new operations.
 
-Backend services that need failure containment or hard native-call time limits
-should isolate KalkanCrypt outside this package, for example behind a separate
-service, worker process, or process pool that the application can terminate and
-replace. That isolation boundary is deployment/application architecture, not a
-goroutine-level feature of this wrapper.
+Hard native-call deadlines require a separate process.
 
 ## Sources and limits
 
@@ -106,14 +105,12 @@ Operations accept `Source` values:
 - `kalkan.DER`: DER binary data
 - `kalkan.File`: a path passed to KalkanCrypt
 
-`File` preserves the path string. Empty paths and embedded NUL bytes are rejected
-before native calls; other path errors are left to KalkanCrypt. Use file sources
-only for trusted service-controlled paths. For untrusted uploads, prefer
-in-memory sources with `WithMaxInputSize` or copy the data into a private
-service-controlled temporary directory.
+`File` passes the original path after empty-path and NUL validation. KalkanCrypt
+reports other path errors. Keep the referenced file unchanged until the
+operation returns.
 
-In-memory source constructors store the caller-provided byte slice directly.
-Treat those slices as immutable until the operation returns.
+In-memory source constructors retain the provided byte slice. Do not mutate it
+until the operation returns.
 
 `WithMaxInputSize` caps high-level in-memory inputs before native calls. It does
 not apply to file sources or native output buffers.
@@ -149,19 +146,19 @@ cms, err := client.SignHash(ctx, kalkan.SignHashRequest{
 
 ## XML and WS-Security
 
-`VerifyXML` checks the native XML signature result. If the application reads
-business data from a SOAP Body after verification, set
-`VerifyXMLRequest.ExpectedBodyID` to the expected `wsu:Id`.
+`VerifyXML` delegates signature verification to KalkanCrypt. SOAP 1.1 and SOAP
+1.2 require `ExpectedBodyID`. Before the native call, the wrapper requires:
 
-With `ExpectedBodyID` set, the wrapper requires:
+- one `ds:Signature`
+- one `ds:SignedInfo` that is a direct child of the signature
+- one SOAP Body with the expected `wsu:Id`
+- one direct reference from `ds:SignedInfo` to `#ExpectedBodyID`
+- no duplicate `wsu:Id`, `xml:id`, `Id`, or `ID` with the same value
 
-- exactly one SOAP 1.1 or SOAP 1.2 Body
-- that Body to carry the expected `wsu:Id`
-- no duplicate element with the same `wsu:Id`
-- an XMLDSig reference to `#ExpectedBodyID`
-
-This prevents accepting a valid signature over one node while the application
-reads business data from another node.
+Additional direct references may cover other WS-Security data. SOAP input must
+be UTF-8. Non-SOAP UTF-8 XML is passed to KalkanCrypt unchanged. A declared
+ASCII-compatible encoding is also accepted when the prolog and root tag use
+ASCII; other encodings are rejected.
 
 ## Certificate validation
 
@@ -179,8 +176,10 @@ exactly one `CERTIFICATE` block. CRL `RevocationSource` paths are checked for
 embedded NUL bytes and then passed directly to KalkanCrypt.
 
 The built-in production and test OCSP/TSA defaults use HTTP endpoints from the
-KalkanCrypt ecosystem. Override them with `WithOCSPURL` and `WithTSAURL`, or
-route traffic through a protected proxy under your operational control.
+KalkanCrypt ecosystem. `WithOCSPURL` and `WithTSAURL` replace those defaults.
+For one validation request, `RevocationSource` supplies the CRL path or overrides
+the OCSP URL. The package validates URL syntax but does not restrict the
+destination.
 
 For certificate metadata hot paths, prefer `X509CertificateGetInfoFields` over
 `X509CertificateGetInfo` so only required native properties are fetched.
@@ -194,27 +193,24 @@ creates the output file inside the native library. The wrapper rejects existing
 requested/normalized output paths before the native call and checks the created
 file after the call, but it cannot make native file creation atomic.
 
-Use a private service-controlled output directory:
-
 ```go
-outputDir, err := os.MkdirTemp("", "kalkan-signzip-*")
-if err != nil {
-	return err
-}
-defer os.RemoveAll(outputDir)
-
-if err := os.Chmod(outputDir, 0o700); err != nil {
-	return err
-}
-
 signed, err := client.SignZIP(ctx, kalkan.SignZIPRequest{
 	InputPath:  inputPath,
-	OutputPath: filepath.Join(outputDir, "signed.zip"),
+	OutputPath: outputPath,
 })
 ```
 
-`SignZIP.InputPath`, `VerifyZIP.Path`, and `ZIPSignerCertificate.Path` are passed
-directly to KalkanCrypt after empty-path/NUL validation.
+`SignZIPRequest.InputPath`, `VerifyZIPRequest.Path`, and
+`ExtractZIPSignerCertificateRequest.Path` are passed unchanged after empty-path
+and NUL validation. Keep the referenced files unchanged until each call returns.
+
+`VerifyZIP` and `ExtractZIPSignerCertificate` are independent. Certificate
+extraction does not verify the signature. If both results are needed, call
+`VerifyZIP` first and keep the file unchanged between calls.
+
+The split API removes `VerifyZIPRequest.SignerID` and
+`VerifyZIPRequest.ReturnSignerCertificate`; `VerifyZIP` does not extract a
+certificate.
 
 ## Secrets
 
@@ -261,6 +257,12 @@ Run the Linux Docker test build:
 
 ```sh
 make docker-test
+```
+
+Run golangci-lint in the Linux container:
+
+```sh
+make docker-lint
 ```
 
 Run Windows tests on `windows/amd64` with the x64 DLL:
