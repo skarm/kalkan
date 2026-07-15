@@ -19,7 +19,7 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 
 	initial := c.config.requestOutputInitialCapacity(req.OutputCapacity, initialSignatureBuffer)
 
-	return c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignXML(kalkancrypt.SignXMLCall{
 			Alias:           req.Alias,
 			Flags:           nativeFlags,
@@ -30,6 +30,8 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 			Capacity:        capacity,
 		})
 	})
+
+	return trimCStringBytes(out), err
 }
 
 // VerifyXML calls VerifyXML and returns the native verification info string.

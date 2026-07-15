@@ -71,8 +71,8 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 	return trimCStringBytes(out), nil
 }
 
-// X509ValidateCertificate calls X509ValidateCertificate and returns both the
-// native validation info string and an optional OCSP response.
+// X509ValidateCertificate calls KalkanCrypt and returns validation information
+// and an optional OCSP response.
 func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (ValidateCertificateResult, error) {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {

@@ -136,25 +136,25 @@ func requireKalkanError(t *testing.T, name string, err error) *ckalkan.KalkanErr
 	return kalkanErr
 }
 
-func TestMalformedUVerifyDataSmokePolicy(t *testing.T) {
-	if canSmokeMalformedUVerifyData("windows") {
-		t.Fatal("malformed UVerifyData smoke must be disabled on Windows")
+func TestMalformedUVerifyDataDisabledOnWindows(t *testing.T) {
+	if canCallMalformedUVerifyData("windows") {
+		t.Fatal("malformed UVerifyData call must be disabled on Windows")
 	}
-	if !canSmokeMalformedUVerifyData("linux") {
-		t.Fatal("malformed UVerifyData smoke should remain enabled on non-Windows platforms")
+	if !canCallMalformedUVerifyData("linux") {
+		t.Fatal("malformed UVerifyData call should remain enabled on non-Windows platforms")
 	}
 }
 
-func canSmokeMalformedUVerifyData(goos string) bool {
+func canCallMalformedUVerifyData(goos string) bool {
 	return goos != "windows"
 }
 
-func skipMalformedUVerifyDataSmokeOnWindows(t *testing.T) bool {
+func skipMalformedUVerifyDataOnWindows(t *testing.T) bool {
 	t.Helper()
-	if canSmokeMalformedUVerifyData(runtime.GOOS) {
+	if canCallMalformedUVerifyData(runtime.GOOS) {
 		return false
 	}
-	t.Log("skipping malformed UVerifyData smoke on Windows because KalkanCrypt.dll can access-violate instead of returning a Kalkan error")
+	t.Log("skipping malformed UVerifyData on Windows because KalkanCrypt.dll can access-violate instead of returning a Kalkan error")
 	return true
 }
 

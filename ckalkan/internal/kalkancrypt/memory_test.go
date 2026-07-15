@@ -69,7 +69,7 @@ func BenchmarkOutputBufferCapacities(b *testing.B) {
 	}
 }
 
-func TestBoundedBytesHandlesShortExactOverflowAndEmptyOutputs(t *testing.T) {
+func TestBoundedBytesOutputCases(t *testing.T) {
 	source := []byte("abcdef")
 
 	short := boundedBytes(source, 3)

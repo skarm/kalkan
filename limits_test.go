@@ -18,7 +18,7 @@ func TestMaxInputSizeOptionsOverrideConfig(t *testing.T) {
 	}
 }
 
-func TestMaxInputSizeRejectsOversizedMemorySourcesBeforeNativeCall(t *testing.T) {
+func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			t.Fatal("Hash called native with oversized memory input")
@@ -137,7 +137,7 @@ func TestMaxInputSizeRejectsOversizedMemorySourcesBeforeNativeCall(t *testing.T)
 	}
 }
 
-func TestMaxInputSizeRejectsWrappedWSSEBeforeNativeCall(t *testing.T) {
+func TestMaxInputSizeRejectsWrappedWSSE(t *testing.T) {
 	native := &fakeNative{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			t.Fatal("SignWSSE called native with oversized wrapped XML input")

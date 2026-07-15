@@ -94,7 +94,7 @@ func TestSignDataUsesCallerInputs(t *testing.T) {
 	}
 }
 
-func TestZipConSignAllowsEmptyStringsToReachNativeCall(t *testing.T) {
+func TestZipConSignAcceptsEmptyStrings(t *testing.T) {
 	nativeCalls := 0
 	ctx := &fakeNativeContext{
 		zipConSignFunc: func(call kalkancrypt.ZipConSignCall) uint64 {
@@ -120,7 +120,7 @@ func TestZipConSignAllowsEmptyStringsToReachNativeCall(t *testing.T) {
 	}
 }
 
-func TestX509LoadCertificateFromBufferAllowsEmptyCertificateToReachNativeCall(t *testing.T) {
+func TestX509LoadCertificateFromBufferAcceptsEmptyInput(t *testing.T) {
 	nativeCalls := 0
 	ctx := &fakeNativeContext{
 		x509LoadBufferFunc: func(cert []byte, format int) uint64 {

@@ -59,7 +59,7 @@ func TestZIPOutputPlanRejectsMissingExtension(t *testing.T) {
 	}
 }
 
-func TestZIPOutputPlanWithLowercaseExtension(t *testing.T) {
+func TestZIPOutputPlanKeepsLowercaseExtension(t *testing.T) {
 	plan, err := zipOutputPlan(filepath.Join("/tmp", "signed-container.zip"))
 	if err != nil {
 		t.Fatalf("zipOutputPlan returned error: %v", err)
@@ -72,7 +72,7 @@ func TestZIPOutputPlanWithLowercaseExtension(t *testing.T) {
 	}
 }
 
-func TestZIPOutputPlanAcceptsCaseInsensitiveZIPExtension(t *testing.T) {
+func TestZIPOutputPlanNormalizesExtension(t *testing.T) {
 	for _, test := range []struct {
 		outputPath string
 		wantPath   string
@@ -123,7 +123,7 @@ func TestZIPOutputPlanRejectsEmptyOutputNames(t *testing.T) {
 	}
 }
 
-func TestSignZIPWithLowercaseExtensionDoesNotAppendExtension(t *testing.T) {
+func TestSignZIPDoesNotDuplicateExtension(t *testing.T) {
 	outDir := t.TempDir()
 	inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 	outputPath := filepath.Join(outDir, "signed-container.zip")
@@ -152,7 +152,7 @@ func TestSignZIPWithLowercaseExtensionDoesNotAppendExtension(t *testing.T) {
 	}
 }
 
-func TestSignZIPAcceptsCaseInsensitiveZIPExtension(t *testing.T) {
+func TestSignZIPNormalizesExtension(t *testing.T) {
 	outDir := t.TempDir()
 	inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 	outputPath := filepath.Join(outDir, "signed-container.ZIP")
@@ -180,7 +180,7 @@ func TestSignZIPAcceptsCaseInsensitiveZIPExtension(t *testing.T) {
 	}
 }
 
-func TestSignZIPRejectsMissingPathsBeforeNativeCall(t *testing.T) {
+func TestSignZIPRequiresPaths(t *testing.T) {
 	outDir := t.TempDir()
 	inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 
@@ -219,7 +219,7 @@ func TestSignZIPRejectsMissingPathsBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignZIPAcceptsNativeCreatedDesiredOutputPath(t *testing.T) {
+func TestSignZIPReturnsCreatedPath(t *testing.T) {
 	outDir := t.TempDir()
 	inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 	outputPath := filepath.Join(outDir, "signed-container.zip")
@@ -242,7 +242,7 @@ func TestSignZIPAcceptsNativeCreatedDesiredOutputPath(t *testing.T) {
 	}
 }
 
-func TestSignZIPRejectsMissingExtensionBeforeNativeCall(t *testing.T) {
+func TestSignZIPRequiresExtension(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "signed-container")
 	native := &fakeNative{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
@@ -261,7 +261,7 @@ func TestSignZIPRejectsMissingExtensionBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignZIPRejectsMissingNativeOutput(t *testing.T) {
+func TestSignZIPRequiresCreatedOutput(t *testing.T) {
 	outDir := t.TempDir()
 	inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 	outputPath := filepath.Join(outDir, "signed.zip")
@@ -278,7 +278,7 @@ func TestSignZIPRejectsMissingNativeOutput(t *testing.T) {
 	}
 }
 
-func TestSignZIPRejectsNativeCreatedNonRegularOutput(t *testing.T) {
+func TestSignZIPRejectsNonRegularOutput(t *testing.T) {
 	outDir := t.TempDir()
 	if err := os.Chmod(outDir, 0o700); err != nil {
 		t.Fatalf("chmod output dir: %v", err)
@@ -296,12 +296,12 @@ func TestSignZIPRejectsNativeCreatedNonRegularOutput(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("SignZIP error = %v, want non-regular native output rejection", err)
 	}
-	if _, statErr := os.Lstat(outputPath); !os.IsNotExist(statErr) {
-		t.Fatalf("non-regular output stat error = %v, want cleaned up output", statErr)
+	if info, statErr := os.Lstat(outputPath); statErr != nil || !info.IsDir() {
+		t.Fatalf("non-regular output stat = (%v, %v), want caller-owned directory to remain", info, statErr)
 	}
 }
 
-func TestSignZIPRejectsPreExistingOutputPathBeforeNativeCall(t *testing.T) {
+func TestSignZIPRejectsExistingOutput(t *testing.T) {
 	outDir := t.TempDir()
 	outputPath := filepath.Join(outDir, "signed-container.zip")
 	if err := os.WriteFile(outputPath, []byte("old zip"), 0o600); err != nil {
@@ -325,7 +325,7 @@ func TestSignZIPRejectsPreExistingOutputPathBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignZIPRepeatsOutputCheckInsideNativeGate(t *testing.T) {
+func TestSignZIPPreventsConcurrentOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	inputPath := writeTestZIPInput(t, dir, "payload.txt")
 	outputPath := filepath.Join(dir, "signed.zip")
@@ -398,14 +398,16 @@ func TestSignZIPRepeatsOutputCheckInsideNativeGate(t *testing.T) {
 	}
 }
 
-func TestVerifyZIPCanReturnSignerCertificate(t *testing.T) {
+func TestVerifyZIPMapsRequest(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "signed.zip")
 	if err := os.WriteFile(sourcePath, []byte("zip"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	var verifyCalls int
 	native := &fakeNative{
 		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
+			verifyCalls++
 			if zipFile != sourcePath {
 				t.Fatalf("zip path = %q, want source path %q", zipFile, sourcePath)
 			}
@@ -414,100 +416,57 @@ func TestVerifyZIPCanReturnSignerCertificate(t *testing.T) {
 			}
 			return "Checking zip - OK", nil
 		},
-		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			if zipFile != sourcePath {
-				t.Fatalf("cert zip path = %q, want source path %q", zipFile, sourcePath)
-			}
-			if flags != ckalkan.NoCheckCertTime {
-				t.Fatalf("cert flags = %#x, want NoCheckCertTime", flags)
-			}
-			if signID != 2 {
-				t.Fatalf("signer id = %d, want 2", signID)
-			}
-			return []byte("zip-cert"), nil
+		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
+			t.Fatal("VerifyZIP called native GetCertFromZipFile")
+			return nil, nil
 		},
 	}
 	client := &Client{library: native}
 
 	verification, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		SignerID:                2,
-		ReturnSignerCertificate: true,
-		CertificateTimeCheck:    SkipCertificateTimeCheck,
+		Path:                 sourcePath,
+		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
 	if err != nil {
 		t.Fatalf("VerifyZIP returned error: %v", err)
-	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
 	}
 	if verification.Info != "Checking zip - OK" {
 		t.Fatalf("ZIP info = %q", verification.Info)
 	}
-	if string(verification.SignerCert) != "zip-cert" {
-		t.Fatalf("ZIP signer cert = %q, want zip-cert", verification.SignerCert)
+	if verifyCalls != 1 {
+		t.Fatalf("native ZipConVerify calls = %d, want 1", verifyCalls)
 	}
 }
 
-func TestVerifyZIPRejectsEmptySignerCertificate(t *testing.T) {
+func TestExtractZIPSignerCertificateRejectsEmptyOutput(t *testing.T) {
 	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
-	client := &Client{library: &fakeNative{
-		zipConVerifyFunc: func(string, ckalkan.Flag) (string, error) {
-			return "Checking zip - OK", nil
-		},
-		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
-			return []byte("\x00"), nil
-		},
-	}}
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "nil"},
+		{name: "empty slice", data: []byte{}},
+		{name: "NUL terminator", data: []byte{0}},
+		{name: "whitespace and NUL", data: []byte(" \t\r\n\x00")},
+	}
 
-	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		ReturnSignerCertificate: true,
-	})
-	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP signer certificate output is empty") {
-		t.Fatalf("VerifyZIP error = %v, want empty signer certificate rejection", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{library: &fakeNative{
+				getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
+					return test.data, nil
+				},
+			}}
+
+			_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{Path: sourcePath})
+			if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP signer certificate output is empty") {
+				t.Fatalf("ExtractZIPSignerCertificate error = %v, want empty signer certificate rejection", err)
+			}
+		})
 	}
 }
 
-func TestVerifyZIPReturnsNativeSignerCertificateWithoutExtraClone(t *testing.T) {
-	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
-	nativeCert := []byte("zip-cert")
-	client := &Client{library: &fakeNative{
-		zipConVerifyFunc: func(string, ckalkan.Flag) (string, error) {
-			return "Checking zip - OK", nil
-		},
-		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
-			return nativeCert, nil
-		},
-	}}
-
-	verification, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		ReturnSignerCertificate: true,
-	})
-	if err != nil {
-		t.Fatalf("VerifyZIP returned error: %v", err)
-	}
-	if !sameByteSliceBacking(verification.SignerCert, nativeCert) {
-		t.Fatal("VerifyZIP cloned native signer certificate output")
-	}
-}
-
-func TestZIPSignerCertificateRejectsEmptyNativeCertificate(t *testing.T) {
-	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
-	client := &Client{library: &fakeNative{
-		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
-			return nil, nil
-		},
-	}}
-
-	_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{Path: sourcePath})
-	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "ZIP signer certificate output is empty") {
-		t.Fatalf("ZIPSignerCertificate error = %v, want empty signer certificate rejection", err)
-	}
-}
-
-func TestVerifyZIPWithoutSignerCertificatePassesPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestVerifyZIPDoesNotStatInput(t *testing.T) {
 	sourcePath := t.TempDir()
 	var called bool
 	native := &fakeNative{
@@ -529,7 +488,7 @@ func TestVerifyZIPWithoutSignerCertificatePassesPathToNativeWithoutRegularFilePr
 	}
 }
 
-func TestZIPSignerCertificatePassesPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestExtractZIPSignerCertificateDoesNotStatInput(t *testing.T) {
 	sourcePath := t.TempDir()
 	var called bool
 	native := &fakeNative{
@@ -543,22 +502,22 @@ func TestZIPSignerCertificatePassesPathToNativeWithoutRegularFilePreflight(t *te
 	}
 	client := &Client{library: native}
 
-	if _, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{Path: sourcePath}); err != nil {
-		t.Fatalf("ZIPSignerCertificate returned error: %v", err)
+	if _, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{Path: sourcePath}); err != nil {
+		t.Fatalf("ExtractZIPSignerCertificate returned error: %v", err)
 	}
 	if !called {
-		t.Fatal("ZIPSignerCertificate did not call native")
+		t.Fatal("ExtractZIPSignerCertificate did not call native")
 	}
 }
 
-func TestZIPMethodsRejectMissingPathBeforeNativeCall(t *testing.T) {
+func TestZIPMethodsRequirePath(t *testing.T) {
 	native := &fakeNative{
 		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
 			t.Fatal("VerifyZIP called native ZipConVerify without a ZIP path")
 			return "", nil
 		},
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ZIPSignerCertificate called native GetCertFromZipFile without a ZIP path")
+			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile without a ZIP path")
 			return nil, nil
 		},
 	}
@@ -576,9 +535,9 @@ func TestZIPMethodsRejectMissingPathBeforeNativeCall(t *testing.T) {
 			},
 		},
 		{
-			name: "ZIPSignerCertificate",
+			name: "ExtractZIPSignerCertificate",
 			call: func() error {
-				_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{})
+				_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{})
 				return err
 			},
 		},
@@ -594,7 +553,7 @@ func TestZIPMethodsRejectMissingPathBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignZIPPassesInputPathToNativeWithoutRegularFilePreflight(t *testing.T) {
+func TestSignZIPDoesNotStatInput(t *testing.T) {
 	inputPath := t.TempDir()
 	outputPath := filepath.Join(t.TempDir(), "signed.zip")
 	var called bool
@@ -620,208 +579,42 @@ func TestSignZIPPassesInputPathToNativeWithoutRegularFilePreflight(t *testing.T)
 	}
 }
 
-func TestZIPPathMethodsAllowRegularFiles(t *testing.T) {
-	dir := t.TempDir()
-	sourcePath := writeTestZIPInput(t, dir, "signed.zip")
-	outputPath := filepath.Join(dir, "out.zip")
-
-	t.Run("VerifyZIP without signer certificate", func(t *testing.T) {
-		var called bool
-		native := &fakeNative{
-			zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-				called = true
-				if zipFile != sourcePath {
-					t.Fatalf("zip path = %q, want %q", zipFile, sourcePath)
-				}
-				return "Checking zip - OK", nil
-			},
-		}
-		client := &Client{library: native}
-
-		_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{Path: sourcePath})
-		if err != nil {
-			t.Fatalf("VerifyZIP returned error: %v", err)
-		}
-		if !called {
-			t.Fatal("VerifyZIP did not call native for regular ZIP")
-		}
-	})
-
-	t.Run("ZIPSignerCertificate", func(t *testing.T) {
-		var called bool
-		native := &fakeNative{
-			getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-				called = true
-				if zipFile != sourcePath {
-					t.Fatalf("zip path = %q, want %q", zipFile, sourcePath)
-				}
-				return []byte("zip-cert"), nil
-			},
-		}
-		client := &Client{library: native}
-
-		_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{Path: sourcePath})
-		if err != nil {
-			t.Fatalf("ZIPSignerCertificate returned error: %v", err)
-		}
-		if !called {
-			t.Fatal("ZIPSignerCertificate did not call native for regular ZIP")
-		}
-	})
-
-	t.Run("SignZIP input", func(t *testing.T) {
-		var called bool
-		native := &fakeNative{
-			zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-				called = true
-				if req.FilePath != sourcePath {
-					t.Fatalf("input path = %q, want %q", req.FilePath, sourcePath)
-				}
-				return os.WriteFile(outputPath, []byte("zip"), 0o600)
-			},
-		}
-		client := &Client{library: native}
-
-		_, err := client.SignZIP(context.Background(), SignZIPRequest{
-			InputPath:  sourcePath,
-			OutputPath: outputPath,
-		})
-		if err != nil {
-			t.Fatalf("SignZIP returned error: %v", err)
-		}
-		if !called {
-			t.Fatal("SignZIP did not call native for regular input")
-		}
-	})
-}
-
-func TestZIPMethodsCanceledBeforeValidationDoNotCallNative(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	native := &fakeNative{
-		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-			t.Fatal("SignZIP called native after context cancellation")
-			return nil
-		},
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native after context cancellation")
-			return "", nil
-		},
-		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ZIPSignerCertificate called native after context cancellation")
-			return nil, nil
-		},
-	}
-	client := &Client{library: native}
-
-	if _, err := client.SignZIP(ctx, SignZIPRequest{}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("SignZIP error = %v, want context.Canceled", err)
-	}
-	if _, err := client.VerifyZIP(ctx, VerifyZIPRequest{}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("VerifyZIP error = %v, want context.Canceled", err)
-	}
-	if _, err := client.ZIPSignerCertificate(ctx, ZIPSignerCertificateRequest{}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("ZIPSignerCertificate error = %v, want context.Canceled", err)
-	}
-}
-
-func TestVerifyZIPReadsSignerCertificateFromSameSourcePath(t *testing.T) {
-	dir := t.TempDir()
-	sourcePath := filepath.Join(dir, "signed.zip")
-	if err := os.WriteFile(sourcePath, []byte("original zip"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	var verifyPath string
-	var certPath string
-	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			verifyPath = zipFile
-			if err := os.WriteFile(sourcePath, []byte("changed zip"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			return "Checking zip - OK", nil
-		},
-		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			certPath = zipFile
-			data, err := os.ReadFile(zipFile)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(data) != "changed zip" {
-				t.Fatalf("GetCertFromZipFile read %q, want current source path contents", data)
-			}
-			return []byte("zip-cert"), nil
-		},
-	}
-	client := &Client{library: native}
-
-	verification, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		ReturnSignerCertificate: true,
-	})
-	if err != nil {
-		t.Fatalf("VerifyZIP returned error: %v", err)
-	}
-	if string(verification.SignerCert) != "zip-cert" {
-		t.Fatalf("signer cert = %q, want zip-cert", verification.SignerCert)
-	}
-	if verifyPath != sourcePath || certPath != sourcePath {
-		t.Fatalf("verify path = %q, cert path = %q, want source path %q", verifyPath, certPath, sourcePath)
-	}
-}
-
-func TestVerifyZIPWithSignerCertificateHonorsCanceledContextBeforeNativeCall(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native ZipConVerify after cancellation")
-			return "", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyZIP(ctx, VerifyZIPRequest{
-		Path:                    filepath.Join(t.TempDir(), "missing.zip"),
-		ReturnSignerCertificate: true,
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("VerifyZIP error = %v, want context.Canceled", err)
-	}
-}
-
-func TestVerifyZIPWithSignerCertificateUsesSourcePathOnNativeFailure(t *testing.T) {
+func TestVerifyZIPPropagatesNativeError(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "signed.zip")
 	if err := os.WriteFile(sourcePath, []byte("zip"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	nativeErr := errors.New("native verify failed")
-	var verifyPath string
 	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			verifyPath = zipFile
+		zipConVerifyFunc: func(string, ckalkan.Flag) (string, error) {
 			return "", nativeErr
 		},
 	}
 	client := &Client{library: native}
 
-	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		ReturnSignerCertificate: true,
-	})
+	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{Path: sourcePath})
 	if !errors.Is(err, nativeErr) {
 		t.Fatalf("VerifyZIP error = %v, want native error", err)
 	}
-	if verifyPath != sourcePath {
-		t.Fatalf("verify path = %q, want source path %q", verifyPath, sourcePath)
+}
+
+func TestExtractZIPSignerCertificatePropagatesNativeError(t *testing.T) {
+	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
+	nativeErr := errors.New("native certificate extraction failed")
+	client := &Client{library: &fakeNative{
+		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
+			return nil, nativeErr
+		},
+	}}
+
+	_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{Path: sourcePath})
+	if !errors.Is(err, nativeErr) {
+		t.Fatalf("ExtractZIPSignerCertificate error = %v, want native error", err)
 	}
 }
 
-func TestZIPSignerCertificateMapsRequest(t *testing.T) {
+func TestExtractZIPSignerCertificateMapsRequest(t *testing.T) {
 	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
@@ -839,20 +632,20 @@ func TestZIPSignerCertificateMapsRequest(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	cert, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{
+	cert, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{
 		Path:                 sourcePath,
 		SignerID:             1,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
 	if err != nil {
-		t.Fatalf("ZIPSignerCertificate returned error: %v", err)
+		t.Fatalf("ExtractZIPSignerCertificate returned error: %v", err)
 	}
 	if string(cert) != "zip-cert" {
 		t.Fatalf("ZIP cert = %q, want zip-cert", cert)
 	}
 }
 
-func TestZIPSignerCertificateReturnsNativeOutputWithoutExtraClone(t *testing.T) {
+func TestExtractZIPSignerCertificateDoesNotCopyOutput(t *testing.T) {
 	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
 	nativeCert := []byte("zip-cert")
 	client := &Client{library: &fakeNative{
@@ -861,118 +654,54 @@ func TestZIPSignerCertificateReturnsNativeOutputWithoutExtraClone(t *testing.T) 
 		},
 	}}
 
-	cert, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{
+	cert, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{
 		Path: sourcePath,
 	})
 	if err != nil {
-		t.Fatalf("ZIPSignerCertificate returned error: %v", err)
+		t.Fatalf("ExtractZIPSignerCertificate returned error: %v", err)
 	}
 	if !sameByteSliceBacking(cert, nativeCert) {
-		t.Fatal("ZIPSignerCertificate cloned native certificate output")
+		t.Fatal("ExtractZIPSignerCertificate cloned native certificate output")
 	}
 }
 
-func TestVerifyZIPRejectsNegativeSignerIDBeforeNativeCall(t *testing.T) {
-	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native ZipConVerify for negative SignerID")
-			return "", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    "/tmp/signed.zip",
-		SignerID:                -1,
-		ReturnSignerCertificate: true,
-	})
-	if err == nil || !strings.Contains(err.Error(), "SignerID") {
-		t.Fatalf("VerifyZIP error = %v, want SignerID validation error", err)
-	}
-}
-
-func TestVerifyZIPRejectsOverflowingSignerIDBeforeNativeCall(t *testing.T) {
-	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native ZipConVerify for overflowing SignerID")
-			return "", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    "/tmp/signed.zip",
-		SignerID:                signerIDOverflowValue(t),
-		ReturnSignerCertificate: true,
-	})
-	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "SignerID") {
-		t.Fatalf("VerifyZIP error = %v, want ErrInvalidInput SignerID overflow validation error", err)
-	}
-}
-
-func TestVerifyZIPAllowsMaxSignerID(t *testing.T) {
-	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
-	native := &fakeNative{
-		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			return "Checking zip - OK", nil
-		},
-		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			if signID != maxSignerID {
-				t.Fatalf("signer id = %d, want max SignerID %d", signID, maxSignerID)
-			}
-
-			return []byte("zip-cert"), nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{
-		Path:                    sourcePath,
-		SignerID:                maxSignerID,
-		ReturnSignerCertificate: true,
-	})
-	if err != nil {
-		t.Fatalf("VerifyZIP returned error: %v", err)
-	}
-}
-
-func TestZIPSignerCertificateRejectsNegativeSignerIDBeforeNativeCall(t *testing.T) {
+func TestExtractZIPSignerCertificateRejectsNegativeSignerID(t *testing.T) {
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ZIPSignerCertificate called native GetCertFromZipFile for negative SignerID")
+			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile for negative SignerID")
 			return nil, nil
 		},
 	}
 	client := &Client{library: native}
 
-	_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{
+	_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{
 		Path:     "/tmp/signed.zip",
 		SignerID: -1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "SignerID") {
-		t.Fatalf("ZIPSignerCertificate error = %v, want SignerID validation error", err)
+		t.Fatalf("ExtractZIPSignerCertificate error = %v, want SignerID validation error", err)
 	}
 }
 
-func TestZIPSignerCertificateRejectsOverflowingSignerIDBeforeNativeCall(t *testing.T) {
+func TestExtractZIPSignerCertificateRejectsSignerIDOverflow(t *testing.T) {
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ZIPSignerCertificate called native GetCertFromZipFile for overflowing SignerID")
+			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile for overflowing SignerID")
 			return nil, nil
 		},
 	}
 	client := &Client{library: native}
 
-	_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{
+	_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{
 		Path:     "/tmp/signed.zip",
 		SignerID: signerIDOverflowValue(t),
 	})
 	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "SignerID") {
-		t.Fatalf("ZIPSignerCertificate error = %v, want ErrInvalidInput SignerID overflow validation error", err)
+		t.Fatalf("ExtractZIPSignerCertificate error = %v, want ErrInvalidInput SignerID overflow validation error", err)
 	}
 }
 
-func TestZIPSignerCertificateAllowsMaxSignerID(t *testing.T) {
+func TestExtractZIPSignerCertificateAcceptsMaxSignerID(t *testing.T) {
 	sourcePath := writeTestZIPInput(t, t.TempDir(), "signed.zip")
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
@@ -985,12 +714,12 @@ func TestZIPSignerCertificateAllowsMaxSignerID(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	_, err := client.ZIPSignerCertificate(context.Background(), ZIPSignerCertificateRequest{
+	_, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{
 		Path:     sourcePath,
 		SignerID: maxSignerID,
 	})
 	if err != nil {
-		t.Fatalf("ZIPSignerCertificate returned error: %v", err)
+		t.Fatalf("ExtractZIPSignerCertificate returned error: %v", err)
 	}
 }
 

@@ -14,7 +14,8 @@ type ValidateCertificateRequest struct {
 	Certificate []byte
 	// ValidationType selects CRL, OCSP, or no external validation.
 	ValidationType ValidationType
-	// ValidationPath is the native validation path parameter.
+	// ValidationPath is passed to KalkanCrypt. With UseOCSP it specifies the
+	// responder URL.
 	ValidationPath string
 	// CheckTimeUnix is the validation time as a Unix timestamp. Zero lets
 	// KalkanCrypt use its own default behavior.

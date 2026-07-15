@@ -1,13 +1,8 @@
 package ckalkan
 
 const (
-	// Real KalkanCrypt builds can write past very small output buffers in some
-	// APIs. The wrapper keeps this conservative size for configured fallbacks and
-	// signature-like outputs while allowing smaller operation-specific defaults
-	// for short outputs. KC_GetTokens and KC_GetCertificatesList are not
-	// length-aware in the SDK header bundled here, so this size is only an
-	// allocation policy for those list APIs, not an in-process memory-safety
-	// boundary.
+	// Generic and signature outputs use this fallback. Short outputs use smaller
+	// operation-specific allocations.
 	conservativeOutputBufferSize = 64 << 10
 
 	defaultListBufferSize      = 1 << 20
@@ -30,7 +25,8 @@ type config struct {
 // Option customizes a Client created by New.
 type Option func(*config)
 
-// WithLibrary sets the KalkanCrypt dynamic library path.
+// WithLibrary sets the KalkanCrypt dynamic-library path. On Windows, the path
+// must be fully qualified.
 func WithLibrary(library string) Option {
 	return func(c *config) {
 		c.libraryPath = library
@@ -38,9 +34,8 @@ func WithLibrary(library string) Option {
 }
 
 // WithListBufferSize sets the first allocation size for KC_GetTokens and
-// KC_GetCertificatesList. The SDK functions used by this wrapper do not accept
-// the allocation capacity, so this option is not a memory-safety boundary. For
-// hostile or malformed token stores, isolate these calls in a worker process.
+// KC_GetCertificatesList. The native ABI does not receive this capacity, so the
+// setting cannot bound the first native write.
 func WithListBufferSize(size int) Option {
 	return func(c *config) {
 		if size > 0 {
@@ -65,11 +60,7 @@ func WithBufferSize(size int) Option {
 func WithMaxBufferSize(size int) Option {
 	return func(c *config) {
 		if size > 0 {
-			if size < conservativeOutputBufferSize {
-				size = conservativeOutputBufferSize
-			}
-
-			c.maxBufferSize = size
+			c.maxBufferSize = max(size, conservativeOutputBufferSize)
 		}
 	}
 }

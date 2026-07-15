@@ -12,7 +12,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestOpenRejectsUnknownEnvironmentBeforeLoadingNative(t *testing.T) {
+func TestOpenRejectsUnknownEnvironment(t *testing.T) {
 	_, err := Open(context.Background(),
 		WithLibraryPath(testLibraryPath()),
 		WithEnvironment(Environment(99)),
@@ -22,21 +22,21 @@ func TestOpenRejectsUnknownEnvironmentBeforeLoadingNative(t *testing.T) {
 	}
 }
 
-func TestOpenRequiresExplicitLibraryPathBeforeLoadingNative(t *testing.T) {
+func TestOpenRequiresLibraryPath(t *testing.T) {
 	_, err := Open(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "library path is required") {
 		t.Fatalf("Open error = %v, want required library path error", err)
 	}
 }
 
-func TestOpenRejectsRelativeLibraryPathBeforeLoadingNative(t *testing.T) {
+func TestOpenRejectsRelativeLibraryPath(t *testing.T) {
 	_, err := Open(context.Background(), WithLibraryPath("KalkanCrypt.dll"))
 	if err == nil || !strings.Contains(err.Error(), "absolute library path") {
 		t.Fatalf("Open error = %v, want absolute library path error", err)
 	}
 }
 
-func TestOpenPreservesLibraryPathWhitespaceBeforeValidation(t *testing.T) {
+func TestOpenPreservesLibraryPath(t *testing.T) {
 	var factoryCalls int
 
 	_, err := openWithLibraryFactory(context.Background(), []Option{
@@ -53,7 +53,7 @@ func TestOpenPreservesLibraryPathWhitespaceBeforeValidation(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsEmbeddedNULInLibraryPathBeforeLoadingNative(t *testing.T) {
+func TestOpenRejectsNULInLibraryPath(t *testing.T) {
 	var factoryCalls int
 
 	_, err := openWithLibraryFactory(context.Background(), []Option{
@@ -136,7 +136,7 @@ func TestNormalizeNativeHTTPURLPolicy(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsInvalidConfiguredURLsBeforeLoadingNative(t *testing.T) {
+func TestOpenRejectsInvalidURLs(t *testing.T) {
 	tests := []struct {
 		name   string
 		option Option
@@ -215,7 +215,7 @@ func TestOpenTrimsConfiguredTSAAndOCSPURLs(t *testing.T) {
 	}
 }
 
-func TestOpenPassesMaxOutputBufferSizeToLibraryFactory(t *testing.T) {
+func TestOpenMapsMaxBufferSize(t *testing.T) {
 	const wantMaxOutputBufferSize = 2 << 20
 
 	client, err := openWithLibraryFactory(context.Background(), []Option{
@@ -237,7 +237,7 @@ func TestOpenPassesMaxOutputBufferSizeToLibraryFactory(t *testing.T) {
 	}
 }
 
-func TestClientDoesNotUseDefaultSlogLoggerWithoutWithLogger(t *testing.T) {
+func TestClientHasNoDefaultLogger(t *testing.T) {
 	handler := newRecordingHandler()
 	originalLogger := slog.Default()
 	slog.SetDefault(slog.New(handler))

@@ -74,7 +74,7 @@ func TestHashPassesFilePathAndEncodingFlag(t *testing.T) {
 	}
 }
 
-func TestHashRejectsMissingDataBeforeNativeCall(t *testing.T) {
+func TestHashRequiresData(t *testing.T) {
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			t.Fatal("Hash called native HashData without Data source")
@@ -111,7 +111,7 @@ func TestHashAllowsExplicitEmptyData(t *testing.T) {
 	}
 }
 
-func TestHashReturnsNativeDigestWithoutExtraClone(t *testing.T) {
+func TestHashDoesNotCopyDigest(t *testing.T) {
 	nativeDigest := []byte("digest")
 	client := &Client{library: &fakeNative{
 		hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
@@ -221,7 +221,7 @@ func TestSignHashCanRequestBase64Output(t *testing.T) {
 	}
 }
 
-func TestSignHashRejectsUnknownOutputFormatBeforeNativeCall(t *testing.T) {
+func TestSignHashRejectsUnknownOutputFormat(t *testing.T) {
 	native := &fakeNative{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			t.Fatal("SignHash called native SignHash for an invalid output format")
@@ -239,7 +239,7 @@ func TestSignHashRejectsUnknownOutputFormatBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignHashRejectsDigestLengthMismatchBeforeNativeCall(t *testing.T) {
+func TestSignHashRejectsWrongDigestLength(t *testing.T) {
 	native := &fakeNative{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			t.Fatal("SignHash called native SignHash with digest length mismatch")

@@ -143,7 +143,7 @@ func TestSignCMSPassesBase64InputOnlyWhenExplicit(t *testing.T) {
 	}
 }
 
-func TestSignCMSRejectsUnknownOutputFormatBeforeNativeCall(t *testing.T) {
+func TestSignCMSRejectsUnknownOutputFormat(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Fatal("SignCMS called native SignData for an invalid output format")
@@ -161,7 +161,7 @@ func TestSignCMSRejectsUnknownOutputFormatBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignCMSRejectsUnknownDataEncodingBeforeNativeCall(t *testing.T) {
+func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Fatal("SignCMS called native SignData for an invalid data encoding")
@@ -178,7 +178,7 @@ func TestSignCMSRejectsUnknownDataEncodingBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignCMSRejectsMissingDataBeforeNativeCall(t *testing.T) {
+func TestSignCMSRequiresData(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Fatal("SignCMS called native SignData without Data source")
@@ -234,18 +234,15 @@ func TestVerifyCMSPassesRawSignatureBytesWithoutBase64(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes(rawSignature),
 	})
 	if err != nil {
 		t.Fatalf("VerifyCMS returned error: %v", err)
 	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
-	}
 }
 
-func TestVerifyCMSPassesBase64SignatureBytesOnlyWhenExplicit(t *testing.T) {
+func TestVerifyCMSMapsBase64Signature(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InBase64
@@ -260,14 +257,11 @@ func TestVerifyCMSPassesBase64SignatureBytesOnlyWhenExplicit(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Base64([]byte("YmFzZTY0LWNtcw==")),
 	})
 	if err != nil {
 		t.Fatalf("VerifyCMS returned error: %v", err)
-	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
 	}
 }
 
@@ -291,14 +285,11 @@ func TestVerifyCMSPassesRawSignatureFileWithoutBase64Flag(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: File(signaturePath),
 	})
 	if err != nil {
 		t.Fatalf("VerifyCMS returned error: %v", err)
-	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
 	}
 }
 
@@ -343,9 +334,6 @@ func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyCMS returned error: %v", err)
 	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
-	}
 	if verification.Info != "Verify - OK" {
 		t.Fatalf("verification info = %q", verification.Info)
 	}
@@ -354,7 +342,7 @@ func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSReturnsNativeOutputsWithoutExtraClone(t *testing.T) {
+func TestVerifyCMSDoesNotCopyOutputs(t *testing.T) {
 	nativeData := []byte("attached-data")
 	nativeCert := []byte("signer-cert")
 	client := &Client{library: &fakeNative{
@@ -409,7 +397,7 @@ func TestVerifyCMSPassesBase64DetachedDataEncoding(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSRejectsUnsupportedDetachedDataEncodingsBeforeNativeCall(t *testing.T) {
+func TestVerifyCMSRejectsDetachedDataEncoding(t *testing.T) {
 	tests := []struct {
 		name string
 		data Source
@@ -453,7 +441,7 @@ func TestVerifyCMSRejectsDataForAttachedSignature(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSRequiresDataForDetachedSignatureBeforeNativeCall(t *testing.T) {
+func TestVerifyCMSRequiresDetachedData(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Fatal("VerifyCMS called native VerifyData without detached data")
@@ -482,7 +470,7 @@ func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
 	}
 	client := &Client{library: native}
 
-	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("detached cms")),
 		Data:      Bytes([]byte{}),
 		Detached:  true,
@@ -490,12 +478,9 @@ func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyCMS returned error: %v", err)
 	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification returns no error")
-	}
 }
 
-func TestVerifyCMSRejectsNegativeSignerIDBeforeNativeCall(t *testing.T) {
+func TestVerifyCMSRejectsNegativeSignerID(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Fatal("VerifyCMS called native VerifyData for negative SignerID")
@@ -513,7 +498,7 @@ func TestVerifyCMSRejectsNegativeSignerIDBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSRejectsOverflowingSignerIDBeforeNativeCall(t *testing.T) {
+func TestVerifyCMSRejectsSignerIDOverflow(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Fatal("VerifyCMS called native VerifyData for overflowing SignerID")
@@ -531,7 +516,7 @@ func TestVerifyCMSRejectsOverflowingSignerIDBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSAllowsMaxSignerID(t *testing.T) {
+func TestVerifyCMSAcceptsMaxSignerID(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			if req.CertID != maxSignerID {
@@ -552,7 +537,7 @@ func TestVerifyCMSAllowsMaxSignerID(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSPreprocessingDoesNotWaitForBusyNativeLock(t *testing.T) {
+func TestVerifyCMSValidatesBeforeNativeLock(t *testing.T) {
 	enteredHash := make(chan struct{})
 	releaseHash := make(chan struct{})
 	native := &fakeNative{

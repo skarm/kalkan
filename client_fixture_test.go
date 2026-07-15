@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestClientFixtures(t *testing.T) {
+func TestClientFixtureOperations(t *testing.T) {
 	ctx := context.Background()
 	assets := loadFixtureAssets(t)
 	client := openFixtureClient(t, assets)
@@ -232,8 +232,8 @@ func assertCertificateValidation(t *testing.T, ctx context.Context, client *Clie
 		Mode:                 CertificateValidationNone,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
-	if err == nil && !certValidation.Valid {
-		t.Fatal("ValidateCertificate(root cert) returned invalid result")
+	if err == nil && certValidation == nil {
+		t.Fatal("ValidateCertificate(root cert) returned a nil result")
 	}
 	if err != nil {
 		requireKalkanError(t, "ValidateCertificate(root cert)", err)
@@ -257,8 +257,8 @@ func assertCertificateValidation(t *testing.T, ctx context.Context, client *Clie
 				Mode:                 CertificateValidationNone,
 				CertificateTimeCheck: SkipCertificateTimeCheck,
 			})
-			if err == nil && !validation.Valid {
-				t.Fatalf("ValidateCertificate(%s) returned invalid result", test.name)
+			if err == nil && validation == nil {
+				t.Fatalf("ValidateCertificate(%s) returned a nil result", test.name)
 			}
 			if err != nil {
 				requireKalkanError(t, "ValidateCertificate("+test.name+")", err)

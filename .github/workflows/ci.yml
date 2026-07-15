@@ -66,6 +66,41 @@ jobs:
       - name: Race tests
         run: go test -race ./...
 
+  fuzz:
+    name: Go fuzz tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fuzz
+        run: |
+          go test -run=^$ -fuzz=^FuzzValidateXMLSOAPBinding$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzValidateXMLStructure$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzNormalizeNativeHTTPURL$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzZIPOutputPlan$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzValidateZIPPath$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzCertificateValidationInput$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzValidateBytesSize$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzOutputCapacityBounds$ -fuzztime=5s ./ckalkan
+
+      - name: Upload fuzz reproducers
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-reproducers
+          path: |
+            testdata/fuzz/**
+            ckalkan/testdata/fuzz/**
+          if-no-files-found: ignore
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
@@ -83,7 +118,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12.2
           args: --config .golangci.yml ./...
 
   vulncheck:
@@ -186,6 +221,7 @@ jobs:
       - test
       - vet
       - race
+      - fuzz
       - lint
       - vulncheck
       - linux
@@ -201,6 +237,7 @@ jobs:
           test_result="${{ needs.test.result }}"
           vet_result="${{ needs.vet.result }}"
           race_result="${{ needs.race.result }}"
+          fuzz_result="${{ needs.fuzz.result }}"
           lint_result="${{ needs.lint.result }}"
           vulncheck_result="${{ needs.vulncheck.result }}"
           linux_result="${{ needs.linux.result }}"
@@ -209,6 +246,7 @@ jobs:
           echo "Go tests: ${test_result}"
           echo "Go vet: ${vet_result}"
           echo "Go race tests: ${race_result}"
+          echo "Go fuzz tests: ${fuzz_result}"
           echo "golangci-lint: ${lint_result}"
           echo "govulncheck: ${vulncheck_result}"
           echo "Linux KalkanCrypto SDK: ${linux_result}"
@@ -226,6 +264,11 @@ jobs:
 
           if [[ "${race_result}" != "success" ]]; then
             echo "::error::Go race tests failed: ${race_result}"
+            exit 1
+          fi
+
+          if [[ "${fuzz_result}" != "success" ]]; then
+            echo "::error::Go fuzz tests failed: ${fuzz_result}"
             exit 1
           fi
 

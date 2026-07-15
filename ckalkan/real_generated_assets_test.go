@@ -13,7 +13,7 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptGeneratedCertificateFlow(t *testing.T) {
+func TestGeneratedCertificateAPI(t *testing.T) {
 	fixture := generatePKCS12Fixture(t)
 	client := newRealClient(t)
 
@@ -72,7 +72,7 @@ func TestRealKalkanCryptGeneratedCertificateFlow(t *testing.T) {
 	requireKalkanError(t, "X509ValidateCertificate", err)
 }
 
-func TestRealKalkanCryptGeneratedPKCS12CMSFlow(t *testing.T) {
+func TestGeneratedPKCS12CMS(t *testing.T) {
 	fixture := generatePKCS12Fixture(t)
 	client := newRealClient(t)
 
@@ -151,7 +151,7 @@ func TestRealKalkanCryptGeneratedPKCS12CMSFlow(t *testing.T) {
 	_ = certFromCMS
 }
 
-func TestRealKalkanCryptGeneratedXMLAndWSSEFlow(t *testing.T) {
+func TestGeneratedXMLAndWSSE(t *testing.T) {
 	fixture := generatePKCS12Fixture(t)
 	client := newRealClient(t)
 	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixture.Password, fixture.P12Path, fixture.Alias); err != nil {
@@ -207,7 +207,7 @@ func TestRealKalkanCryptGeneratedXMLAndWSSEFlow(t *testing.T) {
 	requireContains(t, "WSSE signature", wsse, "ds:Signature")
 }
 
-func TestRealKalkanCryptGeneratedZipFlow(t *testing.T) {
+func TestGeneratedZIP(t *testing.T) {
 	fixture := generatePKCS12Fixture(t)
 	client := newRealClient(t)
 	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixture.Password, fixture.P12Path, fixture.Alias); err != nil {

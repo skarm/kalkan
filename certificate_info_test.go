@@ -126,7 +126,7 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	}
 }
 
-func TestX509CertificateGetInfoFieldsFetchesOnlyRequestedProperties(t *testing.T) {
+func TestX509CertificateGetInfoFieldsSelectsProperties(t *testing.T) {
 	der := testCertificateDER(t, "subject-from-cert")
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
@@ -538,7 +538,7 @@ func TestX509CertificateGetInfoFieldsOptionalSubjectProps(t *testing.T) {
 	}
 }
 
-func TestX509CertificateGetInfoReturnsRequiredPropertyErrors(t *testing.T) {
+func TestX509CertificateGetInfoReturnsRequiredErrors(t *testing.T) {
 	der := testCertificateDER(t, "subject-from-cert")
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
@@ -588,7 +588,7 @@ func TestX509CertificateGetInfoReturnsRequiredPropertyErrors(t *testing.T) {
 	}
 }
 
-func TestX509CertificateGetInfoIgnoresOptionalPropertyErrors(t *testing.T) {
+func TestX509CertificateGetInfoIgnoresOptionalErrors(t *testing.T) {
 	der := testCertificateDER(t, "subject-from-cert")
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {

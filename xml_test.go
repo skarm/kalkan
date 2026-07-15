@@ -40,7 +40,7 @@ func TestSignXMLUsesRequestedCanonicalization(t *testing.T) {
 	}
 }
 
-func TestSignXMLReturnsNativeOutputWithoutExtraClone(t *testing.T) {
+func TestSignXMLDoesNotCopyOutput(t *testing.T) {
 	signedXML := []byte("<signed/>")
 	client := &Client{library: &fakeNative{
 		signXMLFunc: func(ckalkan.SignXMLRequest) ([]byte, error) {
@@ -84,116 +84,7 @@ func TestVerifyXMLUsesRequestedCanonicalization(t *testing.T) {
 	}
 }
 
-func TestVerifyXMLWithExpectedBodyIDRequiresSignedReferenceToBody(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-
-	verification, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(validSignedSOAP("#TheBody", ""))),
-		ExpectedBodyID: "TheBody",
-	})
-	if err != nil {
-		t.Fatalf("VerifyXML returned error: %v", err)
-	}
-	if !verification.Valid {
-		t.Fatal("verification should be valid when native verification and SOAP Body binding both pass")
-	}
-}
-
-func TestVerifyXMLWithExpectedBodyIDRejectsReferenceToDifferentNode(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(validSignedSOAP("#OtherBody", ""))),
-		ExpectedBodyID: "TheBody",
-	})
-	if err == nil || !strings.Contains(err.Error(), `Reference URI="#TheBody"`) {
-		t.Fatalf("VerifyXML error = %v, want missing expected Reference URI rejection", err)
-	}
-}
-
-func TestVerifyXMLWithExpectedBodyIDRejectsReferenceOutsideSignedInfo(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-	xml := validSignedSOAP("#OtherNode", "")
-	xml = strings.Replace(xml, "</soap:Header>", `<ds:Reference URI="#TheBody"/></soap:Header>`, 1)
-
-	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(xml)),
-		ExpectedBodyID: "TheBody",
-	})
-	if err == nil || !strings.Contains(err.Error(), `Reference URI="#TheBody"`) {
-		t.Fatalf("VerifyXML error = %v, want expected Reference inside SignedInfo rejection", err)
-	}
-}
-
-func TestVerifyXMLWithExpectedBodyIDRejectsMultipleSignatures(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-	xml := validSignedSOAP("#TheBody", "")
-	xml = strings.Replace(xml, "</soap:Header>", `<ds:Signature><ds:SignedInfo><ds:Reference URI="#TheBody"/></ds:SignedInfo></ds:Signature></soap:Header>`, 1)
-
-	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(xml)),
-		ExpectedBodyID: "TheBody",
-	})
-	if err == nil || !strings.Contains(err.Error(), "exactly one ds:Signature") {
-		t.Fatalf("VerifyXML error = %v, want multiple signature rejection", err)
-	}
-}
-
-func TestVerifyXMLWithExpectedBodyIDRejectsExtraSOAPBody(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(validSignedSOAP("#TheBody", `<soap:Body wsu:Id="InjectedBody"><payload>evil</payload></soap:Body>`))),
-		ExpectedBodyID: "TheBody",
-	})
-	if err == nil || !strings.Contains(err.Error(), "exactly one SOAP Body") {
-		t.Fatalf("VerifyXML error = %v, want duplicate SOAP Body rejection", err)
-	}
-}
-
-func TestVerifyXMLWithExpectedBodyIDRejectsDuplicateWSUID(t *testing.T) {
-	native := &fakeNative{
-		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			return "Verify - OK", nil
-		},
-	}
-	client := &Client{library: native}
-
-	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
-		XML:            Bytes([]byte(validSignedSOAP("#TheBody", `<extra wsu:Id="TheBody"/>`))),
-		ExpectedBodyID: "TheBody",
-	})
-	if err == nil || !strings.Contains(err.Error(), "unique wsu:Id") {
-		t.Fatalf("VerifyXML error = %v, want duplicate wsu:Id rejection", err)
-	}
-}
-
-func TestBundledXMLExampleCoversRealisticUTF8Document(t *testing.T) {
+func TestBundledXMLExample(t *testing.T) {
 	data, err := os.ReadFile("testdata/examples/test_xml.xml")
 	if err != nil {
 		t.Fatalf("read bundled XML example: %v", err)
@@ -281,7 +172,7 @@ func TestSignWSSEWrapsSOAPBodyWhenRequested(t *testing.T) {
 	}
 }
 
-func TestSignWSSEReturnsNativeOutputWithoutExtraClone(t *testing.T) {
+func TestSignWSSEDoesNotCopyOutput(t *testing.T) {
 	signedWSSE := []byte("<signed-wsse/>")
 	client := &Client{library: &fakeNative{
 		signWSSEFunc: func(ckalkan.SignWSSERequest) ([]byte, error) {
@@ -301,7 +192,7 @@ func TestSignWSSEReturnsNativeOutputWithoutExtraClone(t *testing.T) {
 	}
 }
 
-func TestSignWSSEWithSOAPWrappingRejectsInvalidPayloadsBeforeNativeCall(t *testing.T) {
+func TestSignWSSERejectsInvalidWrappedPayload(t *testing.T) {
 	tests := []struct {
 		name    string
 		bodyID  string
@@ -460,7 +351,7 @@ func TestSignWSSEUsesRequestedCanonicalization(t *testing.T) {
 	}
 }
 
-func TestSignWSSEWithoutSOAPWrappingRejectsInvalidBodyIDBeforeNativeCall(t *testing.T) {
+func TestSignWSSERejectsInvalidBodyID(t *testing.T) {
 	native := &fakeNative{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			t.Fatal("SignWSSE called native SignWSSE with invalid BodyID and WrapSOAP=false")
@@ -532,7 +423,7 @@ func TestSignXMLRejectsFileSource(t *testing.T) {
 	}
 }
 
-func TestXMLMethodsRejectMissingSourceBeforeNativeCall(t *testing.T) {
+func TestXMLMethodsRequireSource(t *testing.T) {
 	native := &fakeNative{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 			t.Fatal("SignXML called native SignXML without XML source")
@@ -586,7 +477,7 @@ func TestXMLMethodsRejectMissingSourceBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignXMLRejectsEmptyInputBeforeNativeCall(t *testing.T) {
+func TestSignXMLRejectsEmptyInput(t *testing.T) {
 	native := &fakeNative{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 			t.Fatal("SignXML called native SignXML for empty XML input")
@@ -603,7 +494,7 @@ func TestSignXMLRejectsEmptyInputBeforeNativeCall(t *testing.T) {
 	}
 }
 
-func TestSignXMLRejectsUnsupportedXMLSourceEncodingsBeforeNativeCall(t *testing.T) {
+func TestSignXMLRejectsEncodedSources(t *testing.T) {
 	tests := []struct {
 		name   string
 		source Source
@@ -633,7 +524,7 @@ func TestSignXMLRejectsUnsupportedXMLSourceEncodingsBeforeNativeCall(t *testing.
 	}
 }
 
-func TestSignXMLInvalidInputDoesNotWaitForBusyNativeLock(t *testing.T) {
+func TestSignXMLValidatesBeforeNativeLock(t *testing.T) {
 	enteredHash := make(chan struct{})
 	releaseHash := make(chan struct{})
 	native := &fakeNative{

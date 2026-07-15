@@ -7,7 +7,7 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptABISmoke(t *testing.T) {
+func TestNativeABI(t *testing.T) {
 	cli := newRealClient(t)
 	var err error
 
@@ -56,7 +56,7 @@ func TestRealKalkanCryptABISmoke(t *testing.T) {
 
 	_, err = cli.VerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
 	check("VerifyData", err)
-	if !skipMalformedUVerifyDataSmokeOnWindows(t) {
+	if !skipMalformedUVerifyDataOnWindows(t) {
 		_, err = cli.UVerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
 		check("UVerifyData", err)
 	}

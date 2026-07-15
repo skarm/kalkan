@@ -7,7 +7,7 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
-func TestRealKalkanCryptSmoke(t *testing.T) {
+func TestNativeClientBasics(t *testing.T) {
 	cli := newRealClient(t, ckalkan.WithMaxBufferSize(1024))
 
 	hash, err := cli.HashData(ckalkan.SHA256, 0, []byte("abc"))

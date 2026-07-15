@@ -94,17 +94,15 @@ type CMS struct {
 	Data []byte
 }
 
-// Verification is returned by CMS and XML verification operations.
+// Verification is returned by CMS, XML, and ZIP verification operations.
 type Verification struct {
-	// Valid is always true when err is nil. Invalid signatures are returned as
-	// errors; the field is kept for readability and future compatibility.
-	Valid bool
 	// Info is KalkanCrypt's native verification information string.
 	Info string
-	// Data contains attached CMS payload data when KalkanCrypt returns it.
+	// Data contains attached CMS payload data when KalkanCrypt returns it. XML
+	// and ZIP verification leave it empty.
 	Data []byte
 	// SignerCert contains the selected signer certificate when KalkanCrypt
-	// returns it.
+	// returns it. XML and ZIP verification leave it empty.
 	SignerCert []byte
 }
 
@@ -250,7 +248,6 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 	}
 
 	return &Verification{
-		Valid:      true,
 		Info:       result.VerifyInfo,
 		Data:       result.Data,
 		SignerCert: result.Cert,
