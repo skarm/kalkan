@@ -1,273 +1,192 @@
-# kalkan
+# KalkanCrypt for Go
 
-Go API for applications that use the native KalkanCrypt SDK and the national
-cryptographic standards of the Republic of Kazakhstan.
+[Русская версия](README_RU.md)
 
-## Packages
+[![CI](https://github.com/skarm/kalkan/actions/workflows/ci.yml/badge.svg)](https://github.com/skarm/kalkan/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/skarm/kalkan.svg)](https://pkg.go.dev/github.com/skarm/kalkan)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 
-Application code should normally use the root package:
+Go wrapper for KalkanCrypt. The root package exposes typed operations over the lower-level `ckalkan` binding.
 
-```go
-import "github.com/skarm/kalkan"
-```
+## Compatibility
 
-It exposes typed operations for CMS, XML, WS-Security, hashing, ZIP containers,
-certificate loading, certificate validation, OCSP, TSA, and proxy settings.
-
-`github.com/skarm/kalkan/ckalkan` is the low-level binding. Use it only when the
-root package does not expose the native operation you need. Direct `ckalkan`
-callers are responsible for native flags, encodings, buffer sizes, ABI limits,
-and process isolation.
-
-`WithListBufferSize` sets the allocation for `KC_GetTokens` and
-`KC_GetCertificatesList`, but the SDK functions do not receive its capacity and
-cannot enforce that bound.
-
-## Supported platforms
-
-The KalkanCrypt SDK and native libraries are not stored in this repository. Pass
-the SDK library path explicitly with `kalkan.WithLibraryPath`.
-
-Supported targets:
-
+- Go 1.26+
 - `linux/amd64` with `CGO_ENABLED=1`
 - `windows/amd64`
 
-Unsupported targets:
+Native CI exercises `libkalkancryptwr-64.so.2.0.13`.
 
-- Windows x86 / `GOARCH=386`
-- Linux with `CGO_ENABLED=0`
-- Other operating systems
+`windows/386`, Linux with `CGO_ENABLED=0`, and other targets compile against the unsupported driver and return `ErrUnavailable`.
 
-`WithLibraryPath` requires an absolute KalkanCrypt library path.
-
-On Windows, `LoadLibraryExW` searches the target DLL directory and the default
-application, user-added, and System32 directories. It excludes the current
-working directory and `PATH`.
-
-On Windows, use the x64 KalkanCrypt DLL. The Windows driver passes narrow
-`char*` strings as UTF-8 bytes plus a terminating NUL; run the real-DLL smoke
-tests against the exact DLL you deploy if paths, aliases, or passwords contain
-non-ASCII characters.
+Obtain the SDK from the [NCA RK developer portal](https://pki.gov.kz/en/to-developers/). `WithLibraryPath` requires an absolute path to the x64 `.so` or DLL.
 
 ## Install
 
 ```sh
-go get github.com/skarm/kalkan
+go get github.com/skarm/kalkan@latest
 ```
 
-## Open a client
+## Packages
 
-`Open` initializes KalkanCrypt inside the current process. All native calls share
-KalkanCrypt process-global state.
+- [`github.com/skarm/kalkan`](https://pkg.go.dev/github.com/skarm/kalkan): typed CMS, XML, WS-Security, hashing, ZIP, certificate, OCSP/TSA, proxy, and logging APIs
+- [`github.com/skarm/kalkan/ckalkan`](https://pkg.go.dev/github.com/skarm/kalkan/ckalkan): ABI-level binding with native flags, encodings, and buffer controls
+
+Use `ckalkan` when the root package does not expose the required operation. Use it to build a custom high-level layer over KalkanCrypt with its own request types, validation, buffer policies, logging, or error mapping.
+
+`ckalkan` closely mirrors the native API. Calling code owns native flags, encodings, buffer sizing, and status-code handling; it must also account for client lifecycle, ABI constraints, and any required process isolation.
+
+### Low-level output buffers
+
+The `ckalkan` buffer options cover two ABI shapes:
+
+- `WithListBufferSize` sets the initial allocation for `KC_GetTokens` and `KC_GetCertificatesList`; the default is 1 MiB. In the tested Linux SDK 2.0.13, these functions receive no byte-capacity argument, and `tk_count` and `cert_count` are output item counts. The option controls allocation size but does not bound the native write.
+- `WithBufferSize` sets the global initial capacity for length-aware output calls when a request does not specify its own capacity. Without this option, operation-specific defaults are 128 bytes for hashes, 4 KiB for metadata, 8 KiB for certificates, and 64 KiB for signatures and generic outputs. These calls initialize an output-length parameter with the capacity and retry after `KCR_BUFFER_TOO_SMALL`.
+- `WithMaxBufferSize` caps initial allocations and retry growth; the default is 64 MiB. For the two list calls, it caps only the allocation; the SDK still receives no byte-capacity bound.
+
+Positive values passed to these options are normalized to at least 64 KiB.
+
+## Client usage
 
 ```go
-ctx := context.Background()
+import (
+	"context"
+	"errors"
+	"os"
 
-client, err := kalkan.Open(ctx,
-	kalkan.WithLibraryPath("/opt/kalkan/libkalkancryptwr-64.so"),
-	kalkan.WithEnvironment(kalkan.TestEnvironment),
+	"github.com/skarm/kalkan"
 )
-if err != nil {
-	return err
-}
-defer client.Close()
 
-err = client.LoadKeyStore(ctx, kalkan.KeyStore{
-	Type:     kalkan.PKCS12,
-	Path:     "/secure/keys/signing.p12",
-	Password: os.Getenv("KALKAN_KEY_PASSWORD"),
-})
-if err != nil {
-	return err
+func hash(ctx context.Context) (digest *kalkan.Digest, err error) {
+	client, err := kalkan.Open(ctx,
+		kalkan.WithLibraryPath(os.Getenv("KALKANCRYPT_LIBRARY")),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, client.Close())
+	}()
+
+	return client.Hash(ctx, kalkan.HashRequest{
+		Algorithm: kalkan.GOST2015_512,
+		Data:      kalkan.Bytes([]byte("document payload")),
+	})
 }
 ```
+
+`Open` configures these production endpoints by default:
+
+- TSA: `http://tsp.pki.gov.kz:80`
+- OCSP: `http://ocsp.pki.gov.kz`
+
+The corresponding test endpoints are:
+
+- TSA: `http://test.pki.gov.kz/tsp/`
+- OCSP: `http://test.pki.gov.kz/ocsp/`
+
+Configure the test pair explicitly when required:
+
+```go
+client, err := kalkan.Open(ctx,
+	kalkan.WithLibraryPath(os.Getenv("KALKANCRYPT_LIBRARY")),
+	kalkan.WithTSAURL("http://test.pki.gov.kz/tsp/"),
+	kalkan.WithOCSPURL("http://test.pki.gov.kz/ocsp/"),
+)
+```
+
+`WithTSAURL` and `WithOCSPURL` can be set independently. Signing operations require `LoadKeyStore`; see the [package examples](example_test.go).
 
 ## Runtime model
 
-`context.Context` can cancel a wait for the process lock. It cannot interrupt an
-active KalkanCrypt call.
+KalkanCrypt state is process-global. Native calls are serialized. `context.Context` cancels lock acquisition but cannot interrupt a call after control enters KalkanCrypt.
 
-`Client.Close()` is the blocking close variant. It can wait forever if another
-goroutine is stuck inside a native KalkanCrypt call. For service shutdown paths,
-use `Client.CloseContext(ctx)`: it returns `ctx.Err()` when the caller stops
-waiting, while the client remains in closing state and rejects new operations.
+`Client.Close()` waits for the active call and can block indefinitely. `Client.CloseContext(ctx)` stops the caller’s wait on `ctx.Err()`, leaves the client in closing state, and rejects new operations. Enforce hard native-call deadlines with process isolation.
 
-Hard native-call deadlines require a separate process.
+On Windows, `LoadLibraryExW` uses `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`. The current working directory and `PATH` are excluded. Narrow `char*` arguments are encoded as UTF-8 with a terminating NUL.
 
-## Sources and limits
+## Inputs and bounds
 
-Operations accept `Source` values:
+Operations use `Source` values:
 
-- `kalkan.Bytes`: raw in-memory data
-- `kalkan.Base64`: base64 text
-- `kalkan.PEM`: PEM text
-- `kalkan.DER`: DER binary data
-- `kalkan.File`: a path passed to KalkanCrypt
+- `kalkan.Bytes(data)`: raw in-memory bytes for payloads, XML, or already-decoded binary data; the operation selects the field-specific native flags
+- `kalkan.Base64(data)`: in-memory input that already contains Base64 text; the constructor does not encode `data`
+- `kalkan.PEM(data)`: an existing PEM representation; the constructor does not create the PEM envelope
+- `kalkan.DER(data)`: an existing DER representation, used to select DER explicitly for CMS and certificate inputs
+- `kalkan.File(path)`: a path forwarded to KalkanCrypt by operations that support `KC_IN_FILE`
 
-`File` passes the original path after empty-path and NUL validation. KalkanCrypt
-reports other path errors. Keep the referenced file unchanged until the
-operation returns.
+Supported variants are operation-specific.
 
-In-memory source constructors retain the provided byte slice. Do not mutate it
-until the operation returns.
+The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. `File` forwards the original path after empty-path and NUL validation. Keep borrowed slices and referenced files unchanged until the call returns.
 
-`WithMaxInputSize` caps high-level in-memory inputs before native calls. It does
-not apply to file sources or native output buffers.
+`WithMaxInputSize` caps high-level in-memory inputs. It does not apply to file sources or native output buffers. `WithMaxOutputBufferSize` caps output allocation and retry growth and is forwarded to `ckalkan.WithMaxBufferSize`.
 
-`WithMaxOutputBufferSize` sets the high-level cap for native output buffer retry
-logic and is forwarded to `ckalkan.WithMaxBufferSize`.
+`KeyStore.Password` and `Proxy.Password` are strings. Go memory, KalkanCrypt state, and SDK-internal copies cannot be zeroized by this package.
 
-## CMS and hash signing
+## CMS and digest signing
 
-CMS signing returns raw DER by default. Use `CMSOutputBase64` or `CMSOutputPEM`
-when text output is required.
+CMS output is raw DER by default. Select `CMSOutputBase64` or `CMSOutputPEM` for text output.
 
-`SignHashRequest.Digest` is an already calculated digest, not the original
-payload. Set `SignHashRequest.DigestAlgorithm` to the algorithm that produced
-the digest. The zero value is `SHA256`; GOST R 34.11-2015 512-bit digests must
-use `GOST2015_512`.
-
-```go
-digest, err := client.Hash(ctx, kalkan.HashRequest{
-	Algorithm: kalkan.GOST2015_512,
-	Data:      kalkan.Bytes(payload),
-})
-if err != nil {
-	return err
-}
-
-cms, err := client.SignHash(ctx, kalkan.SignHashRequest{
-	Digest:          digest.Data,
-	DigestAlgorithm: digest.Algorithm,
-	OutputFormat:    kalkan.CMSOutputDER,
-})
-```
+`SignHashRequest.Digest` is the precomputed digest. `DigestAlgorithm` must match the digest algorithm; its zero value is `SHA256`. Use `GOST2015_512` for GOST R 34.11-2015 512-bit digests.
 
 ## XML and WS-Security
 
-`VerifyXML` delegates signature verification to KalkanCrypt. SOAP 1.1 and SOAP
-1.2 require `ExpectedBodyID`. Before the native call, the wrapper requires:
+`VerifyXML` delegates cryptographic verification to KalkanCrypt. For SOAP 1.1 and SOAP 1.2, `ExpectedBodyID` is required and the wrapper enforces:
 
-- one `ds:Signature`
-- one `ds:SignedInfo` that is a direct child of the signature
-- one SOAP Body with the expected `wsu:Id`
-- one direct reference from `ds:SignedInfo` to `#ExpectedBodyID`
-- no duplicate `wsu:Id`, `xml:id`, `Id`, or `ID` with the same value
+- exactly one `ds:Signature`
+- exactly one direct-child `ds:SignedInfo`
+- exactly one SOAP Body that is a direct child of the Envelope and has the expected `wsu:Id`
+- a direct `ds:Reference` to `#ExpectedBodyID`
+- no duplicate matching `wsu:Id`, `xml:id`, `Id`, or `ID`
 
-Additional direct references may cover other WS-Security data. SOAP input must
-be UTF-8. Non-SOAP UTF-8 XML is passed to KalkanCrypt unchanged. A declared
-ASCII-compatible encoding is also accepted when the prolog and root tag use
-ASCII; other encodings are rejected.
+XML operations accept `kalkan.Bytes`; file and pre-encoded sources are rejected.
+
+Additional direct references may cover other WS-Security nodes. SOAP input must be UTF-8. Non-SOAP XML accepts UTF-8 or an ASCII-compatible declared encoding when the prolog and root tag are ASCII.
 
 ## Certificate validation
 
-`ValidateCertificateRequest.Mode` must be explicit:
+`ValidateCertificateRequest.Mode` must be one of `CertificateValidationOCSP`, `CertificateValidationCRL`, or `CertificateValidationNone`. The zero value is invalid. `CertificateValidationNone` explicitly disables external revocation checks.
 
-- `CertificateValidationOCSP`
-- `CertificateValidationCRL`
-- `CertificateValidationNone`
+Certificate input supports DER, PEM, and base64; `kalkan.File` is rejected. PEM input must contain exactly one `CERTIFICATE` block. `RevocationSource` is a CRL path in CRL mode and an OCSP URL override in OCSP mode.
 
-Use `CertificateValidationNone` only as an intentional opt-out from external
-revocation checking.
+`WithOCSPURL` and `WithTSAURL` override the package defaults. URL validation checks syntax but does not restrict the destination.
 
-DER, PEM, and base64 certificate sources are supported. PEM input must contain
-exactly one `CERTIFICATE` block. CRL `RevocationSource` paths are checked for
-embedded NUL bytes and then passed directly to KalkanCrypt.
-
-The built-in production and test OCSP/TSA defaults use HTTP endpoints from the
-KalkanCrypt ecosystem. `WithOCSPURL` and `WithTSAURL` replace those defaults.
-For one validation request, `RevocationSource` supplies the CRL path or overrides
-the OCSP URL. The package validates URL syntax but does not restrict the
-destination.
-
-For certificate metadata hot paths, prefer `X509CertificateGetInfoFields` over
-`X509CertificateGetInfo` so only required native properties are fetched.
-`CertificateInfo` includes Kazakhstan-oriented `IIN`, `BIN`, subject type, and
-recognized NCA roles when the relevant subject and policy fields are requested.
+Use `X509CertificateGetInfoFields` on metadata hot paths. `CertificateInfo` exposes IIN, BIN, subject type, and recognized NCA roles when the corresponding fields are requested.
 
 ## ZIP containers
 
-`SignZIPRequest.OutputPath` must end with `.zip`, case-insensitively. KalkanCrypt
-creates the output file inside the native library. The wrapper rejects existing
-requested/normalized output paths before the native call and checks the created
-file after the call, but it cannot make native file creation atomic.
+`SignZIPRequest.OutputPath` must end with `.zip`, case-insensitively. Existing requested and normalized output paths are rejected before the native call. KalkanCrypt creates the file without an atomic create-if-absent guarantee.
 
-```go
-signed, err := client.SignZIP(ctx, kalkan.SignZIPRequest{
-	InputPath:  inputPath,
-	OutputPath: outputPath,
-})
-```
+ZIP input paths are forwarded after empty-path and NUL validation. Keep the files unchanged until each operation returns.
 
-`SignZIPRequest.InputPath`, `VerifyZIPRequest.Path`, and
-`ExtractZIPSignerCertificateRequest.Path` are passed unchanged after empty-path
-and NUL validation. Keep the referenced files unchanged until each call returns.
+`VerifyZIP` and `ExtractZIPSignerCertificate` are independent. Certificate extraction does not verify the ZIP signature. Call `VerifyZIP` first when both results are required.
 
-`VerifyZIP` and `ExtractZIPSignerCertificate` are independent. Certificate
-extraction does not verify the signature. If both results are needed, call
-`VerifyZIP` first and keep the file unchanged between calls.
-
-The split API removes `VerifyZIPRequest.SignerID` and
-`VerifyZIPRequest.ReturnSignerCertificate`; `VerifyZIP` does not extract a
-certificate.
-
-## Secrets
-
-`KeyStore.Password` and `Proxy.Password` are strings. Go strings, native SDK
-state, and SDK-internal copies cannot be zeroized by this package.
-
-## Tests
-
-Run unit tests:
-
-```sh
-make test
-```
-
-Run vet and race tests:
-
-```sh
-make vet
-make test-race
-```
-
-Run the full local check:
+## Checks
 
 ```sh
 make check
 ```
 
-GitHub CI separates public checks from native SDK checks. Public checks run
-`go test ./...`, `go vet ./...`, `go test -race ./...`, golangci-lint,
-`govulncheck -show verbose ./...`, and Windows pure-Go tests. The Linux native
-SDK job requires the `KCSDK_TOKEN` secret for same-repository runs; fork pull
-requests may skip it because secrets are unavailable.
-
-Run real-native tests when the SDK is installed:
-
 ```sh
-KALKANCRYPT_LIBRARY=/path/to/libkalkancryptwr-64.so \
-KALKANCRYPT_SDK_ASSETS=/path/to/testdata \
-LD_LIBRARY_PATH=/path/to/sdk/libs \
+KALKANCRYPT_LIBRARY=/opt/kalkan/lib/libkalkancryptwr-64.so \
+KALKANCRYPT_SDK_ASSETS=./testdata \
+LD_LIBRARY_PATH=/opt/kalkan/lib \
 make test-native
 ```
 
-Run the Linux Docker test build:
+`make docker-test` expects the Linux SDK libraries under `.local/kalkancrypt/lib/linux/`.
 
-```sh
-make docker-test
-```
-
-Run golangci-lint in the Linux container:
-
-```sh
-make docker-lint
-```
-
-Run Windows tests on `windows/amd64` with the x64 DLL:
+On Windows:
 
 ```powershell
 $env:KALKANCRYPT_LIBRARY = "C:\KalkanCrypt\KalkanCrypt.dll"
 go test ./...
 ```
+
+## Project policies
+
+- [Contributing](.github/CONTRIBUTING.md)
+- [Security policy](.github/SECURITY.md)
+- [Code of Conduct](.github/CODE_OF_CONDUCT.md)
+- [MIT License](LICENSE.md)
+
+The repository license does not grant rights to KalkanCrypt SDK binaries.
