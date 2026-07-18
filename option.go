@@ -6,21 +6,9 @@ import (
 	"path/filepath"
 )
 
-// Environment selects default KalkanCrypt network endpoints.
-type Environment int
-
 const (
-	// ProductionEnvironment configures production network defaults.
-	ProductionEnvironment Environment = iota
-	// TestEnvironment configures test network defaults.
-	TestEnvironment
-)
-
-const (
-	defaultProductionTSA  = "http://tsp.pki.gov.kz:80"
-	defaultProductionOCSP = "http://ocsp.pki.gov.kz"
-	defaultTestTSA        = "http://test.pki.gov.kz/tsp/"
-	defaultTestOCSP       = "http://test.pki.gov.kz/ocsp/"
+	defaultTSAURL  = "http://tsp.pki.gov.kz:80"
+	defaultOCSPURL = "http://ocsp.pki.gov.kz"
 )
 
 type runtimeConfig struct {
@@ -30,11 +18,8 @@ type runtimeConfig struct {
 
 type config struct {
 	libraryPath         string
-	environment         Environment
 	tsaURL              string
-	tsaURLSet           bool
 	ocspURL             string
-	ocspURLSet          bool
 	proxy               *Proxy
 	trusted             []TrustedCertificate
 	maxInputSize        int64
@@ -52,18 +37,10 @@ func WithLibraryPath(path string) Option {
 	}
 }
 
-// WithEnvironment selects production or test endpoint defaults.
-func WithEnvironment(environment Environment) Option {
-	return func(c *config) {
-		c.environment = environment
-	}
-}
-
 // WithTSAURL overrides the timestamp authority endpoint.
 func WithTSAURL(url string) Option {
 	return func(c *config) {
 		c.tsaURL = url
-		c.tsaURLSet = true
 	}
 }
 
@@ -72,7 +49,6 @@ func WithTSAURL(url string) Option {
 func WithOCSPURL(url string) Option {
 	return func(c *config) {
 		c.ocspURL = url
-		c.ocspURLSet = true
 	}
 }
 
@@ -124,7 +100,8 @@ func WithLogger(logger *slog.Logger) Option {
 
 func defaultOpenConfig() config {
 	return config{
-		environment: ProductionEnvironment,
+		tsaURL:  defaultTSAURL,
+		ocspURL: defaultOCSPURL,
 	}
 }
 
@@ -144,29 +121,19 @@ func (c *config) validate() error {
 
 	c.libraryPath = libraryPath
 
-	switch c.environment {
-	case ProductionEnvironment, TestEnvironment:
-	default:
-		return fmt.Errorf("%w: unknown environment %d", ErrInvalidInput, c.environment)
+	tsaURL, err := normalizeNativeHTTPURL("TSA URL", c.tsaURL)
+	if err != nil {
+		return err
 	}
 
-	if c.tsaURLSet {
-		u, err := normalizeNativeHTTPURL("TSA URL", c.tsaURL)
-		if err != nil {
-			return err
-		}
+	c.tsaURL = tsaURL
 
-		c.tsaURL = u
+	ocspURL, err := normalizeNativeHTTPURL("OCSP URL", c.ocspURL)
+	if err != nil {
+		return err
 	}
 
-	if c.ocspURLSet {
-		u, err := normalizeNativeHTTPURL("OCSP URL", c.ocspURL)
-		if err != nil {
-			return err
-		}
-
-		c.ocspURL = u
-	}
+	c.ocspURL = ocspURL
 
 	if c.proxy != nil {
 		if err := c.proxy.validate(); err != nil {
@@ -175,27 +142,6 @@ func (c *config) validate() error {
 	}
 
 	return nil
-}
-
-func (c *config) applyEnvironmentDefaults() {
-	switch c.environment {
-	case TestEnvironment:
-		if c.tsaURL == "" {
-			c.tsaURL = defaultTestTSA
-		}
-
-		if c.ocspURL == "" {
-			c.ocspURL = defaultTestOCSP
-		}
-	default:
-		if c.tsaURL == "" {
-			c.tsaURL = defaultProductionTSA
-		}
-
-		if c.ocspURL == "" {
-			c.ocspURL = defaultProductionOCSP
-		}
-	}
 }
 
 func (c config) runtime() runtimeConfig {

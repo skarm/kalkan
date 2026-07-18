@@ -284,8 +284,6 @@ func openWithLibraryFactory(ctx context.Context, options []Option, factory libra
 		return nil, err
 	}
 
-	cfg.applyEnvironmentDefaults()
-
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

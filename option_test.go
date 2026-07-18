@@ -12,20 +12,55 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestOpenRejectsUnknownEnvironment(t *testing.T) {
-	_, err := Open(context.Background(),
-		WithLibraryPath(testLibraryPath()),
-		WithEnvironment(Environment(99)),
-	)
-	if err == nil || !strings.Contains(err.Error(), "unknown environment 99") {
-		t.Fatalf("Open error = %v, want unknown environment error", err)
-	}
-}
-
 func TestOpenRequiresLibraryPath(t *testing.T) {
 	_, err := Open(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "library path is required") {
 		t.Fatalf("Open error = %v, want required library path error", err)
+	}
+}
+
+func TestOpenUsesDefaultNetworkURLs(t *testing.T) {
+	var sawTSA bool
+	native := &fakeNative{
+		setTSAURLFunc: func(tsaURL string) error {
+			sawTSA = true
+			if tsaURL != defaultTSAURL {
+				t.Fatalf("TSA URL = %q, want default %q", tsaURL, defaultTSAURL)
+			}
+			return nil
+		},
+		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+			if req.ValidationPath != defaultOCSPURL {
+				t.Fatalf("OCSP URL = %q, want default %q", req.ValidationPath, defaultOCSPURL)
+			}
+			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
+		},
+	}
+
+	client, err := openWithLibraryFactory(context.Background(), []Option{
+		WithLibraryPath(testLibraryPath()),
+	}, func(config) (closer, error) {
+		return native, nil
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+
+	if !sawTSA {
+		t.Fatal("Open did not configure the default TSA URL")
+	}
+
+	_, err = client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
+		Certificate: Bytes([]byte("cert")),
+		Mode:        CertificateValidationOCSP,
+	})
+	if err != nil {
+		t.Fatalf("ValidateCertificate returned error: %v", err)
 	}
 }
 

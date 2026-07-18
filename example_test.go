@@ -9,12 +9,18 @@ import (
 	"github.com/skarm/kalkan"
 )
 
+const (
+	testTSAURL  = "http://test.pki.gov.kz/tsp/"
+	testOCSPURL = "http://test.pki.gov.kz/ocsp/"
+)
+
 func ExampleOpen() {
 	ctx := context.Background()
 
 	client, err := kalkan.Open(ctx,
-		kalkan.WithEnvironment(kalkan.TestEnvironment),
 		kalkan.WithLibraryPath("/usr/local/lib/libkalkancryptwr-64.so"),
+		kalkan.WithTSAURL(testTSAURL),
+		kalkan.WithOCSPURL(testOCSPURL),
 		kalkan.WithTrustedCertificate(kalkan.TrustedCertificate{
 			Path: "/etc/kalkan/certs/root.pem",
 			Type: kalkan.CertificateCA,
@@ -246,8 +252,9 @@ func ExampleClient_ValidateCertificate() {
 
 func openExampleClient(ctx context.Context) *kalkan.Client {
 	client, err := kalkan.Open(ctx,
-		kalkan.WithEnvironment(kalkan.TestEnvironment),
 		kalkan.WithLibraryPath("/usr/local/lib/libkalkancryptwr-64.so"),
+		kalkan.WithTSAURL(testTSAURL),
+		kalkan.WithOCSPURL(testOCSPURL),
 	)
 	if err != nil {
 		log.Fatal(err)

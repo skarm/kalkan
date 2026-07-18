@@ -104,16 +104,18 @@ func TestValidateCertificateTrimsOCSPRevocationSource(t *testing.T) {
 	}
 }
 
-func TestValidateCertificateUsesDefaultOCSPURL(t *testing.T) {
+func TestValidateCertificateUsesConfiguredOCSPURL(t *testing.T) {
+	const configuredOCSPURL = "http://ocsp.example.test/"
+
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			if req.ValidationPath != "http://test.pki.gov.kz/ocsp/" {
-				t.Fatalf("revocation source = %q, want test OCSP default", req.ValidationPath)
+			if req.ValidationPath != configuredOCSPURL {
+				t.Fatalf("revocation source = %q, want configured OCSP URL", req.ValidationPath)
 			}
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native, config: runtimeConfig{ocspURL: defaultTestOCSP}}
+	client := &Client{library: native, config: runtimeConfig{ocspURL: configuredOCSPURL}}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: Bytes([]byte("cert-pem")),

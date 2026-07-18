@@ -542,10 +542,9 @@ func TestConfigValidateRejectsInvalidEnabledProxy(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := config{
-				libraryPath: testLibraryPath(),
-				proxy:       &test.proxy,
-			}
+			cfg := defaultOpenConfig()
+			cfg.libraryPath = testLibraryPath()
+			cfg.proxy = &test.proxy
 			err := cfg.validate()
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("config.validate error = %v, want %q", err, test.want)

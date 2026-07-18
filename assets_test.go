@@ -19,6 +19,8 @@ const (
 	fixturePassword  = "Qwerty12"
 	defaultAssetDir  = "testdata"
 	assetEnvironment = "KALKANCRYPT_SDK_ASSETS"
+	testTSAURL       = "http://test.pki.gov.kz/tsp/"
+	testOCSPURL      = "http://test.pki.gov.kz/ocsp/"
 )
 
 type fixtureAssets struct {
@@ -38,7 +40,8 @@ func openFixtureClient(t *testing.T, assets fixtureAssets) *Client {
 
 	client, err := Open(context.Background(),
 		WithLibraryPath(library),
-		WithEnvironment(TestEnvironment),
+		WithTSAURL(testTSAURL),
+		WithOCSPURL(testOCSPURL),
 		WithTrustedCertificate(TrustedCertificate{
 			Path: certificatePath(t, assets, "root_test_gost_2022"),
 			Type: CertificateCA,
