@@ -51,7 +51,7 @@ func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat)
 }
 
 // X509CertificateGetInfo calls X509CertificateGetInfo and returns the requested
-// certificate property as a trimmed native C-string byte slice.
+// textual certificate property up to its native NUL terminator.
 func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, error) {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -68,7 +68,7 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 		return nil, err
 	}
 
-	return trimCStringBytes(out), nil
+	return bytesBeforeNULTerminator(out), nil
 }
 
 // X509ValidateCertificate calls KalkanCrypt and returns validation information
@@ -106,16 +106,27 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 			return ValidateCertificateResult{}, err
 		}
 
+		if result.InfoLen < 0 {
+			return ValidateCertificateResult{}, invalidNativeOutputLength("certificate-validation info", result.InfoLen)
+		}
+
+		if result.OCSPLen < 0 {
+			return ValidateCertificateResult{}, invalidNativeOutputLength("OCSP response", result.OCSPLen)
+		}
+
 		code := ErrorCode(result.Code)
 		if shouldRetryValidateCertificateOutput(code, result, infoCap, ocspCap) {
-			nextInfoCap, infoGrown := growReportedCapacity(infoCap, result.InfoLen, c.config.maxBufferSize)
-			nextOCSPCap, ocspGrown := growReportedCapacity(ocspCap, result.OCSPLen, c.config.maxBufferSize)
-
-			if !infoGrown && !ocspGrown {
-				return ValidateCertificateResult{}, c.wrapCodeLocked(retryErrorCode(code))
+			next, err := nextOutputBufferCapacities(
+				code,
+				c.config.maxBufferSize,
+				outputBufferState{current: infoCap, reported: result.InfoLen, active: true},
+				outputBufferState{current: ocspCap, reported: result.OCSPLen, active: true},
+			)
+			if err != nil {
+				return ValidateCertificateResult{}, err
 			}
 
-			infoCap, ocspCap = nextInfoCap, nextOCSPCap
+			infoCap, ocspCap = next[0], next[1]
 
 			continue
 		}
@@ -124,9 +135,17 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 			return ValidateCertificateResult{}, err
 		}
 
+		if err := validateNativeOutputDataLength("certificate-validation info", result.Info, result.InfoLen); err != nil {
+			return ValidateCertificateResult{}, err
+		}
+
+		if err := validateNativeOutputDataLength("OCSP response", result.OCSP, result.OCSPLen); err != nil {
+			return ValidateCertificateResult{}, err
+		}
+
 		return ValidateCertificateResult{
-			Info:         string(trimCStringBytes(result.Info)),
-			OCSPResponse: result.OCSP,
+			Info:         string(bytesBeforeNULTerminator(result.Info)),
+			OCSPResponse: capacityLimitedBytes(result.OCSP),
 		}, nil
 	}
 }

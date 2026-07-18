@@ -30,7 +30,11 @@ func TestCMSFixtureOperations(t *testing.T) {
 		t.Fatal("VerifyData(CMS fixture) returned empty attached data")
 	}
 
-	certResult, err := ctx.GetCertFromCMS(cms, 0, inPEM, 1<<20)
+	certResult, err := ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{
+		CMS:      cms,
+		Flags:    inPEM,
+		Capacity: 1 << 20,
+	})
 	if err != nil {
 		t.Fatalf("GetCertFromCMS(CMS fixture) returned Go error: %v", err)
 	}

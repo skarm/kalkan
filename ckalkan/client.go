@@ -59,22 +59,21 @@ type x509Context interface {
 }
 
 type hashContext interface {
-	HashData(algorithm string, flags int, data []byte, capacity int) (kalkancrypt.BufferResult, error)
-	SignHash(alias string, flags int, hash []byte, capacity int) (kalkancrypt.BufferResult, error)
+	HashData(call kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error)
+	SignHash(call kalkancrypt.SignHashCall) (kalkancrypt.BufferResult, error)
 }
 
 type cmsContext interface {
-	SignData(alias string, flags int, data, signature []byte, capacity int) (kalkancrypt.BufferResult, error)
+	SignData(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error)
 	VerifyData(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error)
-	UVerifyData(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error)
 	GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64)
-	GetCertFromCMS(cms []byte, signID, flags, capacity int) (kalkancrypt.BufferResult, error)
+	GetCertFromCMS(call kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error)
 }
 
 type xmlContext interface {
 	SignXML(call kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error)
 	SignWSSE(call kalkancrypt.SignWSSECall) (kalkancrypt.BufferResult, error)
-	VerifyXML(alias string, flags int, xml []byte, capacity int) (kalkancrypt.BufferResult, error)
+	VerifyXML(call kalkancrypt.VerifyXMLCall) (kalkancrypt.BufferResult, error)
 	GetCertFromXML(xml []byte, signID, capacity int) (kalkancrypt.BufferResult, error)
 	GetSigAlgFromXML(xml []byte, capacity int) (kalkancrypt.BufferResult, error)
 }
@@ -87,7 +86,7 @@ type networkContext interface {
 type zipContext interface {
 	ZipConVerify(zipFile string, flags, capacity int) (kalkancrypt.BufferResult, error)
 	ZipConSign(call kalkancrypt.ZipConSignCall) uint64
-	GetCertFromZipFile(zipFile string, flags, signID, capacity int) (kalkancrypt.BufferResult, error)
+	GetCertFromZipFile(call kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error)
 }
 
 // processState protects the process-global KalkanCrypt runtime state.

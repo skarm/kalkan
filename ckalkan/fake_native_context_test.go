@@ -7,20 +7,23 @@ type fakeNativeContext struct {
 	clearErrorFunc          func()
 	finalizeFunc            func()
 	getTokensFunc           func(uint64, int) (kalkancrypt.ListResult, error)
-	hashDataFunc            func(string, int, []byte, int) (kalkancrypt.BufferResult, error)
+	getCertificatesListFunc func(int) (kalkancrypt.ListResult, error)
+	hashDataFunc            func(kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error)
 	lastErrorStringFunc     func(int) (kalkancrypt.BufferResult, error)
-	signDataFunc            func(string, int, []byte, []byte, int) (kalkancrypt.BufferResult, error)
+	signHashFunc            func(kalkancrypt.SignHashCall) (kalkancrypt.BufferResult, error)
+	signDataFunc            func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error)
 	signXMLFunc             func(kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error)
 	signWSSEFunc            func(kalkancrypt.SignWSSECall) (kalkancrypt.BufferResult, error)
 	validateCertificateFunc func(kalkancrypt.ValidateCertificateCall) (kalkancrypt.ValidateResult, error)
 	verifyDataFunc          func(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error)
+	verifyXMLFunc           func(kalkancrypt.VerifyXMLCall) (kalkancrypt.BufferResult, error)
 	x509ExportFunc          func(string, int, int) (kalkancrypt.BufferResult, error)
 	x509LoadBufferFunc      func([]byte, int) uint64
 	x509InfoFunc            func([]byte, int, int) (kalkancrypt.BufferResult, error)
 	getCertFromXMLFunc      func([]byte, int, int) (kalkancrypt.BufferResult, error)
 	getTimeFromSigFunc      func([]byte, int, int) (uint64, int64)
-	getCertFromCMSFunc      func([]byte, int, int, int) (kalkancrypt.BufferResult, error)
-	getCertFromZipFileFunc  func(string, int, int, int) (kalkancrypt.BufferResult, error)
+	getCertFromCMSFunc      func(kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error)
+	getCertFromZipFileFunc  func(kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error)
 	getSigAlgFromXMLFunc    func([]byte, int) (kalkancrypt.BufferResult, error)
 	setTSAURLFunc           func(string) uint64
 	xmlFinalizeFunc         func()
@@ -66,7 +69,10 @@ func (f *fakeNativeContext) GetTokens(storage uint64, capacity int) (kalkancrypt
 	}
 	return kalkancrypt.ListResult{Code: uint64(ErrorOK)}, nil
 }
-func (f *fakeNativeContext) GetCertificatesList(int) (kalkancrypt.ListResult, error) {
+func (f *fakeNativeContext) GetCertificatesList(capacity int) (kalkancrypt.ListResult, error) {
+	if f.getCertificatesListFunc != nil {
+		return f.getCertificatesListFunc(capacity)
+	}
 	return kalkancrypt.ListResult{Code: uint64(ErrorOK)}, nil
 }
 func (f *fakeNativeContext) LoadKeyStore(int, string, string, string) uint64 {
@@ -99,18 +105,21 @@ func (f *fakeNativeContext) X509ValidateCertificate(call kalkancrypt.ValidateCer
 	}
 	return kalkancrypt.ValidateResult{Code: uint64(ErrorOK)}, nil
 }
-func (f *fakeNativeContext) HashData(algorithm string, flags int, data []byte, capacity int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) HashData(call kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error) {
 	if f.hashDataFunc != nil {
-		return f.hashDataFunc(algorithm, flags, data, capacity)
+		return f.hashDataFunc(call)
 	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
-func (f *fakeNativeContext) SignHash(string, int, []byte, int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) SignHash(call kalkancrypt.SignHashCall) (kalkancrypt.BufferResult, error) {
+	if f.signHashFunc != nil {
+		return f.signHashFunc(call)
+	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
-func (f *fakeNativeContext) SignData(alias string, flags int, data, signature []byte, capacity int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) SignData(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
 	if f.signDataFunc != nil {
-		return f.signDataFunc(alias, flags, data, signature, capacity)
+		return f.signDataFunc(call)
 	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
@@ -132,10 +141,10 @@ func (f *fakeNativeContext) VerifyData(call kalkancrypt.VerifyDataCall) (kalkanc
 	}
 	return kalkancrypt.VerifyResult{Code: uint64(ErrorOK)}, nil
 }
-func (f *fakeNativeContext) UVerifyData(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
-	return kalkancrypt.VerifyResult{Code: uint64(ErrorOK)}, nil
-}
-func (f *fakeNativeContext) VerifyXML(string, int, []byte, int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) VerifyXML(call kalkancrypt.VerifyXMLCall) (kalkancrypt.BufferResult, error) {
+	if f.verifyXMLFunc != nil {
+		return f.verifyXMLFunc(call)
+	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
 func (f *fakeNativeContext) GetCertFromXML(xml []byte, signID, capacity int) (kalkancrypt.BufferResult, error) {
@@ -156,9 +165,9 @@ func (f *fakeNativeContext) GetTimeFromSig(data []byte, flags, sigID int) (uint6
 	}
 	return uint64(ErrorOK), 0
 }
-func (f *fakeNativeContext) GetCertFromCMS(cms []byte, signID, flags, capacity int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) GetCertFromCMS(call kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error) {
 	if f.getCertFromCMSFunc != nil {
-		return f.getCertFromCMSFunc(cms, signID, flags, capacity)
+		return f.getCertFromCMSFunc(call)
 	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
@@ -184,26 +193,14 @@ func (f *fakeNativeContext) ZipConSign(call kalkancrypt.ZipConSignCall) uint64 {
 	}
 	return uint64(ErrorOK)
 }
-func (f *fakeNativeContext) GetCertFromZipFile(zipFile string, flags, signID, capacity int) (kalkancrypt.BufferResult, error) {
+func (f *fakeNativeContext) GetCertFromZipFile(call kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error) {
 	if f.getCertFromZipFileFunc != nil {
-		return f.getCertFromZipFileFunc(zipFile, flags, signID, capacity)
+		return f.getCertFromZipFileFunc(call)
 	}
 	return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 }
 
-func equalInts(left, right []int) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func bytesOf(value byte, length int) []byte {
+func repeatedBytes(value byte, length int) []byte {
 	out := make([]byte, length)
 	for i := range out {
 		out[i] = value

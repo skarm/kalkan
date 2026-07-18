@@ -77,7 +77,7 @@ func TestHashPassesFilePathAndEncodingFlag(t *testing.T) {
 func TestHashRequiresData(t *testing.T) {
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
-			t.Fatal("Hash called native HashData without Data source")
+			t.Error("Hash called native HashData without Data source")
 			return nil, nil
 		},
 	}
@@ -224,7 +224,7 @@ func TestSignHashCanRequestBase64Output(t *testing.T) {
 func TestSignHashRejectsUnknownOutputFormat(t *testing.T) {
 	native := &fakeNative{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
-			t.Fatal("SignHash called native SignHash for an invalid output format")
+			t.Error("SignHash called native SignHash for an invalid output format")
 			return nil, nil
 		},
 	}
@@ -242,7 +242,7 @@ func TestSignHashRejectsUnknownOutputFormat(t *testing.T) {
 func TestSignHashRejectsWrongDigestLength(t *testing.T) {
 	native := &fakeNative{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
-			t.Fatal("SignHash called native SignHash with digest length mismatch")
+			t.Error("SignHash called native SignHash with digest length mismatch")
 			return nil, nil
 		},
 	}

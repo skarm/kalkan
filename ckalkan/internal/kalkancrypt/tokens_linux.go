@@ -33,7 +33,7 @@ func (h *linuxDriver) GetTokens(storage uint64, bufferSize int) (ListResult, err
 	code := C.bridge_get_tokens(h.funcs, C.ulong(storage), charPtr(buf), &count)
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: uint64(code), Data: string(trimCStringBytes(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: uint64(code), Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
 }
 
 func (h *linuxDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
@@ -48,5 +48,5 @@ func (h *linuxDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
 	code := C.bridge_get_certificates_list(h.funcs, charPtr(buf), &count)
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: uint64(code), Data: string(trimCStringBytes(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: uint64(code), Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
 }

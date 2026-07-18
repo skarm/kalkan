@@ -27,24 +27,24 @@ import "C"
 
 import "runtime"
 
-func (h *linuxDriver) VerifyXML(alias string, flags int, xml []byte, capacity int) (BufferResult, error) {
-	cAlias, freeAlias, err := cString(alias)
+func (h *linuxDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
+	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeAlias()
 
-	in, inLen, err := inputBytes(xml)
+	in, inLen, err := inputBytes(call.XML)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_verify_xml(h.funcs, cAlias, C.int(flags), charPtr(in), inLen, charPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_verify_xml(h.funcs, cAlias, C.int(call.Flags), charPtr(in), inLen, charPtr(buf), &outLen)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 

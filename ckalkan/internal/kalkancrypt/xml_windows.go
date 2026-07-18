@@ -4,22 +4,22 @@ package kalkancrypt
 
 import "runtime"
 
-func (h *windowsDriver) VerifyXML(alias string, flags int, xml []byte, capacity int) (BufferResult, error) {
-	cAlias, err := narrowString(alias)
+func (h *windowsDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
+	cAlias, err := narrowString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	in, inLen, err := inputBytes(xml)
+	in, inLen, err := inputBytes(call.XML)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.verifyXML, bytesPtr(cAlias), intArg(flags), bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
+	outLen := int32(call.Capacity)
+	code := callWindowsStatus(h.funcs.verifyXML, bytesPtr(cAlias), intArg(call.Flags), bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
 	runtime.KeepAlive(cAlias)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)

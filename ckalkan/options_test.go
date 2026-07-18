@@ -7,6 +7,9 @@ func TestDefaultConfigHasNoLibrary(t *testing.T) {
 	if cfg.libraryPath != "" {
 		t.Fatalf("default library = %q, want empty", cfg.libraryPath)
 	}
+	if cfg.maxBufferSize != 0 {
+		t.Fatalf("default hard buffer limit = %d, want disabled", cfg.maxBufferSize)
+	}
 }
 
 func TestOptionsOverrideConfig(t *testing.T) {
@@ -22,8 +25,31 @@ func TestOptionsOverrideConfig(t *testing.T) {
 	if cfg.bufferSize != 123 || cfg.listBufferSize != 456 {
 		t.Fatalf("unexpected buffer sizes: buffer=%d list=%d", cfg.bufferSize, cfg.listBufferSize)
 	}
-	if cfg.maxBufferSize != conservativeOutputBufferSize {
-		t.Fatalf("max buffer should be clamped to %d, got %d", conservativeOutputBufferSize, cfg.maxBufferSize)
+	if cfg.maxBufferSize != 789 {
+		t.Fatalf("hard buffer limit = %d, want 789", cfg.maxBufferSize)
+	}
+}
+
+func TestWithMaxBufferSizeUsesLastValue(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+		want int
+	}{
+		{name: "positive", size: 789, want: 789},
+		{name: "zero disables", size: 0},
+		{name: "negative disables", size: -1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			WithMaxBufferSize(123)(&cfg)
+			WithMaxBufferSize(test.size)(&cfg)
+			if cfg.maxBufferSize != test.want {
+				t.Fatalf("hard buffer limit = %d, want %d", cfg.maxBufferSize, test.want)
+			}
+		})
 	}
 }
 

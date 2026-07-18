@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -369,7 +371,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			return nil, fmt.Errorf("kalkan: get certificate property %v: %w", item.prop, err)
 		}
 
-		if err := item.apply(string(trimNativeCStringBytes(value))); err != nil {
+		if err := item.apply(string(bytesBeforeNULTerminator(value))); err != nil {
 			return nil, err
 		}
 	}
@@ -475,7 +477,7 @@ func (c *Client) GetSigAlgFromXML(ctx context.Context, source Source) (string, e
 func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]byte, error)) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 
-	for signID := 0; signID < maxExtractedSignerCertificates; signID++ {
+	for signID := 0; ; signID++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -494,7 +496,17 @@ func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]by
 		}
 
 		if isEmptyNativeCertificate(out) {
+			if len(certs) == 0 {
+				return nil, fmt.Errorf("%w: signer certificate output is empty", ErrInvalidInput)
+			}
+
 			return certs, nil
+		}
+
+		// The extra lookup at the limit distinguishes exactly the supported
+		// number of certificates from a truncated result.
+		if signID == maxExtractedSignerCertificates {
+			return nil, fmt.Errorf("%w: signer certificate count exceeds %d", ErrInvalidInput, maxExtractedSignerCertificates)
 		}
 
 		cert, err := parseNativeCertificate(out)
@@ -504,12 +516,10 @@ func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]by
 
 		certs = append(certs, cert)
 	}
-
-	return nil, fmt.Errorf("%w: signer certificate count exceeds %d", ErrInvalidInput, maxExtractedSignerCertificates)
 }
 
 func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
-	if len(bytes.Trim(data, "\x00 \t\r\n")) == 0 {
+	if isEmptyNativeCertificate(data) {
 		return nil, fmt.Errorf("%w: certificate output is empty", ErrInvalidInput)
 	}
 
@@ -517,13 +527,36 @@ func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
 		return cert, nil
 	}
 
-	text := bytes.TrimSpace(trimNativeCStringBytes(data))
-	if block, _ := pem.Decode(text); block != nil {
+	// Binary native buffers may be NUL-padded. Use the outer ASN.1 length to
+	// separate padding without truncating legitimate NUL bytes inside DER.
+	var raw asn1.RawValue
+	if rest, err := asn1.Unmarshal(data, &raw); err == nil && len(rest) != 0 && len(bytes.Trim(rest, "\x00")) == 0 {
+		if cert, err := x509.ParseCertificate(raw.FullBytes); err == nil {
+			return cert, nil
+		}
+	}
+
+	text := bytes.TrimSpace(bytesBeforeNULTerminator(data))
+	if bytes.HasPrefix(text, []byte("-----BEGIN ")) {
+		block, rest := pem.Decode(text)
+		if block == nil {
+			return nil, fmt.Errorf("%w: certificate output contains invalid PEM", ErrInvalidInput)
+		}
+
+		if len(bytes.TrimSpace(rest)) != 0 {
+			return nil, fmt.Errorf("%w: certificate PEM contains trailing data", ErrInvalidInput)
+		}
+
 		if block.Type != "CERTIFICATE" {
 			return nil, fmt.Errorf("%w: certificate PEM block type must be CERTIFICATE, got %q", ErrInvalidInput, block.Type)
 		}
 
-		return x509.ParseCertificate(block.Bytes)
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("%w: certificate PEM contains invalid DER: %w", ErrInvalidInput, err)
+		}
+
+		return cert, nil
 	}
 
 	if der, err := base64.StdEncoding.AppendDecode(nil, text); err == nil && len(der) != 0 {
@@ -536,15 +569,25 @@ func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
 }
 
 func isEmptyNativeCertificate(data []byte) bool {
-	return len(bytes.Trim(data, "\x00 \t\r\n")) == 0
-}
-
-func trimNativeCStringBytes(value []byte) []byte {
-	if index := bytes.IndexByte(value, 0); index >= 0 {
-		return value[:index]
+	if len(bytes.Trim(data, "\x00 \t\r\n")) == 0 {
+		return true
 	}
 
-	return value
+	// DER certificates always start with an ASN.1 SEQUENCE. Other supported
+	// representations are textual, so bytes beyond their first C terminator do
+	// not make an otherwise empty native result non-empty.
+	return data[0] != 0x30 && len(bytes.TrimSpace(bytesBeforeNULTerminator(data))) == 0
+}
+
+// bytesBeforeNULTerminator returns the meaningful prefix of a native textual
+// result. Bytes after a C-string terminator are unspecified by that contract.
+func bytesBeforeNULTerminator(value []byte) []byte {
+	index := bytes.IndexByte(value, 0)
+	if index >= 0 {
+		return value[:index:index]
+	}
+
+	return value[:len(value):len(value)]
 }
 
 func (info *CertificateInfo) applyKazakhstanSubjectDetails() {
@@ -591,10 +634,8 @@ func (info *CertificateInfo) applyKazakhstanPolicy(policy string) {
 }
 
 func (info *CertificateInfo) addCertificateRole(role CertificateRole) {
-	for _, existing := range info.Roles {
-		if existing == role {
-			return
-		}
+	if slices.Contains(info.Roles, role) {
+		return
 	}
 
 	info.Roles = append(info.Roles, role)

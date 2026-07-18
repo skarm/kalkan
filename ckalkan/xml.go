@@ -17,7 +17,12 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 		return nil, err
 	}
 
-	initial := c.config.requestOutputInitialCapacity(req.OutputCapacity, initialSignatureBuffer)
+	estimated, err := estimateSignedXMLOutput(req.XML, "SignXML")
+	if err != nil {
+		return nil, err
+	}
+
+	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
 	out, err := c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignXML(kalkancrypt.SignXMLCall{
@@ -30,8 +35,11 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 			Capacity:        capacity,
 		})
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return trimCStringBytes(out), err
+	return bytesBeforeNULTerminator(out), nil
 }
 
 // VerifyXML calls VerifyXML and returns the native verification info string.
@@ -50,10 +58,18 @@ func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error)
 	}
 
 	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.VerifyXML(alias, nativeFlags, xml, capacity)
+		return ctx.VerifyXML(kalkancrypt.VerifyXMLCall{
+			Alias:    alias,
+			Flags:    nativeFlags,
+			XML:      xml,
+			Capacity: capacity,
+		})
 	})
+	if err != nil {
+		return "", err
+	}
 
-	return string(trimCStringBytes(out)), err
+	return string(bytesBeforeNULTerminator(out)), nil
 }
 
 // GetCertFromXML calls KC_getCertFromXML and extracts a signer certificate from XML.
@@ -88,6 +104,9 @@ func (c *Client) GetSigAlgFromXML(xml []byte) (string, error) {
 	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.GetSigAlgFromXML(xml, capacity)
 	})
+	if err != nil {
+		return "", err
+	}
 
-	return string(trimCStringBytes(out)), err
+	return string(bytesBeforeNULTerminator(out)), nil
 }

@@ -1,30 +1,30 @@
 package kalkancrypt
 
 // HashData calls HashData.
-func (c *Context) HashData(algorithm string, flags int, data []byte, capacity int) (BufferResult, error) {
+func (c *Context) HashData(call HashDataCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
 	}
 
-	return c.driver.HashData(algorithm, flags, data, capacity)
+	return c.driver.HashData(call)
 }
 
 // SignHash calls SignHash.
-func (c *Context) SignHash(alias string, flags int, hash []byte, capacity int) (BufferResult, error) {
+func (c *Context) SignHash(call SignHashCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
 	}
 
-	return c.driver.SignHash(alias, flags, hash, capacity)
+	return c.driver.SignHash(call)
 }
 
 // SignData calls SignData.
-func (c *Context) SignData(alias string, flags int, data, signature []byte, capacity int) (BufferResult, error) {
+func (c *Context) SignData(call SignDataCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
 	}
 
-	return c.driver.SignData(alias, flags, data, signature, capacity)
+	return c.driver.SignData(call)
 }
 
 // SignXML calls SignXML.
@@ -54,7 +54,10 @@ func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return c.driver.VerifyData(call)
 }
 
-// UVerifyData calls UVerifyData.
+// UVerifyData calls the universal file verifier found in the verified Linux SDK.
+// Signature in the call is a file path; the native function reads it and
+// auto-detects XML, ZIP, draft, or CMS input. This low-level method is retained
+// for ABI coverage.
 func (c *Context) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {
 		return VerifyResult{}, ErrClosed

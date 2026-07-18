@@ -229,7 +229,7 @@ func TestSignWSSERejectsInvalidWrappedPayload(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &fakeNative{
 				signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-					t.Fatal("SignWSSE called native SignWSSE for invalid SOAP wrapping input")
+					t.Error("SignWSSE called native SignWSSE for invalid SOAP wrapping input")
 					return nil, nil
 				},
 			}
@@ -307,6 +307,39 @@ func TestWrapSOAPBodyRejectsInvalidBodyID(t *testing.T) {
 	}
 }
 
+func TestXMLNCNameGrammar(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "ASCII", value: "body-id", want: true},
+		{name: "underscore", value: "_body", want: true},
+		{name: "combining mark", value: "a\u0301", want: true},
+		{name: "middle dot", value: "a\u00b7b", want: true},
+		{name: "undertie", value: "a\u203fb", want: true},
+		{name: "zero width non-joiner", value: "\u200cbody", want: true},
+		{name: "non-ASCII digit in name-start range", value: "\u0660body", want: true},
+		{name: "supplementary plane", value: "\U00010000body", want: true},
+		{name: "replacement character", value: "\ufffdbody", want: true},
+		{name: "empty", value: "", want: false},
+		{name: "ASCII digit first", value: "1body", want: false},
+		{name: "colon", value: "body:id", want: false},
+		{name: "whitespace", value: "body id", want: false},
+		{name: "excluded Greek question mark", value: "\u037ebody", want: false},
+		{name: "above XML name range", value: "\U000f0000body", want: false},
+		{name: "invalid UTF-8", value: string([]byte{'b', 0xff}), want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isXMLNCName(test.value); got != test.want {
+				t.Fatalf("isXMLNCName(%q) = %t, want %t", test.value, got, test.want)
+			}
+		})
+	}
+}
+
 func TestWrapSOAPBodyRejectsInvalidPayloads(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -354,7 +387,7 @@ func TestSignWSSEUsesRequestedCanonicalization(t *testing.T) {
 func TestSignWSSERejectsInvalidBodyID(t *testing.T) {
 	native := &fakeNative{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-			t.Fatal("SignWSSE called native SignWSSE with invalid BodyID and WrapSOAP=false")
+			t.Error("SignWSSE called native SignWSSE with invalid BodyID and WrapSOAP=false")
 			return nil, nil
 		},
 	}
@@ -426,15 +459,15 @@ func TestSignXMLRejectsFileSource(t *testing.T) {
 func TestXMLMethodsRequireSource(t *testing.T) {
 	native := &fakeNative{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
-			t.Fatal("SignXML called native SignXML without XML source")
+			t.Error("SignXML called native SignXML without XML source")
 			return nil, nil
 		},
 		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			t.Fatal("VerifyXML called native VerifyXML without XML source")
+			t.Error("VerifyXML called native VerifyXML without XML source")
 			return "", nil
 		},
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-			t.Fatal("SignWSSE called native SignWSSE without XML source")
+			t.Error("SignWSSE called native SignWSSE without XML source")
 			return nil, nil
 		},
 	}
@@ -480,7 +513,7 @@ func TestXMLMethodsRequireSource(t *testing.T) {
 func TestSignXMLRejectsEmptyInput(t *testing.T) {
 	native := &fakeNative{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
-			t.Fatal("SignXML called native SignXML for empty XML input")
+			t.Error("SignXML called native SignXML for empty XML input")
 			return nil, nil
 		},
 	}
@@ -508,7 +541,7 @@ func TestSignXMLRejectsEncodedSources(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &fakeNative{
 				signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
-					t.Fatal("SignXML called native SignXML for unsupported XML source encoding")
+					t.Error("SignXML called native SignXML for unsupported XML source encoding")
 					return nil, nil
 				},
 			}

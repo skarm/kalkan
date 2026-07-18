@@ -15,24 +15,24 @@ import "C"
 
 import "runtime"
 
-func (h *linuxDriver) HashData(algorithm string, flags int, data []byte, capacity int) (BufferResult, error) {
-	cAlgorithm, freeAlgorithm, err := cString(algorithm)
+func (h *linuxDriver) HashData(call HashDataCall) (BufferResult, error) {
+	cAlgorithm, freeAlgorithm, err := cString(call.Algorithm)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeAlgorithm()
 
-	in, inLen, err := inputBytes(data)
+	in, inLen, err := inputBytes(call.Data)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_hash_data(h.funcs, cAlgorithm, C.int(flags), charPtr(in), inLen, ucharPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_hash_data(h.funcs, cAlgorithm, C.int(call.Flags), charPtr(in), inLen, ucharPtr(buf), &outLen)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 

@@ -18,14 +18,24 @@ func (c *Client) SignHash(alias string, flags Flag, hash []byte) ([]byte, error)
 	}
 
 	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialSignatureBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.SignHash(alias, nativeFlags, hash, capacity)
+		return ctx.SignHash(kalkancrypt.SignHashCall{
+			Alias:    alias,
+			Flags:    nativeFlags,
+			Hash:     hash,
+			Capacity: capacity,
+		})
 	})
 }
 
-// SignData calls SignData. signature may be nil for a new signature, or it may
+// SignData calls SignData. Signature may be nil for a new signature, or it may
 // contain an existing CMS signature when appending according to KalkanCrypt flags.
-func (c *Client) SignData(alias string, flags Flag, data, signature []byte) ([]byte, error) {
-	nativeFlags, err := flagsToNativeInt(flags)
+func (c *Client) SignData(req SignDataRequest) ([]byte, error) {
+	nativeFlags, err := flagsToNativeInt(req.Flags)
+	if err != nil {
+		return nil, err
+	}
+
+	estimated, err := estimateSignDataOutput(req)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +48,15 @@ func (c *Client) SignData(alias string, flags Flag, data, signature []byte) ([]b
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialSignatureBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.SignData(alias, nativeFlags, data, signature, capacity)
+	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
+
+	return c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
+		return ctx.SignData(kalkancrypt.SignDataCall{
+			Alias:     req.Alias,
+			Flags:     nativeFlags,
+			Data:      req.Data,
+			Signature: req.Signature,
+			Capacity:  capacity,
+		})
 	})
 }

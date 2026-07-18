@@ -62,11 +62,11 @@ func TestSignDataUsesCallerInputs(t *testing.T) {
 	dataSeen := make(chan []byte, 1)
 	signatureSeen := make(chan []byte, 1)
 	ctx := &fakeNativeContext{
-		signDataFunc: func(alias string, flags int, data, signature []byte, capacity int) (kalkancrypt.BufferResult, error) {
+		signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
 			close(nativeEntered)
 			<-releaseNative
-			dataSeen <- append([]byte(nil), data...)
-			signatureSeen <- append([]byte(nil), signature...)
+			dataSeen <- append([]byte(nil), call.Data...)
+			signatureSeen <- append([]byte(nil), call.Signature...)
 			return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
 		},
 	}
@@ -74,7 +74,12 @@ func TestSignDataUsesCallerInputs(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := cli.SignData("alias", SignCMS, originalData, originalSignature)
+		_, err := cli.SignData(SignDataRequest{
+			Alias:     "alias",
+			Flags:     SignCMS,
+			Data:      originalData,
+			Signature: originalSignature,
+		})
 		done <- err
 	}()
 

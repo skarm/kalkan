@@ -25,13 +25,32 @@ func TestOutputBufferRejectsInvalidCapacity(t *testing.T) {
 	}
 }
 
-func TestCheckNativeInputLengthRejectsInt32Overflow(t *testing.T) {
-	if err := checkNativeInputLength(math.MaxInt32); err != nil {
-		t.Fatalf("checkNativeInputLength(MaxInt32) returned error: %v", err)
+func TestCheckNativeInputLength(t *testing.T) {
+	tests := []struct {
+		name    string
+		length  int64
+		wantErr string
+	}{
+		{name: "negative", length: -1, wantErr: "negative input length"},
+		{name: "zero", length: 0},
+		{name: "maximum", length: math.MaxInt32},
+		{name: "overflow", length: int64(math.MaxInt32) + 1, wantErr: "overflows native C int"},
 	}
-	if err := checkNativeInputLength(int64(math.MaxInt32) + 1); err == nil ||
-		!strings.Contains(err.Error(), "overflows native C int") {
-		t.Fatalf("checkNativeInputLength(MaxInt32+1) error = %v, want overflow error", err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := checkNativeInputLength(test.length)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("checkNativeInputLength(%d) returned error: %v", test.length, err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("checkNativeInputLength(%d) error = %v, want %q", test.length, err, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -47,6 +66,27 @@ func TestOutputBufferAllocatesRequestedCapacity(t *testing.T) {
 		if value != 0 {
 			t.Fatalf("buffer[%d] = %d, want zeroed output buffer", i, value)
 		}
+	}
+}
+
+func TestOutputBufferAttemptsDoNotShareContents(t *testing.T) {
+	first, err := outputBuffer(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range first {
+		first[i] = 0xff
+	}
+
+	second, err := outputBuffer(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if &first[0] == &second[0] {
+		t.Fatal("separate live output buffers share the same backing storage")
+	}
+	if !bytes.Equal(second, make([]byte, len(second))) {
+		t.Fatalf("second output buffer = %x, want zeroed bytes", second)
 	}
 }
 
@@ -69,23 +109,25 @@ func BenchmarkOutputBufferCapacities(b *testing.B) {
 	}
 }
 
-func TestBoundedBytesOutputCases(t *testing.T) {
+func TestBoundedBytesReturnsCapacityLimitedView(t *testing.T) {
 	source := []byte("abcdef")
 
 	short := boundedBytes(source, 3)
 	if string(short) != "abc" {
 		t.Fatalf("short output = %q, want abc", short)
 	}
+	if len(short) != 3 || cap(short) != 3 {
+		t.Fatalf("short output len/cap = %d/%d, want 3/3", len(short), cap(short))
+	}
 	short[0] = 'x'
-	if source[0] != 'a' {
-		t.Fatal("boundedBytes returned a mutable view of the source buffer")
+	if source[0] != 'x' {
+		t.Fatal("boundedBytes copied the source instead of returning its bounded view")
 	}
-
-	if exact := boundedBytes(source, len(source)); string(exact) != "abcdef" {
-		t.Fatalf("exact output = %q, want abcdef", exact)
+	if exact := boundedBytes(source, len(source)); string(exact) != "xbcdef" || cap(exact) != len(exact) {
+		t.Fatalf("exact output = %q len/cap=%d/%d, want xbcdef with equal len/cap", exact, len(exact), cap(exact))
 	}
-	if overflow := boundedBytes(source, len(source)+100); string(overflow) != "abcdef" {
-		t.Fatalf("overflow output = %q, want abcdef", overflow)
+	if overflow := boundedBytes(source, len(source)+100); string(overflow) != "xbcdef" || cap(overflow) != len(source) {
+		t.Fatalf("overflow output = %q len/cap=%d/%d, want xbcdef with source capacity", overflow, len(overflow), cap(overflow))
 	}
 	if empty := boundedBytes(source, 0); len(empty) != 0 {
 		t.Fatalf("empty output = %v, want empty slice", empty)
@@ -95,21 +137,18 @@ func TestBoundedBytesOutputCases(t *testing.T) {
 	}
 }
 
-func TestBoundedBytesPreservesZeroFilledBinaryOutput(t *testing.T) {
-	source := []byte{0, 0, 0, 0}
+func TestBoundedBytesPreservesBinaryZeroBytes(t *testing.T) {
+	source := []byte{1, 0, 2, 0}
 	got := boundedBytes(source, len(source))
 	if !bytes.Equal(got, source) {
-		t.Fatalf("zero-filled output = %v, want %v", got, source)
+		t.Fatalf("binary output = %v, want %v", got, source)
 	}
-	if len(got) > 0 {
-		got[0] = 1
-	}
-	if source[0] != 0 {
-		t.Fatal("boundedBytes returned a mutable view of the source buffer")
+	if len(got) != cap(got) {
+		t.Fatalf("binary output len/cap = %d/%d, want equal", len(got), cap(got))
 	}
 }
 
-func TestTrimCStringBytesKeepsTextBeforeFirstTerminator(t *testing.T) {
+func TestBytesBeforeNULTerminatorKeepsCStringPrefix(t *testing.T) {
 	tests := []struct {
 		name  string
 		input []byte
@@ -122,8 +161,8 @@ func TestTrimCStringBytesKeepsTextBeforeFirstTerminator(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := trimCStringBytes(tc.input); string(got) != tc.want {
-				t.Fatalf("trimCStringBytes(%v) = %q, want %q", tc.input, got, tc.want)
+			if got := bytesBeforeNULTerminator(tc.input); string(got) != tc.want {
+				t.Fatalf("bytesBeforeNULTerminator(%v) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}

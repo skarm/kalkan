@@ -1,6 +1,7 @@
 package ckalkan_test
 
 import (
+	"crypto/sha256"
 	"errors"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestNativeABI(t *testing.T) {
 	check("HashData", err)
 	_, err = cli.SignHash("missing-alias", ckalkan.OutBase64, []byte("hash"))
 	check("SignHash", err)
-	_, err = cli.SignData("missing-alias", ckalkan.SignCMS|ckalkan.OutBase64, []byte("data"), nil)
+	_, err = cli.SignData(ckalkan.SignDataRequest{Alias: "missing-alias", Flags: ckalkan.SignCMS | ckalkan.OutBase64, Data: []byte("data")})
 	check("SignData", err)
 	_, err = cli.SignXML(ckalkan.SignXMLRequest{Alias: "missing-alias", XML: []byte("<root/>"), Flags: ckalkan.XMLInclC14N})
 	check("SignXML", err)
@@ -56,10 +57,6 @@ func TestNativeABI(t *testing.T) {
 
 	_, err = cli.VerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
 	check("VerifyData", err)
-	if !skipMalformedUVerifyDataOnWindows(t) {
-		_, err = cli.UVerifyData(ckalkan.VerifyDataRequest{Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
-		check("UVerifyData", err)
-	}
 	_, err = cli.VerifyXML("", ckalkan.XMLInclC14N, []byte("<root/>"))
 	check("VerifyXML", err)
 	_, err = cli.GetCertFromXML([]byte("<root/>"), 0)
@@ -76,4 +73,23 @@ func TestNativeABI(t *testing.T) {
 	check("ZipConSign", cli.ZipConSign(ckalkan.ZipConSignRequest{Alias: "missing-alias", FilePath: "/tmp/ckalkan-no-such.txt", Name: "out.zip", OutDir: "/tmp", Flags: ckalkan.InFile}))
 	_, err = cli.GetCertFromZipFile("/tmp/ckalkan-no-such.zip", ckalkan.InFile, 0)
 	check("GetCertFromZipFile", err)
+}
+
+func TestNativeClientBasics(t *testing.T) {
+	cli := newRealClient(t, ckalkan.WithMaxBufferSize(1024))
+
+	hash, err := cli.HashData(ckalkan.SHA256, 0, []byte("abc"))
+	if err != nil {
+		t.Fatalf("HashData failed: %v", err)
+	}
+	want := sha256.Sum256([]byte("abc"))
+	if string(hash) != string(want[:]) {
+		t.Fatalf("HashData returned %x, want %x", hash, want)
+	}
+
+	if err := cli.LoadKeyStore(ckalkan.StorePKCS12, "bad-password", "/tmp/ckalkan-no-such-key.p12", ""); err == nil {
+		t.Fatal("LoadKeyStore with a missing file unexpectedly succeeded")
+	} else if _, ok := ckalkan.ErrorCodeOf(err); !ok {
+		t.Fatalf("LoadKeyStore returned a non-Kalkan error: %T %v", err, err)
+	}
 }

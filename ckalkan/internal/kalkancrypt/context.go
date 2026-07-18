@@ -4,6 +4,10 @@ package kalkancrypt
 // call a platform KalkanCrypt dynamic library; unsupported builds provide no
 // driver and make Open return ErrUnavailable. Everything above this interface is
 // ordinary Go and is compiled on every platform.
+//
+// Context and driver methods use call structures when the combined number of
+// inputs and results would otherwise exceed five. Platform drivers unpack those
+// structures only at the native ABI call site.
 type driver interface {
 	driverHandle
 	driverLifecycle
@@ -45,9 +49,9 @@ type driverX509 interface {
 }
 
 type driverCrypto interface {
-	HashData(algorithm string, flags int, data []byte, capacity int) (BufferResult, error)
-	SignHash(alias string, flags int, hash []byte, capacity int) (BufferResult, error)
-	SignData(alias string, flags int, data, signature []byte, capacity int) (BufferResult, error)
+	HashData(call HashDataCall) (BufferResult, error)
+	SignHash(call SignHashCall) (BufferResult, error)
+	SignData(call SignDataCall) (BufferResult, error)
 	SignXML(call SignXMLCall) (BufferResult, error)
 	SignWSSE(call SignWSSECall) (BufferResult, error)
 	VerifyData(call VerifyDataCall) (VerifyResult, error)
@@ -55,14 +59,14 @@ type driverCrypto interface {
 }
 
 type driverXML interface {
-	VerifyXML(alias string, flags int, xml []byte, capacity int) (BufferResult, error)
+	VerifyXML(call VerifyXMLCall) (BufferResult, error)
 	GetCertFromXML(xml []byte, signID, capacity int) (BufferResult, error)
 	GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, error)
 }
 
 type driverCMS interface {
 	GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64)
-	GetCertFromCMS(cms []byte, signID, flags, capacity int) (BufferResult, error)
+	GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error)
 }
 
 type driverNetwork interface {
@@ -73,7 +77,7 @@ type driverNetwork interface {
 type driverZIP interface {
 	ZipConVerify(zipFile string, flags, capacity int) (BufferResult, error)
 	ZipConSign(call ZipConSignCall) uint64
-	GetCertFromZipFile(zipFile string, flags, signID, capacity int) (BufferResult, error)
+	GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error)
 }
 
 // Context is a low-level handle to KalkanCrypt.

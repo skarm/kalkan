@@ -29,7 +29,7 @@ func (h *linuxDriver) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, true)
 }
 
-func (h *linuxDriver) verifyData(call VerifyDataCall, unsigned bool) (VerifyResult, error) {
+func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyResult, error) {
 	alias, freeAlias, err := cString(call.Alias)
 	if err != nil {
 		return VerifyResult{}, err
@@ -62,7 +62,7 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, unsigned bool) (VerifyResu
 	certLen := C.int(call.CertCapacity)
 
 	var code C.ulong
-	if unsigned {
+	if universal {
 		code = C.bridge_uverify_data(
 			h.funcs,
 			alias,

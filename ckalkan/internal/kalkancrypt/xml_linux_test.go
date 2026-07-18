@@ -39,7 +39,11 @@ func TestContextXMLAndWSSEMethods(t *testing.T) {
 		t.Fatalf("GetSigAlgFromXML = %q, want GOST algorithm", sigAlg)
 	}
 
-	verifyResult, err := ctx.VerifyXML("", xmlInclC14N|noCheckCertTime, signedXML, 1<<20)
+	verifyResult, err := ctx.VerifyXML(kalkancrypt.VerifyXMLCall{
+		Flags:    xmlInclC14N | noCheckCertTime,
+		XML:      signedXML,
+		Capacity: 1 << 20,
+	})
 	if err != nil {
 		t.Fatalf("VerifyXML returned Go error: %v", err)
 	}

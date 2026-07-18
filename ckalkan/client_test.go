@@ -13,7 +13,7 @@ func TestSerializesConcurrentCalls(t *testing.T) {
 	var mu sync.Mutex
 	var active int
 	var maxActive int
-	ctx.hashDataFunc = func(string, int, []byte, int) (kalkancrypt.BufferResult, error) {
+	ctx.hashDataFunc = func(kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error) {
 		mu.Lock()
 		active++
 		if active > maxActive {
@@ -31,14 +31,12 @@ func TestSerializesConcurrentCalls(t *testing.T) {
 
 	cli := &Client{ctx: ctx, config: defaultConfig()}
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 16 {
+		wg.Go(func() {
 			if _, err := cli.HashData(SHA256, 0, []byte("abc")); err != nil {
 				t.Errorf("HashData failed: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

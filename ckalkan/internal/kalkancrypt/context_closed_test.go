@@ -91,15 +91,15 @@ func assertClosedContext(t *testing.T, ctx *kalkancrypt.Context) {
 			return err
 		}},
 		{name: "HashData", run: func() error {
-			_, err := ctx.HashData("sha256", 7, []byte("data"), 16)
+			_, err := ctx.HashData(kalkancrypt.HashDataCall{Algorithm: "sha256", Flags: 7, Data: []byte("data"), Capacity: 16})
 			return err
 		}},
 		{name: "SignHash", run: func() error {
-			_, err := ctx.SignHash("alias", 8, []byte("hash"), 16)
+			_, err := ctx.SignHash(kalkancrypt.SignHashCall{Alias: "alias", Flags: 8, Hash: []byte("hash"), Capacity: 16})
 			return err
 		}},
 		{name: "SignData", run: func() error {
-			_, err := ctx.SignData("alias", 9, []byte("data"), []byte("sig"), 16)
+			_, err := ctx.SignData(kalkancrypt.SignDataCall{Alias: "alias", Flags: 9, Data: []byte("data"), Signature: []byte("sig"), Capacity: 16})
 			return err
 		}},
 		{name: "SignXML", run: func() error {
@@ -119,7 +119,7 @@ func assertClosedContext(t *testing.T, ctx *kalkancrypt.Context) {
 			return err
 		}},
 		{name: "VerifyXML", run: func() error {
-			_, err := ctx.VerifyXML("alias", 10, []byte("<a/>"), 16)
+			_, err := ctx.VerifyXML(kalkancrypt.VerifyXMLCall{Alias: "alias", Flags: 10, XML: []byte("<a/>"), Capacity: 16})
 			return err
 		}},
 		{name: "GetCertFromXML", run: func() error {
@@ -131,7 +131,7 @@ func assertClosedContext(t *testing.T, ctx *kalkancrypt.Context) {
 			return err
 		}},
 		{name: "GetCertFromCMS", run: func() error {
-			_, err := ctx.GetCertFromCMS([]byte("cms"), 12, 13, 16)
+			_, err := ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{CMS: []byte("cms"), SignID: 12, Flags: 13, Capacity: 16})
 			return err
 		}},
 		{name: "ZipConVerify", run: func() error {
@@ -139,7 +139,7 @@ func assertClosedContext(t *testing.T, ctx *kalkancrypt.Context) {
 			return err
 		}},
 		{name: "GetCertFromZipFile", run: func() error {
-			_, err := ctx.GetCertFromZipFile("archive.zip", 15, 16, 17)
+			_, err := ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{ZipFile: "archive.zip", Flags: 15, SignID: 16, Capacity: 17})
 			return err
 		}},
 	}

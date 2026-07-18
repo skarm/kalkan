@@ -26,7 +26,12 @@ func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, err
 	}
 
 	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.GetCertFromCMS(cms, signID, nativeFlags, capacity)
+		return ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{
+			CMS:      cms,
+			SignID:   signID,
+			Flags:    nativeFlags,
+			Capacity: capacity,
+		})
 	})
 }
 

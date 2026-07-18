@@ -186,7 +186,7 @@ func TestSignZIPRequiresPaths(t *testing.T) {
 
 	native := &fakeNative{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-			t.Fatal("SignZIP called native ZipConSign for missing required path")
+			t.Error("SignZIP called native ZipConSign for missing required path")
 			return nil
 		},
 	}
@@ -246,7 +246,7 @@ func TestSignZIPRequiresExtension(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "signed-container")
 	native := &fakeNative{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-			t.Fatal("SignZIP called native ZipConSign for output without .zip extension")
+			t.Error("SignZIP called native ZipConSign for output without .zip extension")
 			return nil
 		},
 	}
@@ -310,7 +310,7 @@ func TestSignZIPRejectsExistingOutput(t *testing.T) {
 
 	native := &fakeNative{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-			t.Fatal("SignZIP called native ZipConSign for an existing output path")
+			t.Error("SignZIP called native ZipConSign for an existing output path")
 			return nil
 		},
 	}
@@ -417,7 +417,7 @@ func TestVerifyZIPMapsRequest(t *testing.T) {
 			return "Checking zip - OK", nil
 		},
 		getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
-			t.Fatal("VerifyZIP called native GetCertFromZipFile")
+			t.Error("VerifyZIP called native GetCertFromZipFile")
 			return nil, nil
 		},
 	}
@@ -513,11 +513,11 @@ func TestExtractZIPSignerCertificateDoesNotStatInput(t *testing.T) {
 func TestZIPMethodsRequirePath(t *testing.T) {
 	native := &fakeNative{
 		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native ZipConVerify without a ZIP path")
+			t.Error("VerifyZIP called native ZipConVerify without a ZIP path")
 			return "", nil
 		},
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile without a ZIP path")
+			t.Error("ExtractZIPSignerCertificate called native GetCertFromZipFile without a ZIP path")
 			return nil, nil
 		},
 	}
@@ -668,7 +668,7 @@ func TestExtractZIPSignerCertificateDoesNotCopyOutput(t *testing.T) {
 func TestExtractZIPSignerCertificateRejectsNegativeSignerID(t *testing.T) {
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile for negative SignerID")
+			t.Error("ExtractZIPSignerCertificate called native GetCertFromZipFile for negative SignerID")
 			return nil, nil
 		},
 	}
@@ -686,7 +686,7 @@ func TestExtractZIPSignerCertificateRejectsNegativeSignerID(t *testing.T) {
 func TestExtractZIPSignerCertificateRejectsSignerIDOverflow(t *testing.T) {
 	native := &fakeNative{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ExtractZIPSignerCertificate called native GetCertFromZipFile for overflowing SignerID")
+			t.Error("ExtractZIPSignerCertificate called native GetCertFromZipFile for overflowing SignerID")
 			return nil, nil
 		},
 	}

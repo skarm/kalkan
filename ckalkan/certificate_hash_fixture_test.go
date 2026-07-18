@@ -146,7 +146,7 @@ func TestCertificateAndHashMethods(t *testing.T) {
 	if err == nil {
 		t.Log("X509ValidateCertificate accepted the fixture certificate")
 	} else {
-		requireKalkanError(t, "X509ValidateCertificate", err)
+		_ = requireKalkanError(t, "X509ValidateCertificate", err)
 	}
 }
 

@@ -39,7 +39,10 @@ func TestAllPKCS12Stores(t *testing.T) {
 				t.Fatal("X509CertificateGetInfo(CommonName) returned empty data")
 			}
 
-			sig, err := client.SignData("", ckalkan.SignCMS|ckalkan.OutBase64|ckalkan.DetachedData|ckalkan.NoCheckCertTime, data, nil)
+			sig, err := client.SignData(ckalkan.SignDataRequest{
+				Flags: ckalkan.SignCMS | ckalkan.OutBase64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime,
+				Data:  data,
+			})
 			if err != nil {
 				t.Fatalf("SignData(detached CMS) failed: %v", err)
 			}

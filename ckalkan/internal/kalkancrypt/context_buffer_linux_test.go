@@ -45,15 +45,15 @@ func TestContextRejectsInvalidOutputCapacities(t *testing.T) {
 			return err
 		}},
 		{name: "HashData", run: func() error {
-			_, err := ctx.HashData("sha256", 0, []byte("abc"), 0)
+			_, err := ctx.HashData(kalkancrypt.HashDataCall{Algorithm: "sha256", Data: []byte("abc")})
 			return err
 		}},
 		{name: "SignHash", run: func() error {
-			_, err := ctx.SignHash("", 0, []byte("hash"), 0)
+			_, err := ctx.SignHash(kalkancrypt.SignHashCall{Hash: []byte("hash")})
 			return err
 		}},
 		{name: "SignData", run: func() error {
-			_, err := ctx.SignData("", 0, []byte("data"), nil, 0)
+			_, err := ctx.SignData(kalkancrypt.SignDataCall{Data: []byte("data")})
 			return err
 		}},
 		{name: "SignXML", run: func() error {
@@ -81,7 +81,7 @@ func TestContextRejectsInvalidOutputCapacities(t *testing.T) {
 			return err
 		}},
 		{name: "VerifyXML", run: func() error {
-			_, err := ctx.VerifyXML("", 0, []byte("<root/>"), 0)
+			_, err := ctx.VerifyXML(kalkancrypt.VerifyXMLCall{XML: []byte("<root/>")})
 			return err
 		}},
 		{name: "GetCertFromXML", run: func() error {
@@ -93,15 +93,19 @@ func TestContextRejectsInvalidOutputCapacities(t *testing.T) {
 			return err
 		}},
 		{name: "GetCertFromCMS", run: func() error {
-			_, err := ctx.GetCertFromCMS([]byte("cms"), 0, inBase64, 0)
+			_, err := ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{CMS: []byte("cms"), Flags: inBase64})
 			return err
 		}},
 		{name: "ZipConVerify", run: func() error {
 			_, err := ctx.ZipConVerify("/tmp/no-such.zip", inFile, 0)
 			return err
 		}},
+		{name: "ZipConVerify negative capacity", run: func() error {
+			_, err := ctx.ZipConVerify("/tmp/no-such.zip", inFile, -1)
+			return err
+		}},
 		{name: "GetCertFromZipFile", run: func() error {
-			_, err := ctx.GetCertFromZipFile("/tmp/no-such.zip", inFile, 0, 0)
+			_, err := ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{ZipFile: "/tmp/no-such.zip", Flags: inFile})
 			return err
 		}},
 	}

@@ -5,14 +5,20 @@ const (
 	// operation-specific allocations.
 	conservativeOutputBufferSize = 64 << 10
 
-	defaultListBufferSize      = 1 << 20
-	defaultOutputBufferSize    = conservativeOutputBufferSize
-	defaultMaxOutputBufferSize = 64 << 20
+	defaultListBufferSize   = 1 << 20
+	defaultOutputBufferSize = conservativeOutputBufferSize
+
+	// defaultSoftOutputBufferSize is an allocation checkpoint, not a limit.
+	// Without an explicit hard limit, reported or estimated outputs may grow past
+	// it up to the largest size representable by the native C int ABI.
+	defaultSoftOutputBufferSize = 64 << 20
+	maxNativeOutputBufferSize   = 1<<31 - 1
 
 	initialHashOutputBuffer = 128
 	initialInfoOutputBuffer = 4 << 10
 	initialCertOutputBuffer = 8 << 10
 	initialSignatureBuffer  = conservativeOutputBufferSize
+	initialZIPVerifyBuffer  = conservativeOutputBufferSize
 )
 
 type config struct {
@@ -35,7 +41,8 @@ func WithLibrary(library string) Option {
 
 // WithListBufferSize sets the first allocation size for KC_GetTokens and
 // KC_GetCertificatesList. The native ABI does not receive this capacity, so the
-// setting cannot bound the first native write.
+// setting cannot bound the first native write. Positive values below 64 KiB are
+// raised to that conservative minimum.
 func WithListBufferSize(size int) Option {
 	return func(c *config) {
 		if size > 0 {
@@ -54,13 +61,15 @@ func WithBufferSize(size int) Option {
 	}
 }
 
-// WithMaxBufferSize sets the hard cap used for initial output buffers and when
-// retrying after KCR_BUFFER_TOO_SMALL. Values below the conservative output
-// buffer size are raised to that size.
+// WithMaxBufferSize sets an opt-in hard cap for every native output allocation.
+// Without this option, the default 64 MiB threshold is soft: buffers may grow
+// past it when an estimate or the native result requires more space. The native
+// C int ABI still imposes an unavoidable maximum of 2^31-1 bytes.
 func WithMaxBufferSize(size int) Option {
 	return func(c *config) {
+		c.maxBufferSize = 0
 		if size > 0 {
-			c.maxBufferSize = max(size, conservativeOutputBufferSize)
+			c.maxBufferSize = min(size, maxNativeOutputBufferSize)
 		}
 	}
 }
@@ -68,6 +77,5 @@ func WithMaxBufferSize(size int) Option {
 func defaultConfig() config {
 	return config{
 		listBufferSize: defaultListBufferSize,
-		maxBufferSize:  defaultMaxOutputBufferSize,
 	}
 }

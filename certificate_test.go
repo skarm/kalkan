@@ -54,7 +54,7 @@ func TestLoadKeyStorePreservesPath(t *testing.T) {
 func TestLoadKeyStoreRejectsNUL(t *testing.T) {
 	native := &fakeNative{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
-			t.Fatal("LoadKeyStore called native with embedded NUL")
+			t.Error("LoadKeyStore called native with embedded NUL")
 			return nil
 		},
 	}
@@ -304,10 +304,10 @@ func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
 	if !loaded {
 		t.Fatal("Open did not load trusted certificate during setup")
 	}
-	if _, ok := reflect.TypeOf(client.config).FieldByName("trusted"); ok {
+	if _, ok := reflect.TypeFor[runtimeConfig]().FieldByName("trusted"); ok {
 		t.Fatal("Client runtime config retained trusted certificates after setup")
 	}
-	if _, ok := reflect.TypeOf(client.config).FieldByName("libraryPath"); ok {
+	if _, ok := reflect.TypeFor[runtimeConfig]().FieldByName("libraryPath"); ok {
 		t.Fatal("Client runtime config retained setup-only library path after setup")
 	}
 }
@@ -315,11 +315,11 @@ func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
 func TestLoadTrustedCertificateRejectsMultipleSources(t *testing.T) {
 	native := &fakeNative{
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
-			t.Fatal("LoadTrustedCertificate called native buffer loader with both Path and Data")
+			t.Error("LoadTrustedCertificate called native buffer loader with both Path and Data")
 			return nil
 		},
 		loadCertFileFunc: func(path string, certType ckalkan.CertType) error {
-			t.Fatal("LoadTrustedCertificate called native file loader with both Path and Data")
+			t.Error("LoadTrustedCertificate called native file loader with both Path and Data")
 			return nil
 		},
 	}
@@ -362,7 +362,7 @@ func TestLoadTrustedCertificatePath(t *testing.T) {
 	t.Run("reject NUL", func(t *testing.T) {
 		native := &fakeNative{
 			loadCertFileFunc: func(path string, certType ckalkan.CertType) error {
-				t.Fatal("LoadTrustedCertificate called native with embedded NUL")
+				t.Error("LoadTrustedCertificate called native with embedded NUL")
 				return nil
 			},
 		}
@@ -487,6 +487,52 @@ func TestProxyNativeFlags(t *testing.T) {
 	}
 }
 
+func TestSetProxyValidatesAndCallsNative(t *testing.T) {
+	native := &fakeNative{
+		setProxyFunc: func(req ckalkan.ProxyRequest) error {
+			wantFlags := ckalkan.ProxyOn | ckalkan.ProxyAuth
+			if req.Flags != wantFlags {
+				t.Fatalf("flags = %#x, want %#x", req.Flags, wantFlags)
+			}
+			if req.Address != "127.0.0.1" || req.Port != "3128" {
+				t.Fatalf("proxy address/port = %q/%q", req.Address, req.Port)
+			}
+			if req.User != "user" || req.Password != "password" {
+				t.Fatalf("proxy credentials = %q/%q", req.User, req.Password)
+			}
+
+			return nil
+		},
+	}
+	client := &Client{library: native}
+
+	err := client.SetProxy(context.Background(), Proxy{
+		Enabled:  true,
+		Address:  " 127.0.0.1 ",
+		Port:     " 3128 ",
+		User:     "user",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("SetProxy returned error: %v", err)
+	}
+}
+
+func TestSetProxyRejectsInvalidProxyBeforeNativeCall(t *testing.T) {
+	native := &fakeNative{
+		setProxyFunc: func(ckalkan.ProxyRequest) error {
+			t.Error("SetProxy called native for invalid proxy")
+			return nil
+		},
+	}
+	client := &Client{library: native}
+
+	err := client.SetProxy(context.Background(), Proxy{Enabled: true, Port: "3128"})
+	if err == nil || !strings.Contains(err.Error(), "proxy address is empty") {
+		t.Fatalf("SetProxy error = %v, want proxy address validation", err)
+	}
+}
+
 func TestConfigValidateRejectsInvalidEnabledProxy(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -517,6 +563,11 @@ func TestConfigValidateRejectsInvalidEnabledProxy(t *testing.T) {
 			name:  "too large port",
 			proxy: Proxy{Enabled: true, Address: "127.0.0.1", Port: "65536"},
 			want:  "proxy port must be in range",
+		},
+		{
+			name:  "address with whitespace",
+			proxy: Proxy{Enabled: true, Address: "proxy host", Port: "3128"},
+			want:  "proxy address contains whitespace",
 		},
 		{
 			name:  "address with NUL",

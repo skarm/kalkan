@@ -6,7 +6,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func TestVerifyDataRetriesDataInfoAndCertificateBuffers(t *testing.T) {
+func TestVerifyDataGrowsAllReportedOutputsAfterBufferTooSmall(t *testing.T) {
 	const (
 		wantDataOutput = 64 << 10
 		wantInfoOutput = 4 << 10
@@ -14,10 +14,10 @@ func TestVerifyDataRetriesDataInfoAndCertificateBuffers(t *testing.T) {
 	)
 
 	ctx := &fakeNativeContext{}
-	var capacities []kalkancrypt.VerifyDataCall
+	var calls []kalkancrypt.VerifyDataCall
 	ctx.verifyDataFunc = func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
-		capacities = append(capacities, call)
-		if len(capacities) == 1 {
+		calls = append(calls, call)
+		if len(calls) == 1 {
 			return kalkancrypt.VerifyResult{
 				Code:    uint64(ErrorBufferTooSmall),
 				DataLen: wantDataOutput + 1,
@@ -25,11 +25,15 @@ func TestVerifyDataRetriesDataInfoAndCertificateBuffers(t *testing.T) {
 				CertLen: wantCertOutput + 3,
 			}, nil
 		}
+
 		return kalkancrypt.VerifyResult{
-			Code: uint64(ErrorOK),
-			Data: []byte("data"),
-			Info: []byte("info\x00unused"),
-			Cert: []byte("cert"),
+			Code:    uint64(ErrorOK),
+			Data:    []byte("data"),
+			DataLen: len("data"),
+			Info:    []byte("info\x00"),
+			InfoLen: len("info\x00"),
+			Cert:    []byte("cert"),
+			CertLen: len("cert"),
 		}, nil
 	}
 
@@ -43,45 +47,52 @@ func TestVerifyDataRetriesDataInfoAndCertificateBuffers(t *testing.T) {
 	if string(got.Data) != "data" || got.VerifyInfo != "info" || string(got.Cert) != "cert" {
 		t.Fatalf("VerifyData returned %+v", got)
 	}
-	if len(capacities) != 2 {
-		t.Fatalf("calls = %d, want 2", len(capacities))
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
 	}
-	first := capacities[0]
+
+	first := calls[0]
 	if first.DataCapacity != wantDataOutput || first.InfoCapacity != wantInfoOutput || first.CertCapacity != wantCertOutput {
 		t.Fatalf("first capacities = data:%d info:%d cert:%d", first.DataCapacity, first.InfoCapacity, first.CertCapacity)
 	}
-	second := capacities[1]
+	second := calls[1]
 	if second.DataCapacity != wantDataOutput+1 || second.InfoCapacity != wantInfoOutput+2 || second.CertCapacity != wantCertOutput+3 {
 		t.Fatalf("second capacities = data:%d info:%d cert:%d", second.DataCapacity, second.InfoCapacity, second.CertCapacity)
 	}
 }
 
-func TestVerifyDataRetriesWhenOKReportsOversizedOutput(t *testing.T) {
+func TestVerifyDataGrowsOutputsToLengthsReportedWithOK(t *testing.T) {
 	ctx := &fakeNativeContext{}
-	var capacities []kalkancrypt.VerifyDataCall
+	var calls []kalkancrypt.VerifyDataCall
 	ctx.verifyDataFunc = func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
-		capacities = append(capacities, call)
-		if len(capacities) == 1 {
+		calls = append(calls, call)
+		if len(calls) == 1 {
 			return kalkancrypt.VerifyResult{
 				Code:    uint64(ErrorOK),
-				Data:    bytesOf('d', call.DataCapacity),
+				Data:    repeatedBytes('d', call.DataCapacity),
 				DataLen: call.DataCapacity + 1,
-				Info:    bytesOf('i', call.InfoCapacity),
+				Info:    repeatedBytes('i', call.InfoCapacity),
 				InfoLen: call.InfoCapacity + 2,
-				Cert:    bytesOf('c', call.CertCapacity),
+				Cert:    repeatedBytes('c', call.CertCapacity),
 				CertLen: call.CertCapacity + 3,
 			}, nil
 		}
 
 		return kalkancrypt.VerifyResult{
-			Code: uint64(ErrorOK),
-			Data: []byte("data"),
-			Info: []byte("info"),
-			Cert: []byte("cert"),
+			Code:    uint64(ErrorOK),
+			Data:    []byte("data"),
+			DataLen: len("data"),
+			Info:    []byte("info"),
+			InfoLen: len("info"),
+			Cert:    []byte("cert"),
+			CertLen: len("cert"),
 		}, nil
 	}
 
-	cli := &Client{ctx: ctx, config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize * 2}}
+	cli := &Client{ctx: ctx, config: config{
+		bufferSize:    conservativeOutputBufferSize,
+		maxBufferSize: conservativeOutputBufferSize * 2,
+	}}
 	got, err := cli.VerifyData(VerifyDataRequest{Flags: SignCMS})
 	if err != nil {
 		t.Fatalf("VerifyData failed: %v", err)
@@ -89,16 +100,19 @@ func TestVerifyDataRetriesWhenOKReportsOversizedOutput(t *testing.T) {
 	if string(got.Data) != "data" || got.VerifyInfo != "info" || string(got.Cert) != "cert" {
 		t.Fatalf("VerifyData returned %+v", got)
 	}
-	if len(capacities) != 2 {
-		t.Fatalf("calls = %d, want 2", len(capacities))
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
 	}
-	second := capacities[1]
-	if second.DataCapacity != conservativeOutputBufferSize+1 || second.InfoCapacity != conservativeOutputBufferSize+2 || second.CertCapacity != conservativeOutputBufferSize+3 {
+
+	second := calls[1]
+	if second.DataCapacity != conservativeOutputBufferSize+1 ||
+		second.InfoCapacity != conservativeOutputBufferSize+2 ||
+		second.CertCapacity != conservativeOutputBufferSize+3 {
 		t.Fatalf("second capacities = data:%d info:%d cert:%d", second.DataCapacity, second.InfoCapacity, second.CertCapacity)
 	}
 }
 
-func TestVerifyDataReturnsBufferTooSmallWhenNoBufferCanGrow(t *testing.T) {
+func TestVerifyDataReturnsBufferTooSmallWhenReportedOutputsCannotGrow(t *testing.T) {
 	ctx := &fakeNativeContext{}
 	ctx.verifyDataFunc = func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
 		return kalkancrypt.VerifyResult{
@@ -109,12 +123,55 @@ func TestVerifyDataReturnsBufferTooSmallWhenNoBufferCanGrow(t *testing.T) {
 		}, nil
 	}
 
-	cli := &Client{ctx: ctx, config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize}}
+	cli := &Client{ctx: ctx, config: config{
+		bufferSize:    conservativeOutputBufferSize,
+		maxBufferSize: conservativeOutputBufferSize,
+	}}
 	_, err := cli.VerifyData(VerifyDataRequest{Flags: SignCMS})
 	if err == nil {
 		t.Fatal("VerifyData unexpectedly succeeded")
 	}
 	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
 		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
+	}
+}
+
+func TestVerifyDataDoesNotReturnUnusedDataBuffer(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags Flag
+	}{
+		{name: "detached CMS", flags: SignCMS | DetachedData},
+		{name: "draft signature", flags: SignDraft},
+		{name: "signature file", flags: SignCMS | InFile},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &fakeNativeContext{
+				verifyDataFunc: func(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
+					return kalkancrypt.VerifyResult{
+						Code:    uint64(ErrorOK),
+						Data:    []byte("unused"),
+						DataLen: len("unused"),
+						Info:    []byte("info"),
+						InfoLen: len("info"),
+					}, nil
+				},
+			}
+
+			client := &Client{ctx: ctx, config: defaultConfig()}
+			got, err := client.VerifyData(VerifyDataRequest{
+				Flags:        test.flags,
+				Signature:    []byte("signature-or-path"),
+				DataCapacity: 128,
+			})
+			if err != nil {
+				t.Fatalf("VerifyData failed: %v", err)
+			}
+			if got.Data != nil {
+				t.Fatalf("Data = %x, want nil", got.Data)
+			}
+		})
 	}
 }

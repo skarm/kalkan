@@ -33,52 +33,52 @@ import "C"
 
 import "runtime"
 
-func (h *linuxDriver) SignHash(alias string, flags int, hash []byte, capacity int) (BufferResult, error) {
-	cAlias, freeAlias, err := cString(alias)
+func (h *linuxDriver) SignHash(call SignHashCall) (BufferResult, error) {
+	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeAlias()
 
-	in, inLen, err := inputBytes(hash)
+	in, inLen, err := inputBytes(call.Hash)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_sign_hash(h.funcs, cAlias, C.int(flags), charPtr(in), inLen, ucharPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_sign_hash(h.funcs, cAlias, C.int(call.Flags), charPtr(in), inLen, ucharPtr(buf), &outLen)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
 	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
 }
 
-func (h *linuxDriver) SignData(alias string, flags int, data, signature []byte, capacity int) (BufferResult, error) {
-	cAlias, freeAlias, err := cString(alias)
+func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
+	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeAlias()
 
-	inData, inDataLen, err := inputBytes(data)
+	inData, inDataLen, err := inputBytes(call.Data)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	inSig, inSigLen, err := inputBytes(signature)
+	inSig, inSigLen, err := inputBytes(call.Signature)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_sign_data(h.funcs, cAlias, C.int(flags), charPtr(inData), inDataLen, ucharPtr(inSig), inSigLen, ucharPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_sign_data(h.funcs, cAlias, C.int(call.Flags), charPtr(inData), inDataLen, ucharPtr(inSig), inSigLen, ucharPtr(buf), &outLen)
 	runtime.KeepAlive(inData)
 	runtime.KeepAlive(inSig)
 	runtime.KeepAlive(buf)

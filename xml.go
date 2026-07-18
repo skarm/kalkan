@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/skarm/kalkan/ckalkan"
@@ -112,6 +111,20 @@ func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, e
 		return nil, err
 	}
 
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{name: "alias", value: req.Alias},
+		{name: "XML sign node ID", value: req.SignNodeID},
+		{name: "XML parent sign node", value: req.ParentSignNode},
+		{name: "XML parent namespace", value: req.ParentNamespace},
+	} {
+		if err := rejectEmbeddedNUL(field.name, field.value); err != nil {
+			return nil, err
+		}
+	}
+
 	input, err := xmlInput(req.XML, c.configuredMaxInputSize())
 	if err != nil {
 		return nil, err
@@ -156,6 +169,10 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 		return nil, err
 	}
 
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
+		return nil, err
+	}
+
 	input, err := xmlInput(req.XML, c.configuredMaxInputSize())
 	if err != nil {
 		return nil, err
@@ -194,6 +211,10 @@ func (c *Client) SignWSSE(ctx context.Context, req SignWSSERequest) (*SignedXML,
 	}
 
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
 		return nil, err
 	}
 
@@ -321,21 +342,17 @@ func validateSOAPBodyID(id string) error {
 }
 
 func isXMLNCName(value string) bool {
-	if value == "" {
+	if value == "" || !utf8.ValidString(value) {
 		return false
 	}
 
 	first, size := utf8.DecodeRuneInString(value)
-	if first == utf8.RuneError && size == 1 {
-		return false
-	}
-
 	if !isXMLNameStart(first) {
 		return false
 	}
 
 	for _, r := range value[size:] {
-		if r == utf8.RuneError || !isXMLNameChar(r) {
+		if !isXMLNameChar(r) {
 			return false
 		}
 	}
@@ -344,11 +361,31 @@ func isXMLNCName(value string) bool {
 }
 
 func isXMLNameStart(r rune) bool {
-	return r == '_' || unicode.IsLetter(r)
+	// XML 1.0 (Fifth Edition) NameStartChar ranges, excluding the colon that
+	// NCName does not permit.
+	return r == '_' ||
+		'A' <= r && r <= 'Z' ||
+		'a' <= r && r <= 'z' ||
+		0xC0 <= r && r <= 0xD6 ||
+		0xD8 <= r && r <= 0xF6 ||
+		0xF8 <= r && r <= 0x2FF ||
+		0x370 <= r && r <= 0x37D ||
+		0x37F <= r && r <= 0x1FFF ||
+		0x200C <= r && r <= 0x200D ||
+		0x2070 <= r && r <= 0x218F ||
+		0x2C00 <= r && r <= 0x2FEF ||
+		0x3001 <= r && r <= 0xD7FF ||
+		0xF900 <= r && r <= 0xFDCF ||
+		0xFDF0 <= r && r <= 0xFFFD ||
+		0x10000 <= r && r <= 0xEFFFF
 }
 
 func isXMLNameChar(r rune) bool {
-	return isXMLNameStart(r) || unicode.IsDigit(r) || r == '-' || r == '.'
+	return isXMLNameStart(r) ||
+		'0' <= r && r <= '9' ||
+		r == '-' || r == '.' || r == 0xB7 ||
+		0x300 <= r && r <= 0x36F ||
+		0x203F <= r && r <= 0x2040
 }
 
 func validateSingleXMLElement(payload []byte) error {

@@ -72,51 +72,48 @@ func TestSignCMSIncludesCertificateAndSkipsCertificateTime(t *testing.T) {
 	}
 }
 
-func TestSignCMSCanRequestBase64Output(t *testing.T) {
-	native := &fakeNative{
-		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			wantFlags := ckalkan.SignCMS | ckalkan.OutBase64
-			if flags != wantFlags {
-				t.Fatalf("flags = %#x, want %#x", flags, wantFlags)
-			}
-			return []byte("base64-cms-output"), nil
+func TestSignCMSOutputFormats(t *testing.T) {
+	tests := []struct {
+		name       string
+		format     CMSOutputFormat
+		wantFlag   ckalkan.Flag
+		wantOutput string
+	}{
+		{name: "DER", format: CMSOutputDER, wantFlag: ckalkan.OutDER, wantOutput: "raw-cms-output"},
+		{name: "base64", format: CMSOutputBase64, wantFlag: ckalkan.OutBase64, wantOutput: "base64-cms-output"},
+		{
+			name:       "PEM",
+			format:     CMSOutputPEM,
+			wantFlag:   ckalkan.OutPEM,
+			wantOutput: "-----BEGIN CMS-----\n...\n-----END CMS-----\n",
 		},
 	}
-	client := &Client{library: native}
 
-	cms, err := client.SignCMS(context.Background(), SignCMSRequest{
-		Data:         Bytes([]byte("payload")),
-		OutputFormat: CMSOutputBase64,
-	})
-	if err != nil {
-		t.Fatalf("SignCMS returned error: %v", err)
-	}
-	if string(cms.Data) != "base64-cms-output" {
-		t.Fatalf("CMS data = %q, want native base64 output", cms.Data)
-	}
-}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			native := &fakeNative{
+				signDataFunc: func(_ string, flags ckalkan.Flag, _ []byte, _ []byte) ([]byte, error) {
+					wantFlags := ckalkan.SignCMS | test.wantFlag
+					if flags != wantFlags {
+						t.Fatalf("flags = %#x, want %#x", flags, wantFlags)
+					}
 
-func TestSignCMSCanRequestPEMOutput(t *testing.T) {
-	native := &fakeNative{
-		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			wantFlags := ckalkan.SignCMS | ckalkan.OutPEM
-			if flags != wantFlags {
-				t.Fatalf("flags = %#x, want %#x", flags, wantFlags)
+					return []byte(test.wantOutput), nil
+				},
 			}
-			return []byte("-----BEGIN CMS-----\n...\n-----END CMS-----\n"), nil
-		},
-	}
-	client := &Client{library: native}
+			client := &Client{library: native}
 
-	cms, err := client.SignCMS(context.Background(), SignCMSRequest{
-		Data:         Bytes([]byte("payload")),
-		OutputFormat: CMSOutputPEM,
-	})
-	if err != nil {
-		t.Fatalf("SignCMS returned error: %v", err)
-	}
-	if !strings.Contains(string(cms.Data), "BEGIN CMS") {
-		t.Fatalf("CMS data = %q, want native PEM output", cms.Data)
+			cms, err := client.SignCMS(context.Background(), SignCMSRequest{
+				Data:         Bytes([]byte("payload")),
+				OutputFormat: test.format,
+			})
+			if err != nil {
+				t.Fatalf("SignCMS returned error: %v", err)
+			}
+			if string(cms.Data) != test.wantOutput {
+				t.Fatalf("CMS data = %q, want %q", cms.Data, test.wantOutput)
+			}
+		})
 	}
 }
 
@@ -146,7 +143,7 @@ func TestSignCMSPassesBase64InputOnlyWhenExplicit(t *testing.T) {
 func TestSignCMSRejectsUnknownOutputFormat(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			t.Fatal("SignCMS called native SignData for an invalid output format")
+			t.Error("SignCMS called native SignData for an invalid output format")
 			return nil, nil
 		},
 	}
@@ -164,7 +161,7 @@ func TestSignCMSRejectsUnknownOutputFormat(t *testing.T) {
 func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			t.Fatal("SignCMS called native SignData for an invalid data encoding")
+			t.Error("SignCMS called native SignData for an invalid data encoding")
 			return nil, nil
 		},
 	}
@@ -181,7 +178,7 @@ func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
 func TestSignCMSRequiresData(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			t.Fatal("SignCMS called native SignData without Data source")
+			t.Error("SignCMS called native SignData without Data source")
 			return nil, nil
 		},
 	}
@@ -411,7 +408,7 @@ func TestVerifyCMSRejectsDetachedDataEncoding(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &fakeNative{
 				verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-					t.Fatal("VerifyCMS called native VerifyData with unsupported detached data encoding")
+					t.Error("VerifyCMS called native VerifyData with unsupported detached data encoding")
 					return ckalkan.VerifyDataResult{}, nil
 				},
 			}
@@ -444,7 +441,7 @@ func TestVerifyCMSRejectsDataForAttachedSignature(t *testing.T) {
 func TestVerifyCMSRequiresDetachedData(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-			t.Fatal("VerifyCMS called native VerifyData without detached data")
+			t.Error("VerifyCMS called native VerifyData without detached data")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}
@@ -483,7 +480,7 @@ func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
 func TestVerifyCMSRejectsNegativeSignerID(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-			t.Fatal("VerifyCMS called native VerifyData for negative SignerID")
+			t.Error("VerifyCMS called native VerifyData for negative SignerID")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}
@@ -501,7 +498,7 @@ func TestVerifyCMSRejectsNegativeSignerID(t *testing.T) {
 func TestVerifyCMSRejectsSignerIDOverflow(t *testing.T) {
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-			t.Fatal("VerifyCMS called native VerifyData for overflowing SignerID")
+			t.Error("VerifyCMS called native VerifyData for overflowing SignerID")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}

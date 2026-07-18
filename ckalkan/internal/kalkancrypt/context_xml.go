@@ -1,12 +1,12 @@
 package kalkancrypt
 
 // VerifyXML calls VerifyXML.
-func (c *Context) VerifyXML(alias string, flags int, xml []byte, capacity int) (BufferResult, error) {
+func (c *Context) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
 	}
 
-	return c.driver.VerifyXML(alias, flags, xml, capacity)
+	return c.driver.VerifyXML(call)
 }
 
 // GetCertFromXML calls KC_getCertFromXML.

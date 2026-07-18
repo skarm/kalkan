@@ -64,6 +64,10 @@ func (c *Client) SignZIP(ctx context.Context, req SignZIPRequest) (*SignedZIP, e
 		return nil, err
 	}
 
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
+		return nil, err
+	}
+
 	inputPath, err := validateNativePathString("ZIP input file path", req.InputPath)
 	if err != nil {
 		return nil, err

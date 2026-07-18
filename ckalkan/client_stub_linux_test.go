@@ -3,6 +3,7 @@
 package ckalkan_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,7 +13,149 @@ import (
 	"time"
 
 	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
+
+func TestStubLibraryOutputBufferBoundaries(t *testing.T) {
+	// KalkanCrypt cannot produce successful, non-empty outputs for
+	// these methods with the repository fixtures. The compiled stub still
+	// crosses the C ABI while providing deterministic success outputs.
+	ctx, err := kalkancrypt.Open(buildStubLibrary(t))
+	if err != nil {
+		t.Fatalf("Open stub library: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx.XMLFinalize()
+		ctx.Finalize()
+		if err := ctx.Close(); err != nil {
+			t.Fatalf("Close stub library: %v", err)
+		}
+	})
+	if code := ctx.Init(); code != uint64(ckalkan.ErrorOK) {
+		t.Fatalf("Init = %#x, want %#x", code, ckalkan.ErrorOK)
+	}
+
+	tests := []struct {
+		name string
+		want []byte
+		call func(int) (kalkancrypt.BufferResult, error)
+	}{
+		{name: "VerifyXML", want: []byte("XMLVERIFY"), call: func(capacity int) (kalkancrypt.BufferResult, error) {
+			return ctx.VerifyXML(kalkancrypt.VerifyXMLCall{XML: []byte("<root/>"), Capacity: capacity})
+		}},
+		{name: "GetCertFromCMS", want: []byte("CMSCERT"), call: func(capacity int) (kalkancrypt.BufferResult, error) {
+			return ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{CMS: []byte("cms"), Capacity: capacity})
+		}},
+		{name: "GetCertFromZipFile", want: []byte("ZIPCERT"), call: func(capacity int) (kalkancrypt.BufferResult, error) {
+			return ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{ZipFile: "/tmp/signed.zip", Capacity: capacity})
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertStubSingleOutputBufferBoundaries(t, test.want, test.call)
+		})
+	}
+
+	t.Run("X509ValidateCertificate", func(t *testing.T) {
+		assertStubValidateCertificateOutputBufferBoundaries(t, ctx)
+	})
+}
+
+func assertStubSingleOutputBufferBoundaries(
+	t *testing.T,
+	want []byte,
+	call func(int) (kalkancrypt.BufferResult, error),
+) {
+	t.Helper()
+
+	required := len(want)
+	for _, capacity := range []int{required, required + 1, required * 2} {
+		result, err := call(capacity)
+		if err != nil {
+			t.Fatalf("capacity %d returned Go error: %v", capacity, err)
+		}
+		if result.Code != uint64(ckalkan.ErrorOK) ||
+			result.OutLen != required ||
+			len(result.Data) != required ||
+			cap(result.Data) != required ||
+			!bytes.Equal(result.Data, want) {
+			t.Fatalf("capacity %d returned code=%#x OutLen=%d dataLen=%d dataCap=%d data=%q",
+				capacity, result.Code, result.OutLen, len(result.Data), cap(result.Data), result.Data)
+		}
+	}
+
+	for _, capacity := range []int{1, required - 1} {
+		result, err := call(capacity)
+		if err != nil {
+			t.Fatalf("capacity %d returned Go error: %v", capacity, err)
+		}
+		if result.Code != uint64(ckalkan.ErrorBufferTooSmall) ||
+			result.OutLen != required ||
+			len(result.Data) != capacity ||
+			cap(result.Data) != capacity {
+			t.Fatalf("capacity %d returned code=%#x OutLen=%d dataLen=%d dataCap=%d",
+				capacity, result.Code, result.OutLen, len(result.Data), cap(result.Data))
+		}
+	}
+}
+
+func assertStubValidateCertificateOutputBufferBoundaries(t *testing.T, ctx *kalkancrypt.Context) {
+	t.Helper()
+
+	call := func(infoCapacity, ocspCapacity int) kalkancrypt.ValidateResult {
+		t.Helper()
+		result, err := ctx.X509ValidateCertificate(kalkancrypt.ValidateCertificateCall{
+			Certificate:  []byte("cert"),
+			InfoCapacity: infoCapacity,
+			OCSPCapacity: ocspCapacity,
+		})
+		if err != nil {
+			t.Fatalf("capacities info:%d ocsp:%d returned Go error: %v", infoCapacity, ocspCapacity, err)
+		}
+		return result
+	}
+
+	wantInfo := []byte("VALID")
+	wantOCSP := []byte("OCSP")
+	for _, spare := range []int{0, 1, 8} {
+		result := call(len(wantInfo)+spare, len(wantOCSP)+spare)
+		if result.Code != uint64(ckalkan.ErrorOK) ||
+			result.InfoLen != len(wantInfo) ||
+			len(result.Info) != len(wantInfo) ||
+			cap(result.Info) != len(wantInfo) ||
+			!bytes.Equal(result.Info, wantInfo) ||
+			result.OCSPLen != len(wantOCSP) ||
+			len(result.OCSP) != len(wantOCSP) ||
+			cap(result.OCSP) != len(wantOCSP) ||
+			!bytes.Equal(result.OCSP, wantOCSP) {
+			t.Fatalf("spare %d returned code=%#x info=%q/%d/%d OCSP=%q/%d/%d",
+				spare, result.Code, result.Info, result.InfoLen, cap(result.Info),
+				result.OCSP, result.OCSPLen, cap(result.OCSP))
+		}
+	}
+
+	infoShort := call(len(wantInfo)-1, len(wantOCSP))
+	if infoShort.Code != uint64(ckalkan.ErrorBufferTooSmall) ||
+		infoShort.InfoLen != len(wantInfo) ||
+		len(infoShort.Info) != len(wantInfo)-1 ||
+		cap(infoShort.Info) != len(infoShort.Info) {
+		t.Fatalf("undersized info returned code=%#x InfoLen=%d dataLen=%d dataCap=%d",
+			infoShort.Code, infoShort.InfoLen, len(infoShort.Info), cap(infoShort.Info))
+	}
+
+	ocspShort := call(len(wantInfo), len(wantOCSP)-1)
+	if ocspShort.Code != uint64(ckalkan.ErrorBufferTooSmall) ||
+		ocspShort.InfoLen != len(wantInfo) ||
+		!bytes.Equal(ocspShort.Info, wantInfo) ||
+		ocspShort.OCSPLen != len(wantOCSP) ||
+		len(ocspShort.OCSP) != len(wantOCSP)-1 ||
+		cap(ocspShort.OCSP) != len(ocspShort.OCSP) {
+		t.Fatalf("undersized OCSP returned code=%#x info=%q/%d OCSP=%q/%d/%d/%d",
+			ocspShort.Code, ocspShort.Info, ocspShort.InfoLen,
+			ocspShort.OCSP, ocspShort.OCSPLen, len(ocspShort.OCSP), cap(ocspShort.OCSP))
+	}
+}
 
 func TestNewFailureReleasesClientSlot(t *testing.T) {
 	if _, err := ckalkan.New(ckalkan.WithLibrary(filepath.Join(t.TempDir(), "missing.so"))); err == nil {
@@ -107,7 +250,11 @@ func TestMethodsAgainstStubLibrary(t *testing.T) {
 		return cli.SignHash("alias", ckalkan.OutBase64, []byte("hash"))
 	})
 	assertBytesCall(t, "SignData", []byte("SIGNDATA"), func() ([]byte, error) {
-		return cli.SignData("alias", ckalkan.SignCMS|ckalkan.OutBase64, []byte("data"), nil)
+		return cli.SignData(ckalkan.SignDataRequest{
+			Alias: "alias",
+			Flags: ckalkan.SignCMS | ckalkan.OutBase64,
+			Data:  []byte("data"),
+		})
 	})
 	assertBytesCall(t, "SignXML", []byte("<signed/>"), func() ([]byte, error) {
 		return cli.SignXML(ckalkan.SignXMLRequest{Alias: "alias", XML: []byte("<root/>"), Flags: ckalkan.XMLInclC14N})
@@ -139,14 +286,6 @@ func TestMethodsAgainstStubLibrary(t *testing.T) {
 	}
 	if string(verify.Data) != "DATA" || verify.VerifyInfo != "VERIFY" || string(verify.Cert) != "CERT" {
 		t.Fatalf("unexpected VerifyData result: %+v", verify)
-	}
-
-	uverify, err := cli.UVerifyData(ckalkan.VerifyDataRequest{Alias: "alias", Data: []byte("data"), Signature: []byte("sig"), Flags: ckalkan.SignCMS})
-	if err != nil {
-		t.Fatalf("UVerifyData failed: %v", err)
-	}
-	if string(uverify.Data) != "UDATA" || uverify.VerifyInfo != "UVERIFY" || string(uverify.Cert) != "UCERT" {
-		t.Fatalf("unexpected UVerifyData result: %+v", uverify)
 	}
 
 	xmlVerify, err := cli.VerifyXML("alias", ckalkan.XMLInclC14N, []byte("<root/>"))

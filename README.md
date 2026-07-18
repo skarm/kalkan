@@ -40,10 +40,14 @@ Use `ckalkan` when the root package does not expose the required operation. Use 
 The `ckalkan` buffer options cover two ABI shapes:
 
 - `WithListBufferSize` sets the initial allocation for `KC_GetTokens` and `KC_GetCertificatesList`; the default is 1 MiB. In the tested Linux SDK 2.0.13, these functions receive no byte-capacity argument, and `tk_count` and `cert_count` are output item counts. The option controls allocation size but does not bound the native write.
-- `WithBufferSize` sets the global initial capacity for length-aware output calls when a request does not specify its own capacity. Without this option, operation-specific defaults are 128 bytes for hashes, 4 KiB for metadata, 8 KiB for certificates, and 64 KiB for signatures and generic outputs. These calls initialize an output-length parameter with the capacity and retry after `KCR_BUFFER_TOO_SMALL`.
-- `WithMaxBufferSize` caps initial allocations and retry growth; the default is 64 MiB. For the two list calls, it caps only the allocation; the SDK still receives no byte-capacity bound.
+- `WithBufferSize` sets the global initial capacity for length-aware output calls when a request does not specify its own capacity. Without this option, operation-specific defaults are 128 bytes for hashes, 4 KiB for metadata, 8 KiB for certificates, and 64 KiB for signatures and generic outputs. Attached CMS uses the in-memory input or file size plus a conservative signature reserve; CMS Base64 and PEM expansion is included. Signed XML/WSSE uses the in-memory XML size plus the same reserve (`KC_IN_FILE` is not supported by these two SDK calls). These calls initialize an output-length parameter with the capacity and retry after `KCR_BUFFER_TOO_SMALL`.
+- `WithMaxBufferSize` sets an opt-in hard allocation limit. Without it, 64 MiB is only a soft growth checkpoint: estimated or native-reported results may grow beyond it up to the native `int` ABI limit. For the two list calls, a hard limit below their configured initial allocation rejects the call instead of silently shrinking an unbounded native buffer; the SDK still receives no byte-capacity bound.
 
-Positive values passed to these options are normalized to at least 64 KiB.
+On Linux, `ZipConVerify` requires a 64 KiB safety allocation because SDK 2.0.13 can write past a smaller reported capacity. If an explicit hard limit is below that safety minimum, the call fails before entering the native library.
+
+Positive `WithBufferSize` and `WithListBufferSize` values are normalized to at least 64 KiB. `WithMaxBufferSize` is honored exactly.
+
+An apparently successful list result that occupies the entire allocation without a NUL terminator is treated as potentially truncated and retried with a larger allocation.
 
 ## Client usage
 
@@ -118,7 +122,9 @@ Supported variants are operation-specific.
 
 The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. `File` forwards the original path after empty-path and NUL validation. Keep borrowed slices and referenced files unchanged until the call returns.
 
-`WithMaxInputSize` caps high-level in-memory inputs. It does not apply to file sources or native output buffers. `WithMaxOutputBufferSize` caps output allocation and retry growth and is forwarded to `ckalkan.WithMaxBufferSize`.
+`WithMaxInputSize` caps high-level in-memory inputs. It does not apply to file sources or native output buffers. `WithMaxOutputBufferSize` enables a hard output-allocation limit and is forwarded to `ckalkan.WithMaxBufferSize`; without it, output growth has no user-configured hard cap.
+
+Native binary outputs are returned strictly according to the SDK-reported `outLen`; zero bytes inside that range are preserved. The returned slice has `len` and `cap` limited to the logical result, so unused buffer capacity is not exposed. Byte-slice results are bounded views rather than copies: keeping a result alive also retains the successful native backing allocation, avoiding a second large allocation and copy. Known textual outputs use C-string semantics and end at the first NUL because some KalkanCrypt methods report a fixed-size block and leave unspecified bytes after the terminator.
 
 `KeyStore.Password` and `Proxy.Password` are strings. Go memory, KalkanCrypt state, and SDK-internal copies cannot be zeroized by this package.
 

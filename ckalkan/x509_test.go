@@ -24,9 +24,11 @@ func TestValidateCertificateRetriesInfoAndOCSPBuffers(t *testing.T) {
 			}, nil
 		}
 		return kalkancrypt.ValidateResult{
-			Code: uint64(ErrorOK),
-			Info: []byte("valid\x00unused"),
-			OCSP: []byte("ocsp"),
+			Code:    uint64(ErrorOK),
+			Info:    []byte("valid\x00"),
+			InfoLen: len("valid\x00"),
+			OCSP:    []byte("ocsp"),
+			OCSPLen: len("ocsp"),
 		}, nil
 	}
 
@@ -61,17 +63,19 @@ func TestValidateCertificateRetriesOversizedOutput(t *testing.T) {
 		if len(capacities) == 1 {
 			return kalkancrypt.ValidateResult{
 				Code:    uint64(ErrorOK),
-				Info:    bytesOf('i', call.InfoCapacity),
+				Info:    repeatedBytes('i', call.InfoCapacity),
 				InfoLen: call.InfoCapacity + 4,
-				OCSP:    bytesOf('o', call.OCSPCapacity),
+				OCSP:    repeatedBytes('o', call.OCSPCapacity),
 				OCSPLen: call.OCSPCapacity + 5,
 			}, nil
 		}
 
 		return kalkancrypt.ValidateResult{
-			Code: uint64(ErrorOK),
-			Info: []byte("valid"),
-			OCSP: []byte("ocsp"),
+			Code:    uint64(ErrorOK),
+			Info:    []byte("valid"),
+			InfoLen: len("valid"),
+			OCSP:    []byte("ocsp"),
+			OCSPLen: len("ocsp"),
 		}, nil
 	}
 
@@ -89,25 +93,5 @@ func TestValidateCertificateRetriesOversizedOutput(t *testing.T) {
 	second := capacities[1]
 	if second.InfoCapacity != conservativeOutputBufferSize+4 || second.OCSPCapacity != conservativeOutputBufferSize+5 {
 		t.Fatalf("second capacities = info:%d ocsp:%d", second.InfoCapacity, second.OCSPCapacity)
-	}
-}
-
-func TestX509CertificateGetInfoTrimsNativeCString(t *testing.T) {
-	ctx := &fakeNativeContext{}
-	ctx.x509InfoFunc = func([]byte, int, int) (kalkancrypt.BufferResult, error) {
-		return kalkancrypt.BufferResult{
-			Code:   uint64(ErrorOK),
-			Data:   []byte("CN=ckalkan-test\x00native-garbage"),
-			OutLen: len("CN=ckalkan-test\x00native-garbage"),
-		}, nil
-	}
-
-	cli := &Client{ctx: ctx, config: defaultConfig()}
-	out, err := cli.X509CertificateGetInfo([]byte("cert"), CertPropSubjectCommonName)
-	if err != nil {
-		t.Fatalf("X509CertificateGetInfo failed: %v", err)
-	}
-	if string(out) != "CN=ckalkan-test" {
-		t.Fatalf("X509CertificateGetInfo = %q, want trimmed CN", out)
 	}
 }
