@@ -8,11 +8,12 @@ const (
 	defaultListBufferSize   = 1 << 20
 	defaultOutputBufferSize = conservativeOutputBufferSize
 
-	// defaultSoftOutputBufferSize is an allocation checkpoint, not a limit.
-	// Without an explicit hard limit, reported or estimated outputs may grow past
-	// it up to the largest size representable by the native C int ABI.
-	defaultSoftOutputBufferSize = 64 << 20
-	maxNativeOutputBufferSize   = 1<<31 - 1
+	// DefaultMaxOutputBufferSize is the default hard limit for each native output
+	// buffer. It is a security and availability boundary, not a promise that any
+	// particular operation should consume the full amount. Applications may set
+	// a smaller limit with WithMaxBufferSize.
+	DefaultMaxOutputBufferSize = 64 << 20
+	maxNativeOutputBufferSize  = 1<<31 - 1
 
 	initialHashOutputBuffer = 128
 	initialInfoOutputBuffer = 4 << 10
@@ -61,16 +62,19 @@ func WithBufferSize(size int) Option {
 	}
 }
 
-// WithMaxBufferSize sets an opt-in hard cap for every native output allocation.
-// Without this option, the default 64 MiB threshold is soft: buffers may grow
-// past it when an estimate or the native result requires more space. The native
-// C int ABI still imposes an unavoidable maximum of 2^31-1 bytes.
+// WithMaxBufferSize sets the hard cap for every native output allocation. Zero
+// restores DefaultMaxOutputBufferSize. A positive value selects a smaller or
+// larger cap and is limited to the native C int maximum of 2^31-1 bytes. A
+// negative value makes New return ErrInvalidOutputBufferSize.
 func WithMaxBufferSize(size int) Option {
 	return func(c *config) {
-		c.maxBufferSize = 0
 		if size > 0 {
 			c.maxBufferSize = min(size, maxNativeOutputBufferSize)
+
+			return
 		}
+
+		c.maxBufferSize = size
 	}
 }
 

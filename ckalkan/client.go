@@ -23,6 +23,10 @@ var (
 	// KalkanCrypt loader.
 	ErrUnavailable = errors.New("ckalkan: native KalkanCrypt loader is unavailable for this build")
 
+	// ErrInvalidOutputBufferSize is returned when WithMaxBufferSize receives a
+	// negative limit. Zero selects DefaultMaxOutputBufferSize.
+	ErrInvalidOutputBufferSize = errors.New("ckalkan: maximum output buffer size must be non-negative")
+
 	// ErrPoisoned is returned after native close/finalize failed and the
 	// process-global KalkanCrypt state can no longer be reused.
 	ErrPoisoned = errors.New("ckalkan: KalkanCrypt process state is poisoned after failed close")
@@ -126,6 +130,10 @@ func New(options ...Option) (*Client, error) {
 		if option != nil {
 			option(&cfg)
 		}
+	}
+
+	if cfg.maxBufferSize < 0 {
+		return nil, ErrInvalidOutputBufferSize
 	}
 
 	libraryPath := cfg.libraryPath

@@ -2,10 +2,12 @@ package ckalkan
 
 import (
 	"encoding/base64"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,7 +18,7 @@ func TestCallBufferUsesSmallInitialSize(t *testing.T) {
 	var capacities []int
 	cli := &Client{config: defaultConfig()}
 
-	got, err := cli.callBufferWithCapacityLocked(128, func(capacity int) (kalkancrypt.BufferResult, error) {
+	got, err := cli.callBufferWithCapacityLocked("test output", 128, func(capacity int) (kalkancrypt.BufferResult, error) {
 		capacities = append(capacities, capacity)
 		return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
 	})
@@ -274,7 +276,7 @@ func BenchmarkCallBufferSmallInitialOutput(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		got, err := cli.callBufferWithCapacityLocked(initialHashOutputBuffer, func(capacity int) (kalkancrypt.BufferResult, error) {
+		got, err := cli.callBufferWithCapacityLocked("benchmark output", initialHashOutputBuffer, func(capacity int) (kalkancrypt.BufferResult, error) {
 			if capacity != initialHashOutputBuffer {
 				b.Fatalf("capacity = %d, want %d", capacity, initialHashOutputBuffer)
 			}
@@ -374,6 +376,13 @@ func TestBase64OutputEstimateDetectsNativeLimitWithoutIntegerOverflow(t *testing
 	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
 		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
 	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) ||
+		limitErr.Operation != "test" ||
+		limitErr.Requested != uint64(want) ||
+		limitErr.Limit != uint64(maxNativeOutputBufferSize) {
+		t.Fatalf("error = %v, want typed native ABI limit details", err)
+	}
 }
 
 func TestSignDataEstimatesAttachedFileAndOutputEncoding(t *testing.T) {
@@ -428,7 +437,9 @@ func TestSignDataEstimatesAttachedFileAndOutputEncoding(t *testing.T) {
 					return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
 				},
 			}
-			cli := &Client{ctx: ctx, config: defaultConfig()}
+			cfg := defaultConfig()
+			WithMaxBufferSize(DefaultMaxOutputBufferSize * 4)(&cfg)
+			cli := &Client{ctx: ctx, config: cfg}
 
 			if _, err := cli.SignData(SignDataRequest{Flags: test.flags, Data: []byte(path)}); err != nil {
 				t.Fatalf("SignData failed: %v", err)
@@ -606,5 +617,34 @@ func TestLastErrorStringReportsExplicitHardLimit(t *testing.T) {
 	}
 	if !strings.Contains(message, "hard limit 1024") {
 		t.Fatalf("message = %q, want explicit hard-limit error", message)
+	}
+}
+
+func TestLastErrorStringRejectsVeryLargeLengthAtDefaultLimit(t *testing.T) {
+	var calls int
+	ctx := &fakeNativeContext{
+		lastErrorStringFunc: func(int) (kalkancrypt.BufferResult, error) {
+			calls++
+
+			return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: math.MaxInt}, nil
+		},
+	}
+	cli := &Client{ctx: ctx, config: defaultConfig()}
+
+	code, message := cli.GetLastErrorString()
+	if code != ErrorBufferTooSmall {
+		t.Fatalf("code = %s, want %s", code.Hex(), ErrorBufferTooSmall.Hex())
+	}
+	for _, want := range []string{
+		"LastErrorString",
+		strconv.Itoa(math.MaxInt),
+		strconv.Itoa(DefaultMaxOutputBufferSize),
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message = %q, want %q", message, want)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("native calls = %d, want rejection before oversized retry", calls)
 	}
 }

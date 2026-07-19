@@ -38,7 +38,7 @@ func TestStubLibraryOutputBufferBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		want []byte
-		call func(int) (kalkancrypt.BufferResult, error)
+		call kalkancrypt.OutputBufferFunc
 	}{
 		{name: "VerifyXML", want: []byte("XMLVERIFY"), call: func(capacity int) (kalkancrypt.BufferResult, error) {
 			return ctx.VerifyXML(kalkancrypt.VerifyXMLCall{XML: []byte("<root/>"), Capacity: capacity})
@@ -65,7 +65,7 @@ func TestStubLibraryOutputBufferBoundaries(t *testing.T) {
 func assertStubSingleOutputBufferBoundaries(
 	t *testing.T,
 	want []byte,
-	call func(int) (kalkancrypt.BufferResult, error),
+	call kalkancrypt.OutputBufferFunc,
 ) {
 	t.Helper()
 

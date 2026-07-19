@@ -7,10 +7,15 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResult, error)) (ListResult, error) {
+func (c *Client) callListLocked(operation string, call kalkancrypt.ListBufferFunc) (ListResult, error) {
 	size := normalizeConfiguredBufferSize(c.config.listBufferSize, defaultListBufferSize)
 	if size > outputBufferLimit(c.config.maxBufferSize) {
-		return ListResult{}, outputBufferLimitError(c.config.maxBufferSize, size)
+		requested, ok := nonNegativeIntToUint64(size)
+		if !ok {
+			return ListResult{}, invalidNativeOutputLength(operation+" buffer capacity", size)
+		}
+
+		return ListResult{}, outputBufferLimitError(operation, c.config.maxBufferSize, requested)
 	}
 
 	for {
@@ -25,7 +30,7 @@ func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResul
 		if code == ErrorBufferTooSmall || (code == ErrorOK && len(result.Data) == size) {
 			newSize := growCapacity(size, 0, c.config.maxBufferSize)
 			if newSize == size {
-				return ListResult{}, outputBufferLimitError(c.config.maxBufferSize, 0)
+				return ListResult{}, outputBufferLimitError(operation, c.config.maxBufferSize, minimumOutputGrowth(size, 0))
 			}
 
 			size = newSize
@@ -41,7 +46,7 @@ func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResul
 	}
 }
 
-func (c *Client) callBufferWithCapacityLocked(initial int, call func(capacity int) (kalkancrypt.BufferResult, error)) ([]byte, error) {
+func (c *Client) callBufferWithCapacityLocked(operation string, initial int, call kalkancrypt.OutputBufferFunc) ([]byte, error) {
 	size := boundedOutputCapacity(initial, c.config.maxBufferSize)
 
 	for {
@@ -59,12 +64,16 @@ func (c *Client) callBufferWithCapacityLocked(initial int, call func(capacity in
 			}
 
 			if result.OutLen > outputBufferLimit(c.config.maxBufferSize) {
-				return nil, outputBufferLimitError(c.config.maxBufferSize, result.OutLen)
+				return nil, outputBufferLimitError(operation, c.config.maxBufferSize, uint64(result.OutLen))
 			}
 
 			newSize, grown := growReportedCapacity(size, result.OutLen, c.config.maxBufferSize)
 			if !grown {
-				return nil, outputBufferLimitError(c.config.maxBufferSize, result.OutLen)
+				return nil, outputBufferLimitError(
+					operation,
+					c.config.maxBufferSize,
+					minimumOutputGrowth(size, result.OutLen),
+				)
 			}
 
 			size = newSize
@@ -106,11 +115,15 @@ type outputBufferState struct {
 	growthHint     int
 }
 
-func nextOutputBufferCapacities(code ErrorCode, hardMaximum int, outputs ...outputBufferState) ([]int, error) {
+func nextOutputBufferCapacities(operation string, code ErrorCode, hardMaximum int, outputs ...outputBufferState) ([]int, error) {
 	grow := make([]bool, len(outputs))
 	hasGrowthCandidate := false
 
 	for index, output := range outputs {
+		if output.active && output.reported < 0 {
+			return nil, invalidNativeOutputLength(operation+" output", output.reported)
+		}
+
 		grow[index] = output.active && outputNeedsGrowth(
 			code,
 			output.reported,
@@ -128,7 +141,7 @@ func nextOutputBufferCapacities(code ErrorCode, hardMaximum int, outputs ...outp
 		}
 	}
 
-	reported := 0
+	reported := uint64(0)
 	limit := outputBufferLimit(hardMaximum)
 
 	for index, output := range outputs {
@@ -136,9 +149,14 @@ func nextOutputBufferCapacities(code ErrorCode, hardMaximum int, outputs ...outp
 			continue
 		}
 
-		reported = max(reported, output.reported)
+		reportedSize, ok := nonNegativeIntToUint64(output.reported)
+		if !ok {
+			return nil, invalidNativeOutputLength(operation+" output", output.reported)
+		}
+
+		reported = max(reported, reportedSize)
 		if output.reported > limit {
-			return nil, outputBufferLimitError(hardMaximum, reported)
+			return nil, outputBufferLimitError(operation, hardMaximum, reported)
 		}
 	}
 
@@ -163,7 +181,15 @@ func nextOutputBufferCapacities(code ErrorCode, hardMaximum int, outputs ...outp
 	}
 
 	if !grew {
-		return nil, outputBufferLimitError(hardMaximum, reported)
+		requested := reported
+
+		for index, output := range outputs {
+			if grow[index] {
+				requested = max(requested, minimumOutputGrowth(output.current, output.reported))
+			}
+		}
+
+		return nil, outputBufferLimitError(operation, hardMaximum, requested)
 	}
 
 	return next, nil
@@ -233,7 +259,7 @@ func outputBufferLimit(hardMaximum int) int {
 		return min(hardMaximum, maxNativeOutputBufferSize)
 	}
 
-	return maxNativeOutputBufferSize
+	return DefaultMaxOutputBufferSize
 }
 
 func growCapacity(current, requested, maximum int) int {
@@ -251,13 +277,6 @@ func growCapacity(current, requested, maximum int) int {
 		next = requested
 	}
 
-	// The default 64 MiB threshold is soft. Stop geometric growth there once,
-	// but allow the next retry, a native reported size, or an operation estimate
-	// to cross it. An explicit hard maximum always takes precedence.
-	if maximum <= 0 && requested <= current && current < defaultSoftOutputBufferSize && next > defaultSoftOutputBufferSize {
-		next = defaultSoftOutputBufferSize
-	}
-
 	if next > limit {
 		return limit
 	}
@@ -265,26 +284,49 @@ func growCapacity(current, requested, maximum int) int {
 	return next
 }
 
-func outputBufferLimitError(hardMaximum, reported int) error {
-	limit := outputBufferLimit(hardMaximum)
-	if hardMaximum > 0 {
-		if reported > limit {
-			return &KalkanError{
-				Code:    ErrorBufferTooSmall,
-				Message: fmt.Sprintf("required output buffer size %d exceeds configured hard limit %d", reported, limit),
-			}
-		}
+func outputBufferLimitError(operation string, hardMaximum int, requested uint64) error {
+	limitValue := outputBufferLimit(hardMaximum)
 
-		return &KalkanError{
-			Code:    ErrorBufferTooSmall,
-			Message: fmt.Sprintf("output exceeds configured hard buffer limit %d", limit),
+	limit, ok := nonNegativeIntToUint64(limitValue)
+	if !ok {
+		return fmt.Errorf("ckalkan: output buffer limit is negative: %d", limitValue)
+	}
+
+	return &OutputBufferLimitError{
+		Operation: operation,
+		Requested: requested,
+		Limit:     limit,
+	}
+}
+
+func nonNegativeIntToUint64(value int) (uint64, bool) {
+	if value < 0 {
+		return 0, false
+	}
+
+	return uint64(value), true
+}
+
+func minimumOutputGrowth(current, reported int) uint64 {
+	if reported > current {
+		value, ok := nonNegativeIntToUint64(reported)
+		if ok {
+			return value
 		}
 	}
 
-	return &KalkanError{
-		Code:    ErrorBufferTooSmall,
-		Message: fmt.Sprintf("output exceeds native C int buffer limit %d", limit),
+	if current <= 0 {
+		return 1
 	}
+
+	value, ok := nonNegativeIntToUint64(current)
+	if !ok {
+		return 1
+	}
+
+	// Add after converting so this remains safe when int is 32 bits and the
+	// current capacity is the largest value representable by the C int ABI.
+	return value + 1
 }
 
 func outputBufferSafetyMinimumError(operation string, hardMaximum, minimum int) error {

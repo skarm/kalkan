@@ -17,7 +17,7 @@ func (c *Client) SignHash(alias string, flags Flag, hash []byte) ([]byte, error)
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialSignatureBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	return c.callBufferWithCapacityLocked("SignHash", c.config.outputInitialCapacity(initialSignatureBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignHash(kalkancrypt.SignHashCall{
 			Alias:    alias,
 			Flags:    nativeFlags,
@@ -50,7 +50,7 @@ func (c *Client) SignData(req SignDataRequest) ([]byte, error) {
 
 	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
-	return c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
+	return c.callBufferWithCapacityLocked("SignData", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignData(kalkancrypt.SignDataCall{
 			Alias:     req.Alias,
 			Flags:     nativeFlags,

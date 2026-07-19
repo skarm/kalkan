@@ -2,6 +2,7 @@ package ckalkan
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -245,7 +246,7 @@ func TestListMethodsRetryAfterBufferTooSmall(t *testing.T) {
 func TestOutputMethodsRejectInvalidNativeLengths(t *testing.T) {
 	t.Run("single output", func(t *testing.T) {
 		client := &Client{config: defaultConfig()}
-		_, err := client.callBufferWithCapacityLocked(defaultOutputBufferSize, func(int) (kalkancrypt.BufferResult, error) {
+		_, err := client.callBufferWithCapacityLocked("test output", defaultOutputBufferSize, func(int) (kalkancrypt.BufferResult, error) {
 			return kalkancrypt.BufferResult{Code: uint64(ErrorOK), OutLen: -1}, nil
 		})
 		if err == nil || !strings.Contains(err.Error(), "negative") {
@@ -255,7 +256,7 @@ func TestOutputMethodsRejectInvalidNativeLengths(t *testing.T) {
 
 	t.Run("single output length mismatch", func(t *testing.T) {
 		client := &Client{config: defaultConfig()}
-		_, err := client.callBufferWithCapacityLocked(defaultOutputBufferSize, func(int) (kalkancrypt.BufferResult, error) {
+		_, err := client.callBufferWithCapacityLocked("test output", defaultOutputBufferSize, func(int) (kalkancrypt.BufferResult, error) {
 			return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("x"), OutLen: 2}, nil
 		})
 		if err == nil || !strings.Contains(err.Error(), "does not match") {
@@ -340,6 +341,152 @@ func TestOutputMethodsRejectInvalidNativeLengths(t *testing.T) {
 			t.Fatalf("GetLastErrorString = (%s, %q), want ErrorMemory and inconsistent length", code.Hex(), message)
 		}
 	})
+}
+
+func TestCoreOutputPathsRejectOversizedNativeLengthBeforeRetry(t *testing.T) {
+	const sensitiveInput = "secret-document-marker"
+
+	tests := []struct {
+		name      string
+		operation string
+		install   func(*fakeNativeContext, *int)
+		call      func(*Client) error
+	}{
+		{
+			name:      "CMS",
+			operation: "SignData",
+			install: func(ctx *fakeNativeContext, calls *int) {
+				ctx.signDataFunc = func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
+					(*calls)++
+
+					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
+				}
+			},
+			call: func(client *Client) error {
+				_, err := client.SignData(SignDataRequest{Data: []byte(sensitiveInput)})
+
+				return err
+			},
+		},
+		{
+			name:      "XML",
+			operation: "SignXML",
+			install: func(ctx *fakeNativeContext, calls *int) {
+				ctx.signXMLFunc = func(kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error) {
+					(*calls)++
+
+					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
+				}
+			},
+			call: func(client *Client) error {
+				_, err := client.SignXML(SignXMLRequest{XML: []byte(sensitiveInput)})
+
+				return err
+			},
+		},
+		{
+			name:      "certificate",
+			operation: "X509CertificateGetInfo",
+			install: func(ctx *fakeNativeContext, calls *int) {
+				ctx.x509InfoFunc = func([]byte, int, int) (kalkancrypt.BufferResult, error) {
+					(*calls)++
+
+					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
+				}
+			},
+			call: func(client *Client) error {
+				_, err := client.X509CertificateGetInfo([]byte(sensitiveInput), CertPropSubjectCommonName)
+
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &fakeNativeContext{}
+			calls := 0
+			test.install(ctx, &calls)
+			client := &Client{ctx: ctx, config: defaultConfig()}
+
+			err := test.call(client)
+			if err == nil {
+				t.Fatalf("%s accepted oversized native length", test.operation)
+			}
+			var limitErr *OutputBufferLimitError
+			if !errors.As(err, &limitErr) {
+				t.Fatalf("error = %T, want OutputBufferLimitError", err)
+			}
+			if limitErr.Operation != test.operation ||
+				limitErr.Requested != DefaultMaxOutputBufferSize+1 ||
+				limitErr.Limit != DefaultMaxOutputBufferSize {
+				t.Fatalf("limit error = %+v, want operation=%s requested=%d limit=%d",
+					limitErr, test.operation, DefaultMaxOutputBufferSize+1, DefaultMaxOutputBufferSize)
+			}
+			if calls != 1 {
+				t.Fatalf("native calls = %d, want rejection before oversized retry", calls)
+			}
+			if strings.Contains(err.Error(), sensitiveInput) {
+				t.Fatalf("error leaks input contents: %v", err)
+			}
+		})
+	}
+}
+
+func TestMultiBufferPathsRejectOversizedNativeLengthBeforeRetry(t *testing.T) {
+	t.Run("VerifyData", func(t *testing.T) {
+		calls := 0
+		ctx := &fakeNativeContext{
+			verifyDataFunc: func(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
+				calls++
+
+				return kalkancrypt.VerifyResult{
+					Code:    uint64(ErrorBufferTooSmall),
+					InfoLen: DefaultMaxOutputBufferSize + 1,
+				}, nil
+			},
+		}
+		client := &Client{ctx: ctx, config: defaultConfig()}
+
+		_, err := client.VerifyData(VerifyDataRequest{})
+		assertOutputLimitRejection(t, err, "VerifyData", calls)
+	})
+
+	t.Run("X509ValidateCertificate", func(t *testing.T) {
+		calls := 0
+		ctx := &fakeNativeContext{
+			validateCertificateFunc: func(kalkancrypt.ValidateCertificateCall) (kalkancrypt.ValidateResult, error) {
+				calls++
+
+				return kalkancrypt.ValidateResult{
+					Code:    uint64(ErrorBufferTooSmall),
+					InfoLen: DefaultMaxOutputBufferSize + 1,
+				}, nil
+			},
+		}
+		client := &Client{ctx: ctx, config: defaultConfig()}
+
+		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{})
+		assertOutputLimitRejection(t, err, "X509ValidateCertificate", calls)
+	})
+}
+
+func assertOutputLimitRejection(t *testing.T, err error, operation string, calls int) {
+	t.Helper()
+
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("error = %v, want OutputBufferLimitError", err)
+	}
+	if limitErr.Operation != operation ||
+		limitErr.Requested != DefaultMaxOutputBufferSize+1 ||
+		limitErr.Limit != DefaultMaxOutputBufferSize {
+		t.Fatalf("limit error = %+v, want operation=%s requested=%d limit=%d",
+			limitErr, operation, DefaultMaxOutputBufferSize+1, DefaultMaxOutputBufferSize)
+	}
+	if calls != 1 {
+		t.Fatalf("native calls = %d, want rejection before oversized retry", calls)
+	}
 }
 
 func TestValidateCertificateGrowsOnlyRequiredOutputBuffer(t *testing.T) {

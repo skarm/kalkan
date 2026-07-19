@@ -24,7 +24,7 @@ func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 
 	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
-	out, err := c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked("SignWSSE", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignWSSE(kalkancrypt.SignWSSECall{
 			Alias:      req.Alias,
 			Flags:      flags,

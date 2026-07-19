@@ -33,7 +33,7 @@ func (c *Client) lastErrorStringLocked() (ErrorCode, string) {
 
 		if code == ErrorBufferTooSmall || (code == ErrorOK && result.OutLen > size) {
 			if result.OutLen > outputBufferLimit(c.config.maxBufferSize) {
-				return ErrorBufferTooSmall, outputBufferLimitError(c.config.maxBufferSize, result.OutLen).Error()
+				return ErrorBufferTooSmall, outputBufferLimitError("LastErrorString", c.config.maxBufferSize, uint64(result.OutLen)).Error()
 			}
 
 			newSize := growCapacity(size, result.OutLen, c.config.maxBufferSize)
@@ -43,7 +43,7 @@ func (c *Client) lastErrorStringLocked() (ErrorCode, string) {
 				continue
 			}
 
-			return retryErrorCode(code), outputBufferLimitError(c.config.maxBufferSize, result.OutLen).Error()
+			return retryErrorCode(code), outputBufferLimitError("LastErrorString", c.config.maxBufferSize, minimumOutputGrowth(size, result.OutLen)).Error()
 		}
 
 		if code == ErrorOK {

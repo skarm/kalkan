@@ -19,7 +19,7 @@ func (c *Client) GetTokens(storage Store) (ListResult, error) {
 		return ListResult{}, err
 	}
 
-	return c.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	return c.callListLocked("GetTokens", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		return ctx.GetTokens(nativeStorage, bufferSize)
 	})
 }
@@ -37,7 +37,7 @@ func (c *Client) GetCertificatesList() (ListResult, error) {
 		return ListResult{}, err
 	}
 
-	return c.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	return c.callListLocked("GetCertificatesList", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		return ctx.GetCertificatesList(bufferSize)
 	})
 }

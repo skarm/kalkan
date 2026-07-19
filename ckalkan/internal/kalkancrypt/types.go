@@ -15,6 +15,12 @@ var (
 // instead of importing C constants so that the common Go code builds everywhere.
 const errorLibraryNotInitialized uint64 = 0x08f00101
 
+// OutputBufferFunc performs one capacity-aware native output-buffer attempt.
+type OutputBufferFunc func(capacity int) (BufferResult, error)
+
+// ListBufferFunc performs one native list-buffer attempt.
+type ListBufferFunc func(bufferSize int) (ListResult, error)
+
 // BufferResult describes one native call attempt that writes to an output
 // buffer owned by the low-level layer.
 type BufferResult struct {

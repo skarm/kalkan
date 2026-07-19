@@ -46,7 +46,7 @@ func TestNativeSingleOutputBufferBoundaries(t *testing.T) {
 
 	tests := []struct {
 		name string
-		call func(int) (kalkancrypt.BufferResult, error)
+		call kalkancrypt.OutputBufferFunc
 	}{
 		{name: "HashData", call: func(capacity int) (kalkancrypt.BufferResult, error) {
 			return ctx.HashData(kalkancrypt.HashDataCall{
@@ -108,7 +108,7 @@ func TestNativeSingleOutputBufferBoundaries(t *testing.T) {
 	}
 }
 
-func assertNativeSingleOutputBuffer(t *testing.T, call func(int) (kalkancrypt.BufferResult, error)) {
+func assertNativeSingleOutputBuffer(t *testing.T, call kalkancrypt.OutputBufferFunc) {
 	t.Helper()
 
 	baseline, err := call(largeNativeOutputCapacity)

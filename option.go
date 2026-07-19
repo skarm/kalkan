@@ -4,11 +4,19 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+
+	"github.com/skarm/kalkan/ckalkan"
 )
 
 const (
 	defaultTSAURL  = "http://tsp.pki.gov.kz:80"
 	defaultOCSPURL = "http://ocsp.pki.gov.kz"
+
+	// DefaultMaxOutputBufferSize is the default hard limit for each native
+	// output buffer. It is a security and availability boundary, not a promise
+	// that any operation should consume the full amount. Applications may set a
+	// smaller limit with WithMaxOutputBufferSize.
+	DefaultMaxOutputBufferSize = ckalkan.DefaultMaxOutputBufferSize
 )
 
 type runtimeConfig struct {
@@ -68,13 +76,13 @@ func WithMaxInputSize(size int64) Option {
 	}
 }
 
-// WithMaxOutputBufferSize enables a hard cap for the low-level KalkanCrypt
-// output-buffer retry policy. Values less than or equal to zero disable the
-// hard limit. Positive values are honored exactly, subject to the native C int
-// ABI maximum.
+// WithMaxOutputBufferSize sets the hard cap for the low-level KalkanCrypt
+// output-buffer retry policy. Zero restores DefaultMaxOutputBufferSize. A
+// positive value selects a smaller or larger cap, subject to the native C int
+// ABI maximum. A negative value makes Open return ErrInvalidInput.
 func WithMaxOutputBufferSize(size int) Option {
 	return func(c *config) {
-		c.maxOutputBufferSize = max(size, 0)
+		c.maxOutputBufferSize = size
 	}
 }
 
@@ -102,6 +110,10 @@ func defaultOpenConfig() config {
 }
 
 func (c *config) validate() error {
+	if c.maxOutputBufferSize < 0 {
+		return fmt.Errorf("%w: maximum output buffer size must be non-negative", ErrInvalidInput)
+	}
+
 	libraryPath, err := validateNativePathString("library path", c.libraryPath)
 	if err != nil {
 		if c.libraryPath == "" {

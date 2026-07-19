@@ -45,7 +45,7 @@ func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat)
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	return c.callBufferWithCapacityLocked("X509ExportCertificateFromStore", c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.X509ExportCertificateFromStore(alias, int(format), capacity)
 	})
 }
@@ -61,7 +61,7 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 		return nil, err
 	}
 
-	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked("X509CertificateGetInfo", c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.X509CertificateGetInfo(cert, int(prop), capacity)
 	})
 	if err != nil {
@@ -117,6 +117,7 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 		code := ErrorCode(result.Code)
 		if shouldRetryValidateCertificateOutput(code, result, infoCap, ocspCap) {
 			next, err := nextOutputBufferCapacities(
+				"X509ValidateCertificate",
 				code,
 				c.config.maxBufferSize,
 				outputBufferState{current: infoCap, reported: result.InfoLen, active: true},

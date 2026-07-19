@@ -2,6 +2,7 @@ package ckalkan
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -43,6 +44,42 @@ func (c ErrorCode) Hex() string {
 type KalkanError struct {
 	Code    ErrorCode
 	Message string
+}
+
+// OutputBufferLimitError reports that an output buffer would have to exceed
+// the active hard limit. Requested and Limit are byte counts. Operation names
+// the native wrapper operation without including any processed input data.
+type OutputBufferLimitError struct {
+	Operation string
+	Requested uint64
+	Limit     uint64
+}
+
+// Error formats the output-buffer limit failure as ErrorBufferTooSmall.
+func (e *OutputBufferLimitError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+
+	operation := e.Operation
+	if operation == "" {
+		operation = "output"
+	}
+
+	return (&KalkanError{
+		Code: ErrorBufferTooSmall,
+		Message: fmt.Sprintf(
+			"%s requires an output buffer of at least %d bytes, exceeding hard limit %d bytes",
+			operation,
+			e.Requested,
+			e.Limit,
+		),
+	}).Error()
+}
+
+// Unwrap preserves KalkanError and ErrorCodeOf compatibility.
+func (e *OutputBufferLimitError) Unwrap() error {
+	return &KalkanError{Code: ErrorBufferTooSmall}
 }
 
 // Error formats the KalkanCrypt error code and optional native message.

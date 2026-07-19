@@ -3,6 +3,7 @@ package kalkan
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"strings"
 	"testing"
 
@@ -49,7 +50,7 @@ func TestLimitOptionsUseLastValue(t *testing.T) {
 			want: 456,
 		},
 		{
-			name: "zero disables max output buffer size",
+			name: "zero restores default max output buffer size",
 			apply: func(cfg *config) {
 				WithMaxOutputBufferSize(456)(cfg)
 				WithMaxOutputBufferSize(0)(cfg)
@@ -57,12 +58,13 @@ func TestLimitOptionsUseLastValue(t *testing.T) {
 			got: func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
 		},
 		{
-			name: "negative disables max output buffer size",
+			name: "negative max output buffer size remains invalid",
 			apply: func(cfg *config) {
 				WithMaxOutputBufferSize(456)(cfg)
 				WithMaxOutputBufferSize(-1)(cfg)
 			},
-			got: func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
+			got:  func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
+			want: -1,
 		},
 	}
 
@@ -74,6 +76,24 @@ func TestLimitOptionsUseLastValue(t *testing.T) {
 				t.Fatalf("configured limit = %d, want %d", got, test.want)
 			}
 		})
+	}
+}
+
+func TestNegativeMaxOutputBufferSizeIsRejected(t *testing.T) {
+	factoryCalled := false
+	_, err := openWithLibraryFactory(context.Background(), []Option{
+		WithLibraryPath(testLibraryPath()),
+		WithMaxOutputBufferSize(-1),
+	}, func(config) (closer, error) {
+		factoryCalled = true
+
+		return &fakeNative{}, nil
+	})
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "output buffer") {
+		t.Fatalf("Open error = %v, want ErrInvalidInput for output buffer", err)
+	}
+	if factoryCalled {
+		t.Fatal("Open reached the low-level factory with an invalid output buffer limit")
 	}
 }
 
