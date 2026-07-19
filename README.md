@@ -142,11 +142,14 @@ CMS output is raw DER by default. Select `CMSOutputBase64` or `CMSOutputPEM` for
 - exactly one direct-child `ds:SignedInfo`
 - exactly one SOAP Body that is a direct child of the Envelope and has the expected `wsu:Id`
 - a direct `ds:Reference` to `#ExpectedBodyID`
+- the Body reference has either no `ds:Transforms`, or exactly one direct `ds:Transform` using Exclusive XML Canonicalization (`http://www.w3.org/2001/10/xml-exc-c14n#`)
 - no duplicate matching `wsu:Id`, `xml:id`, `Id`, or `ID`
 
 XML operations accept `kalkan.Bytes`; file and pre-encoded sources are rejected.
 
 Additional direct references may cover other WS-Security nodes. SOAP input must be UTF-8. Non-SOAP XML accepts UTF-8 or an ASCII-compatible declared encoding when the prolog and root tag are ASCII.
+
+The wrapper does not independently allowlist `CanonicalizationMethod`, `DigestMethod`, or `SignatureMethod`: the supported cryptographic algorithms depend on the installed KalkanCrypt version and repository fixtures do not establish a stable complete set. KalkanCrypt remains responsible for rejecting unsupported methods.
 
 ## Certificate validation
 
