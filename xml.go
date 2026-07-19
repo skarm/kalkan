@@ -19,6 +19,10 @@ const (
 	xmlnsWSU    = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
 	xmlnsDSig   = "http://www.w3.org/2000/09/xmldsig#"
 	xmlnsXML    = "http://www.w3.org/XML/1998/namespace"
+
+	// Existing SOAP/WS-Security fixtures use only Exclusive XML Canonicalization
+	// for the Body reference transform. Keep this allowlist intentionally narrow.
+	xmlAlgorithmExclusiveCanonicalization = "http://www.w3.org/2001/10/xml-exc-c14n#"
 )
 
 // XMLCanonicalization selects the XML canonicalization algorithm passed to
@@ -461,6 +465,13 @@ type signedSOAPBodyReference struct {
 	expectedReferenceCount int
 }
 
+type soapBodyReferenceTransformPolicy struct {
+	referenceDepth         int
+	transformsDepth        int
+	transformsElementCount int
+	transformAlgorithms    []string
+}
+
 func validateXMLVerificationStructure(document []byte, expectedID string) error {
 	if expectedID != "" {
 		if err := validateSOAPBodyID(expectedID); err != nil {
@@ -558,8 +569,12 @@ func collectSignedSOAPBodyReference(document []byte, expectedID string) (signedS
 	decoder := xml.NewDecoder(bytes.NewReader(document))
 
 	var (
-		binding signedSOAPBodyReference
-		stack   = make([]xml.Name, 0, 16)
+		binding         signedSOAPBodyReference
+		transformPolicy = soapBodyReferenceTransformPolicy{
+			referenceDepth:  -1,
+			transformsDepth: -1,
+		}
+		stack = make([]xml.Name, 0, 16)
 	)
 
 	for {
@@ -578,10 +593,18 @@ func collectSignedSOAPBodyReference(document []byte, expectedID string) (signedS
 				return signedSOAPBodyReference{}, err
 			}
 
+			if err := transformPolicy.observeStart(tok, expectedID, stack); err != nil {
+				return signedSOAPBodyReference{}, err
+			}
+
 			observeXMLVerificationElement(&binding, tok, expectedID, stack)
 			stack = append(stack, tok.Name)
 		case xml.EndElement:
 			if len(stack) > 0 {
+				if err := transformPolicy.observeEnd(len(stack) - 1); err != nil {
+					return signedSOAPBodyReference{}, err
+				}
+
 				stack = stack[:len(stack)-1]
 			}
 		case xml.CharData:
@@ -596,6 +619,109 @@ func collectSignedSOAPBodyReference(document []byte, expectedID string) (signedS
 	}
 
 	return binding, nil
+}
+
+func (policy *soapBodyReferenceTransformPolicy) observeStart(start xml.StartElement, expectedID string, ancestors []xml.Name) error {
+	depth := len(ancestors)
+	if policy.referenceDepth < 0 {
+		if isDirectExpectedSOAPBodyReference(start, expectedID, ancestors) {
+			policy.referenceDepth = depth
+			policy.transformsDepth = -1
+			policy.transformsElementCount = 0
+			policy.transformAlgorithms = policy.transformAlgorithms[:0]
+		}
+
+		return nil
+	}
+
+	if isDSigReference(start.Name) {
+		return fmt.Errorf("%w: SOAP Body ds:Reference must not contain a nested ds:Reference", ErrInvalidInput)
+	}
+
+	if start.Name.Local == "Transforms" {
+		if start.Name.Space != xmlnsDSig {
+			return fmt.Errorf("%w: SOAP Body reference Transforms must use the XML Signature namespace", ErrInvalidInput)
+		}
+
+		if depth != policy.referenceDepth+1 {
+			return fmt.Errorf("%w: ds:Transforms must be a direct child of the SOAP Body ds:Reference", ErrInvalidInput)
+		}
+
+		policy.transformsElementCount++
+		if policy.transformsElementCount > 1 {
+			return fmt.Errorf("%w: SOAP Body ds:Reference must contain at most one direct ds:Transforms", ErrInvalidInput)
+		}
+
+		policy.transformsDepth = depth
+
+		return nil
+	}
+
+	if start.Name.Local == "Transform" {
+		if start.Name.Space != xmlnsDSig {
+			if policy.transformsDepth >= 0 && depth == policy.transformsDepth+1 {
+				return fmt.Errorf("%w: SOAP Body ds:Transforms may contain only direct ds:Transform elements", ErrInvalidInput)
+			}
+
+			return fmt.Errorf("%w: SOAP Body reference Transform must use the XML Signature namespace", ErrInvalidInput)
+		}
+
+		if policy.transformsDepth < 0 || depth != policy.transformsDepth+1 ||
+			len(ancestors) == 0 || !isDSigTransforms(ancestors[len(ancestors)-1]) {
+			return fmt.Errorf("%w: ds:Transform must be a direct child of ds:Transforms", ErrInvalidInput)
+		}
+
+		policy.transformAlgorithms = append(policy.transformAlgorithms, xmlAlgorithmAttribute(start))
+
+		return nil
+	}
+
+	if policy.transformsDepth >= 0 && depth == policy.transformsDepth+1 {
+		return fmt.Errorf("%w: SOAP Body ds:Transforms may contain only direct ds:Transform elements", ErrInvalidInput)
+	}
+
+	return nil
+}
+
+func (policy *soapBodyReferenceTransformPolicy) observeEnd(depth int) error {
+	if depth == policy.transformsDepth {
+		policy.transformsDepth = -1
+	}
+
+	if depth != policy.referenceDepth {
+		return nil
+	}
+
+	err := policy.validate()
+	policy.referenceDepth = -1
+	policy.transformsDepth = -1
+
+	return err
+}
+
+func (policy *soapBodyReferenceTransformPolicy) validate() error {
+	if policy.transformsElementCount == 0 {
+		return nil
+	}
+
+	if len(policy.transformAlgorithms) != 1 {
+		return fmt.Errorf("%w: SOAP Body ds:Transforms must contain exactly one direct ds:Transform, got %d", ErrInvalidInput, len(policy.transformAlgorithms))
+	}
+
+	algorithm := policy.transformAlgorithms[0]
+	if algorithm == "" {
+		return fmt.Errorf("%w: SOAP Body ds:Transform Algorithm must not be empty", ErrInvalidInput)
+	}
+
+	if algorithm != xmlAlgorithmExclusiveCanonicalization {
+		return fmt.Errorf("%w: ds:Transform Algorithm is not allowed for the SOAP Body reference; only %q is supported", ErrInvalidInput, xmlAlgorithmExclusiveCanonicalization)
+	}
+
+	// CanonicalizationMethod, DigestMethod, and SignatureMethod remain native
+	// KalkanCrypt policy: the repository does not define a stable allowlist for
+	// those installation-dependent algorithms, so guessing one here would break
+	// supported signatures. This wrapper independently constrains only transforms.
+	return nil
 }
 
 func observeXMLVerificationElement(binding *signedSOAPBodyReference, start xml.StartElement, expectedID string, ancestors []xml.Name) {
@@ -619,11 +745,8 @@ func observeXMLVerificationElement(binding *signedSOAPBodyReference, start xml.S
 		}
 	}
 
-	if isDSigReference(start.Name) && depth >= 2 &&
-		isDSigSignedInfo(ancestors[depth-1]) && isDSigSignature(ancestors[depth-2]) {
-		if referenceURI(start) == "#"+expectedID {
-			binding.expectedReferenceCount++
-		}
+	if isDirectExpectedSOAPBodyReference(start, expectedID, ancestors) {
+		binding.expectedReferenceCount++
 	}
 
 	if !isSOAPBody(start.Name) {
@@ -659,6 +782,18 @@ func isDSigSignature(name xml.Name) bool {
 
 func isDSigSignedInfo(name xml.Name) bool {
 	return name.Local == "SignedInfo" && name.Space == xmlnsDSig
+}
+
+func isDSigTransforms(name xml.Name) bool {
+	return name.Local == "Transforms" && name.Space == xmlnsDSig
+}
+
+func isDirectExpectedSOAPBodyReference(start xml.StartElement, expectedID string, ancestors []xml.Name) bool {
+	depth := len(ancestors)
+
+	return isDSigReference(start.Name) && depth >= 2 &&
+		isDSigSignedInfo(ancestors[depth-1]) && isDSigSignature(ancestors[depth-2]) &&
+		referenceURI(start) == "#"+expectedID
 }
 
 func hasWSUID(start xml.StartElement, id string) bool {
@@ -702,6 +837,16 @@ func xmlIDEquals(value, expected string) bool {
 func referenceURI(start xml.StartElement) string {
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "URI" {
+			return attr.Value
+		}
+	}
+
+	return ""
+}
+
+func xmlAlgorithmAttribute(start xml.StartElement) string {
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "Algorithm" {
 			return attr.Value
 		}
 	}
