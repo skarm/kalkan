@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -507,13 +508,10 @@ func TestWithLoggerRecordsClose(t *testing.T) {
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	records := handler.Records()
-	if !hasLogRecord(records, slog.LevelDebug, "kalkan native call completed", map[string]string{
+	waitForLogRecord(t, handler, slog.LevelDebug, "kalkan native call completed", map[string]string{
 		"component": "kalkan",
 		"operation": "Close",
-	}) {
-		t.Fatalf("log records = %v, want successful Close native call record", records)
-	}
+	})
 }
 
 type recordedLog struct {
@@ -530,10 +528,11 @@ type recordingHandler struct {
 type recordingSink struct {
 	mu      sync.Mutex
 	records []recordedLog
+	updated chan struct{}
 }
 
 func newRecordingHandler() *recordingHandler {
-	return &recordingHandler{sink: &recordingSink{}}
+	return &recordingHandler{sink: &recordingSink{updated: make(chan struct{}, 1)}}
 }
 
 func (h *recordingHandler) Enabled(context.Context, slog.Level) bool {
@@ -559,6 +558,11 @@ func (h *recordingHandler) Handle(_ context.Context, record slog.Record) error {
 	})
 	h.sink.mu.Unlock()
 
+	select {
+	case h.sink.updated <- struct{}{}:
+	default:
+	}
+
 	return nil
 }
 
@@ -582,6 +586,26 @@ func (h *recordingHandler) Records() []recordedLog {
 	copy(records, h.sink.records)
 
 	return records
+}
+
+func waitForLogRecord(t *testing.T, handler *recordingHandler, level slog.Level, msg string, attrs map[string]string) {
+	t.Helper()
+
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+
+	for {
+		records := handler.Records()
+		if hasLogRecord(records, level, msg, attrs) {
+			return
+		}
+
+		select {
+		case <-handler.sink.updated:
+		case <-timer.C:
+			t.Fatalf("log records = %v, want level %s message %q with attrs %v", records, level, msg, attrs)
+		}
+	}
 }
 
 func recordStringAttr(attrs map[string]string, attr slog.Attr) {
