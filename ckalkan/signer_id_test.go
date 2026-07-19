@@ -214,7 +214,10 @@ func signIDOverflowValue(t *testing.T) int {
 		t.Skip("signID overflow value is not representable as int on this platform")
 	}
 
-	return int(int64(maxNativeCInt) + 1)
+	overflow := int64(maxNativeCInt)
+	overflow++
+
+	return int(overflow)
 }
 
 func failGetCertFromCMS(t *testing.T) func(kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error) {

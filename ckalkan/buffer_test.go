@@ -1,7 +1,10 @@
 package ckalkan
 
 import (
+	"errors"
+	"math"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
@@ -11,7 +14,7 @@ func TestCallListRetriesWithoutCStringTerminator(t *testing.T) {
 	var bufferSizes []int
 	cli := &Client{config: defaultConfig()}
 
-	result, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	result, err := cli.callListLocked("test list", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		bufferSizes = append(bufferSizes, bufferSize)
 		if len(bufferSizes) == 1 {
 			return kalkancrypt.ListResult{
@@ -40,7 +43,7 @@ func TestCallListRejectsUnterminatedOutputAtHardLimit(t *testing.T) {
 		maxBufferSize:  conservativeOutputBufferSize,
 	}}
 
-	_, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	_, err := cli.callListLocked("test list", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		calls++
 
 		return kalkancrypt.ListResult{
@@ -66,7 +69,7 @@ func TestWithListBufferSizeSetsInitialAllocation(t *testing.T) {
 
 	cli := &Client{config: cfg}
 	var bufferSizes []int
-	_, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	_, err := cli.callListLocked("test list", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		bufferSizes = append(bufferSizes, bufferSize)
 		if len(bufferSizes) == 1 {
 			return kalkancrypt.ListResult{Code: uint64(ErrorBufferTooSmall)}, nil
@@ -86,7 +89,7 @@ func TestCallListRejectsHardLimitBelowInitialAllocation(t *testing.T) {
 	var calls int
 	cli := &Client{config: config{listBufferSize: defaultListBufferSize, maxBufferSize: conservativeOutputBufferSize}}
 
-	_, err := cli.callListLocked(func(bufferSize int) (kalkancrypt.ListResult, error) {
+	_, err := cli.callListLocked("test list", func(bufferSize int) (kalkancrypt.ListResult, error) {
 		calls++
 		t.Errorf("native list call received unsafe buffer size %d", bufferSize)
 		return kalkancrypt.ListResult{}, nil
@@ -133,7 +136,7 @@ func TestCallBufferHandlesSmallExactAndLargerOutputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var capacities []int
 			cli := &Client{config: config{bufferSize: 1, maxBufferSize: conservativeOutputBufferSize * 4}}
-			got, err := cli.callBufferWithCapacityLocked(cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
+			got, err := cli.callBufferWithCapacityLocked("test output", cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
 				capacities = append(capacities, capacity)
 				if test.firstCode != 0 && len(capacities) == 1 {
 					return kalkancrypt.BufferResult{Code: uint64(test.firstCode), OutLen: test.firstLen}, nil
@@ -157,7 +160,7 @@ func TestCallBufferStopsAtMaxSize(t *testing.T) {
 	var calls int
 	cli := &Client{config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize}}
 
-	_, err := cli.callBufferWithCapacityLocked(cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
+	_, err := cli.callBufferWithCapacityLocked("test output", cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
 		calls++
 		return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: capacity + 1}, nil
 	})
@@ -166,6 +169,13 @@ func TestCallBufferStopsAtMaxSize(t *testing.T) {
 	}
 	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
 		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
+	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("error = %T, want OutputBufferLimitError", err)
+	}
+	if limitErr.Requested != conservativeOutputBufferSize+1 || limitErr.Limit != conservativeOutputBufferSize {
+		t.Fatalf("limit error = %+v, want requested=%d limit=%d", limitErr, conservativeOutputBufferSize+1, conservativeOutputBufferSize)
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d, want 1", calls)
@@ -177,7 +187,7 @@ func TestHardBufferLimitIsHonoredBelowConservativeInitialSize(t *testing.T) {
 
 	var capacity int
 	cli := &Client{config: config{maxBufferSize: hardLimit}}
-	_, err := cli.callBufferWithCapacityLocked(cli.config.outputInitialCapacity(defaultOutputBufferSize), func(got int) (kalkancrypt.BufferResult, error) {
+	_, err := cli.callBufferWithCapacityLocked("test output", cli.config.outputInitialCapacity(defaultOutputBufferSize), func(got int) (kalkancrypt.BufferResult, error) {
 		capacity = got
 
 		return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
@@ -190,29 +200,179 @@ func TestHardBufferLimitIsHonoredBelowConservativeInitialSize(t *testing.T) {
 	}
 }
 
-func TestCallBufferCanGrowPastDefaultSoftLimit(t *testing.T) {
-	var capacities []int
+func TestCallBufferRejectsGrowthPastDefaultLimit(t *testing.T) {
+	var calls int
 	cli := &Client{config: defaultConfig()}
 
-	got, err := cli.callBufferWithCapacityLocked(defaultSoftOutputBufferSize, func(capacity int) (kalkancrypt.BufferResult, error) {
+	_, err := cli.callBufferWithCapacityLocked("test output", DefaultMaxOutputBufferSize, func(capacity int) (kalkancrypt.BufferResult, error) {
+		calls++
+		if calls > 1 {
+			t.Fatalf("native call retried with oversized capacity %d", capacity)
+		}
+
+		return kalkancrypt.BufferResult{
+			Code:   uint64(ErrorBufferTooSmall),
+			OutLen: DefaultMaxOutputBufferSize + 17,
+		}, nil
+	})
+	if err == nil {
+		t.Fatal("callBufferWithCapacityLocked unexpectedly grew past the default limit")
+	}
+	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
+		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
+	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("error = %T, want OutputBufferLimitError", err)
+	}
+	if limitErr.Operation != "test output" ||
+		limitErr.Requested != DefaultMaxOutputBufferSize+17 ||
+		limitErr.Limit != DefaultMaxOutputBufferSize {
+		t.Fatalf("limit error = %+v, want operation and default-limit details", limitErr)
+	}
+	if calls != 1 {
+		t.Fatalf("native calls = %d, want 1", calls)
+	}
+}
+
+func TestDefaultOutputBufferLimitAllowsBoundary(t *testing.T) {
+	if got := outputBufferLimit(0); got != DefaultMaxOutputBufferSize {
+		t.Fatalf("default output limit = %d, want %d", got, DefaultMaxOutputBufferSize)
+	}
+	if got := growCapacity(DefaultMaxOutputBufferSize-1, DefaultMaxOutputBufferSize, 0); got != DefaultMaxOutputBufferSize {
+		t.Fatalf("growth below limit = %d, want exact limit %d", got, DefaultMaxOutputBufferSize)
+	}
+
+	var capacity int
+	cli := &Client{config: defaultConfig()}
+	got, err := cli.callBufferWithCapacityLocked("boundary output", DefaultMaxOutputBufferSize, func(gotCapacity int) (kalkancrypt.BufferResult, error) {
+		capacity = gotCapacity
+
+		return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
+	})
+	if err != nil {
+		t.Fatalf("exact-limit output failed: %v", err)
+	}
+	if capacity != DefaultMaxOutputBufferSize || string(got) != "ok" {
+		t.Fatalf("exact-limit call = capacity %d output %q", capacity, got)
+	}
+}
+
+func TestNativeReportedLengthAtOrBelowDefaultLimitCanRetry(t *testing.T) {
+	for _, reported := range []int{DefaultMaxOutputBufferSize - 1, DefaultMaxOutputBufferSize} {
+		t.Run(strconv.Itoa(reported), func(t *testing.T) {
+			var capacities []int
+			cli := &Client{config: defaultConfig()}
+			got, err := cli.callBufferWithCapacityLocked("boundary retry", defaultOutputBufferSize, func(capacity int) (kalkancrypt.BufferResult, error) {
+				capacities = append(capacities, capacity)
+				if len(capacities) == 1 {
+					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: reported}, nil
+				}
+
+				return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
+			})
+			if err != nil {
+				t.Fatalf("reported length %d failed: %v", reported, err)
+			}
+			if string(got) != "ok" {
+				t.Fatalf("output = %q, want ok", got)
+			}
+			if want := []int{defaultOutputBufferSize, reported}; !slices.Equal(capacities, want) {
+				t.Fatalf("capacities = %v, want %v", capacities, want)
+			}
+		})
+	}
+}
+
+func TestExplicitLargerOutputBufferLimitAllowsGrowthPastDefault(t *testing.T) {
+	hardLimit := DefaultMaxOutputBufferSize + 1024
+	cfg := defaultConfig()
+	WithMaxBufferSize(hardLimit)(&cfg)
+	cli := &Client{config: cfg}
+
+	var capacities []int
+	got, err := cli.callBufferWithCapacityLocked("larger output", DefaultMaxOutputBufferSize, func(capacity int) (kalkancrypt.BufferResult, error) {
 		capacities = append(capacities, capacity)
 		if len(capacities) == 1 {
 			return kalkancrypt.BufferResult{
 				Code:   uint64(ErrorBufferTooSmall),
-				OutLen: defaultSoftOutputBufferSize + 17,
+				OutLen: DefaultMaxOutputBufferSize + 1,
 			}, nil
 		}
 
-		return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("complete"), OutLen: len("complete")}, nil
+		return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
 	})
 	if err != nil {
-		t.Fatalf("callBufferWithCapacityLocked failed: %v", err)
+		t.Fatalf("growth with larger explicit limit failed: %v", err)
 	}
-	if string(got) != "complete" {
-		t.Fatalf("output = %q, want complete", got)
+	if string(got) != "ok" {
+		t.Fatalf("output = %q, want ok", got)
 	}
-	if want := []int{defaultSoftOutputBufferSize, defaultSoftOutputBufferSize + 17}; !slices.Equal(capacities, want) {
+	if want := []int{DefaultMaxOutputBufferSize, DefaultMaxOutputBufferSize + 1}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
+	}
+}
+
+func TestVeryLargeReportedOutputLengthIsRejectedBeforeRetry(t *testing.T) {
+	for _, reported := range []int{maxNativeOutputBufferSize, math.MaxInt} {
+		t.Run(strconv.Itoa(reported), func(t *testing.T) {
+			var calls int
+			cli := &Client{config: defaultConfig()}
+			_, err := cli.callBufferWithCapacityLocked("large output", defaultOutputBufferSize, func(int) (kalkancrypt.BufferResult, error) {
+				calls++
+
+				return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: reported}, nil
+			})
+			if err == nil {
+				t.Fatal("very large native output length was accepted")
+			}
+			var limitErr *OutputBufferLimitError
+			if !errors.As(err, &limitErr) {
+				t.Fatalf("error = %T, want OutputBufferLimitError", err)
+			}
+			if limitErr.Requested != uint64(reported) || limitErr.Limit != DefaultMaxOutputBufferSize {
+				t.Fatalf("limit error = %+v, want requested=%d limit=%d", limitErr, reported, DefaultMaxOutputBufferSize)
+			}
+			if calls != 1 {
+				t.Fatalf("native calls = %d, want no oversized retry", calls)
+			}
+		})
+	}
+}
+
+func TestMinimumOutputGrowthDoesNotOverflowInt(t *testing.T) {
+	want := uint64(math.MaxInt) + 1
+	if got := minimumOutputGrowth(math.MaxInt, math.MaxInt); got != want {
+		t.Fatalf("minimum growth = %d, want %d", got, want)
+	}
+}
+
+func TestRepeatedOutputGrowthCannotCrossHardLimit(t *testing.T) {
+	hardLimit := conservativeOutputBufferSize * 4
+	cli := &Client{config: config{maxBufferSize: hardLimit}}
+
+	var capacities []int
+	_, err := cli.callBufferWithCapacityLocked("repeated output", conservativeOutputBufferSize, func(capacity int) (kalkancrypt.BufferResult, error) {
+		capacities = append(capacities, capacity)
+
+		switch len(capacities) {
+		case 1:
+			return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: conservativeOutputBufferSize * 2}, nil
+		case 2:
+			return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: hardLimit}, nil
+		default:
+			return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: hardLimit + 1}, nil
+		}
+	})
+	if err == nil {
+		t.Fatal("repeated growth crossed the hard limit")
+	}
+	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2, hardLimit}; !slices.Equal(capacities, want) {
+		t.Fatalf("capacities = %v, want %v", capacities, want)
+	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) || limitErr.Requested != uint64(hardLimit+1) || limitErr.Limit != uint64(hardLimit) {
+		t.Fatalf("error = %v, want typed rejection at hard limit", err)
 	}
 }
 
@@ -220,7 +380,7 @@ func TestCallBufferRetriesOversizedOutput(t *testing.T) {
 	var capacities []int
 	cli := &Client{config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize * 2}}
 
-	got, err := cli.callBufferWithCapacityLocked(cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
+	got, err := cli.callBufferWithCapacityLocked("test output", cli.config.outputInitialCapacity(defaultOutputBufferSize), func(capacity int) (kalkancrypt.BufferResult, error) {
 		capacities = append(capacities, capacity)
 		if len(capacities) == 1 {
 			return kalkancrypt.BufferResult{
@@ -278,9 +438,9 @@ func TestGrowCapacityCases(t *testing.T) {
 		{name: "caps at maximum", current: conservativeOutputBufferSize, requested: conservativeOutputBufferSize * 3, maximum: conservativeOutputBufferSize * 2, want: conservativeOutputBufferSize * 2},
 		{name: "does not grow at maximum", current: conservativeOutputBufferSize * 2, requested: conservativeOutputBufferSize * 3, maximum: conservativeOutputBufferSize * 2, want: conservativeOutputBufferSize * 2},
 		{name: "honors tiny hard maximum", current: 1, requested: conservativeOutputBufferSize + 1, maximum: 1, want: 1},
-		{name: "reported size crosses soft limit", current: defaultSoftOutputBufferSize, requested: defaultSoftOutputBufferSize + 1, want: defaultSoftOutputBufferSize + 1},
-		{name: "blind growth pauses at soft limit", current: 40 << 20, want: defaultSoftOutputBufferSize},
-		{name: "blind growth continues after soft limit", current: defaultSoftOutputBufferSize, want: defaultSoftOutputBufferSize * 2},
+		{name: "reported size stops at default limit", current: DefaultMaxOutputBufferSize, requested: DefaultMaxOutputBufferSize + 1, want: DefaultMaxOutputBufferSize},
+		{name: "blind growth stops at default limit", current: 40 << 20, want: DefaultMaxOutputBufferSize},
+		{name: "blind growth remains at default limit", current: DefaultMaxOutputBufferSize, want: DefaultMaxOutputBufferSize},
 	}
 
 	for _, test := range tests {

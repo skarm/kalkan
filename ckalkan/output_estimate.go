@@ -1,7 +1,6 @@
 package ckalkan
 
 import (
-	"fmt"
 	"os"
 )
 
@@ -139,10 +138,7 @@ func saturatingEstimateMultiply(value, multiplier int64) int64 {
 
 func checkedOutputEstimate(operation string, estimated int64) (int, error) {
 	if estimated > int64(maxNativeOutputBufferSize) {
-		return 0, &KalkanError{
-			Code:    ErrorBufferTooSmall,
-			Message: fmt.Sprintf("estimated %s output exceeds native C int buffer limit %d", operation, maxNativeOutputBufferSize),
-		}
+		return 0, outputBufferLimitError(operation, maxNativeOutputBufferSize, uint64(estimated))
 	}
 
 	return int(estimated), nil

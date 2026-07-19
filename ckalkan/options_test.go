@@ -1,14 +1,17 @@
 package ckalkan
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestDefaultConfigHasNoLibrary(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.libraryPath != "" {
 		t.Fatalf("default library = %q, want empty", cfg.libraryPath)
 	}
-	if cfg.maxBufferSize != 0 {
-		t.Fatalf("default hard buffer limit = %d, want disabled", cfg.maxBufferSize)
+	if got := outputBufferLimit(cfg.maxBufferSize); got != DefaultMaxOutputBufferSize {
+		t.Fatalf("default hard buffer limit = %d, want %d", got, DefaultMaxOutputBufferSize)
 	}
 }
 
@@ -37,8 +40,8 @@ func TestWithMaxBufferSizeUsesLastValue(t *testing.T) {
 		want int
 	}{
 		{name: "positive", size: 789, want: 789},
-		{name: "zero disables", size: 0},
-		{name: "negative disables", size: -1},
+		{name: "zero restores default", size: 0},
+		{name: "negative remains invalid", size: -1, want: -1},
 	}
 
 	for _, test := range tests {
@@ -50,6 +53,30 @@ func TestWithMaxBufferSizeUsesLastValue(t *testing.T) {
 				t.Fatalf("hard buffer limit = %d, want %d", cfg.maxBufferSize, test.want)
 			}
 		})
+	}
+}
+
+func TestNewRejectsNegativeMaxBufferSize(t *testing.T) {
+	_, err := New(WithMaxBufferSize(-1))
+	if !errors.Is(err, ErrInvalidOutputBufferSize) {
+		t.Fatalf("New error = %v, want ErrInvalidOutputBufferSize", err)
+	}
+}
+
+func TestOutputBufferLimitAllowsExplicitLargerLimit(t *testing.T) {
+	want := DefaultMaxOutputBufferSize * 2
+	if got := outputBufferLimit(want); got != want {
+		t.Fatalf("explicit hard buffer limit = %d, want %d", got, want)
+	}
+}
+
+func TestWithMaxBufferSizeZeroRestoresDefaultLimit(t *testing.T) {
+	cfg := defaultConfig()
+	WithMaxBufferSize(DefaultMaxOutputBufferSize * 2)(&cfg)
+	WithMaxBufferSize(0)(&cfg)
+
+	if got := outputBufferLimit(cfg.maxBufferSize); got != DefaultMaxOutputBufferSize {
+		t.Fatalf("hard buffer limit after zero = %d, want default %d", got, DefaultMaxOutputBufferSize)
 	}
 }
 

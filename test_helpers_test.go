@@ -246,5 +246,8 @@ func signerIDOverflowValue(t *testing.T) int {
 		t.Skip("SignerID overflow value is not representable as int on this platform")
 	}
 
-	return int(int64(maxSignerID) + 1)
+	overflow := int64(maxSignerID)
+	overflow++
+
+	return int(overflow)
 }

@@ -178,6 +178,7 @@ func nextVerifyDataCapacities(
 	hardMaximum int,
 ) (verifyDataCapacities, error) {
 	next, err := nextOutputBufferCapacities(
+		"VerifyData",
 		code,
 		hardMaximum,
 		outputBufferState{

@@ -18,7 +18,7 @@ func (c *Client) HashData(algorithm HashAlgorithm, flags Flag, data []byte) ([]b
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialHashOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	return c.callBufferWithCapacityLocked("HashData", c.config.outputInitialCapacity(initialHashOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.HashData(kalkancrypt.HashDataCall{
 			Algorithm: string(algorithm),
 			Flags:     nativeFlags,

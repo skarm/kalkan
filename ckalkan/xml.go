@@ -24,7 +24,7 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 
 	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
-	out, err := c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked("SignXML", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignXML(kalkancrypt.SignXMLCall{
 			Alias:           req.Alias,
 			Flags:           nativeFlags,
@@ -57,7 +57,7 @@ func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error)
 		return "", err
 	}
 
-	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked("VerifyXML", c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.VerifyXML(kalkancrypt.VerifyXMLCall{
 			Alias:    alias,
 			Flags:    nativeFlags,
@@ -86,7 +86,7 @@ func (c *Client) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	return c.callBufferWithCapacityLocked("GetCertFromXML", c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.GetCertFromXML(xml, signID, capacity)
 	})
 }
@@ -101,7 +101,7 @@ func (c *Client) GetSigAlgFromXML(xml []byte) (string, error) {
 		return "", err
 	}
 
-	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	out, err := c.callBufferWithCapacityLocked("GetSigAlgFromXML", c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.GetSigAlgFromXML(xml, capacity)
 	})
 	if err != nil {

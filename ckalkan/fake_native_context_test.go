@@ -7,9 +7,9 @@ type fakeNativeContext struct {
 	clearErrorFunc          func()
 	finalizeFunc            func()
 	getTokensFunc           func(uint64, int) (kalkancrypt.ListResult, error)
-	getCertificatesListFunc func(int) (kalkancrypt.ListResult, error)
+	getCertificatesListFunc kalkancrypt.ListBufferFunc
 	hashDataFunc            func(kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error)
-	lastErrorStringFunc     func(int) (kalkancrypt.BufferResult, error)
+	lastErrorStringFunc     kalkancrypt.OutputBufferFunc
 	signHashFunc            func(kalkancrypt.SignHashCall) (kalkancrypt.BufferResult, error)
 	signDataFunc            func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error)
 	signXMLFunc             func(kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error)
