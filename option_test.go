@@ -137,6 +137,138 @@ func TestValidateNativePathStringPolicy(t *testing.T) {
 	}
 }
 
+func TestSigningOperationsRejectEmbeddedNULBeforeNativeCall(t *testing.T) {
+	client := &Client{library: &fakeNative{}}
+
+	tests := []struct {
+		name  string
+		field string
+		call  func() error
+	}{
+		{
+			name:  "SignHash alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.SignHash(context.Background(), SignHashRequest{
+					Alias:  "key\x00suffix",
+					Digest: make([]byte, 32),
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignCMS alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.SignCMS(context.Background(), SignCMSRequest{
+					Alias: "key\x00suffix",
+					Data:  Bytes([]byte("payload")),
+				})
+				return err
+			},
+		},
+		{
+			name:  "VerifyCMS alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+					Alias:     "key\x00suffix",
+					Signature: DER([]byte("cms")),
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignXML alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.SignXML(context.Background(), SignXMLRequest{
+					Alias: "key\x00suffix",
+					XML:   Bytes([]byte("<root/>")),
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignXML node ID",
+			field: "XML sign node ID",
+			call: func() error {
+				_, err := client.SignXML(context.Background(), SignXMLRequest{
+					XML:        Bytes([]byte("<root/>")),
+					SignNodeID: "node\x00suffix",
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignXML parent node",
+			field: "XML parent sign node",
+			call: func() error {
+				_, err := client.SignXML(context.Background(), SignXMLRequest{
+					XML:            Bytes([]byte("<root/>")),
+					ParentSignNode: "parent\x00suffix",
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignXML parent namespace",
+			field: "XML parent namespace",
+			call: func() error {
+				_, err := client.SignXML(context.Background(), SignXMLRequest{
+					XML:             Bytes([]byte("<root/>")),
+					ParentNamespace: "urn:test\x00suffix",
+				})
+				return err
+			},
+		},
+		{
+			name:  "VerifyXML alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
+					Alias: "key\x00suffix",
+					XML:   Bytes([]byte("<signed/>")),
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignWSSE alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.SignWSSE(context.Background(), SignWSSERequest{
+					Alias:  "key\x00suffix",
+					XML:    Bytes([]byte("<soap:Envelope/>")),
+					BodyID: "body",
+				})
+				return err
+			},
+		},
+		{
+			name:  "SignZIP alias",
+			field: "alias",
+			call: func() error {
+				_, err := client.SignZIP(context.Background(), SignZIPRequest{
+					Alias:      "key\x00suffix",
+					InputPath:  "/tmp/input",
+					OutputPath: "/tmp/output.zip",
+				})
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call()
+			if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), test.field) || !strings.Contains(err.Error(), "NUL") {
+				t.Fatalf("operation error = %v, want ErrInvalidInput for NUL in %s", err, test.field)
+			}
+		})
+	}
+}
+
 func TestNormalizeNativeHTTPURLPolicy(t *testing.T) {
 	tests := []struct {
 		name  string

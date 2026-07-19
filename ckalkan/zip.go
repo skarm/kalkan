@@ -18,11 +18,19 @@ func (c *Client) ZipConVerify(zipFile string, flags Flag) (string, error) {
 		return "", err
 	}
 
-	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	safetyCapacity := platformZIPVerifySafetyCapacity()
+	if c.config.maxBufferSize > 0 && c.config.maxBufferSize < safetyCapacity {
+		return "", outputBufferSafetyMinimumError("ZipConVerify", c.config.maxBufferSize, safetyCapacity)
+	}
+
+	out, err := c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialZIPVerifyBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.ZipConVerify(zipFile, nativeFlags, capacity)
 	})
+	if err != nil {
+		return "", err
+	}
 
-	return string(trimCStringBytes(out)), err
+	return string(bytesBeforeNULTerminator(out)), nil
 }
 
 // ZipConSign calls ZipConSign and signs files into a KalkanCrypt ZIP container.
@@ -72,6 +80,11 @@ func (c *Client) GetCertFromZipFile(zipFile string, flags Flag, signID int) ([]b
 	}
 
 	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.GetCertFromZipFile(zipFile, nativeFlags, signID, capacity)
+		return ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{
+			ZipFile:  zipFile,
+			Flags:    nativeFlags,
+			SignID:   signID,
+			Capacity: capacity,
+		})
 	})
 }

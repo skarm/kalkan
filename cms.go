@@ -117,6 +117,10 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 		return nil, err
 	}
 
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
+		return nil, err
+	}
+
 	if !req.Data.isSet() {
 		return nil, fmt.Errorf("%w: CMS data is required", ErrInvalidInput)
 	}
@@ -163,10 +167,14 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 		flags |= ckalkan.InFile
 	}
 
-	flags |= inputFlag(effectiveEncoding(req.Data, EncodingRaw), false)
+	flags |= inputFlag(effectiveEncoding(req.Data, EncodingRaw))
 
 	out, err := withLockedLibraryResult(c, ctx, "SignCMS", func(native cmsSignatures) ([]byte, error) {
-		return native.SignData(req.Alias, flags, data, nil)
+		return native.SignData(ckalkan.SignDataRequest{
+			Alias: req.Alias,
+			Flags: flags,
+			Data:  data,
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -182,6 +190,10 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 	}
 
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
 		return nil, err
 	}
 
@@ -340,13 +352,9 @@ func encodingName(encoding Encoding) string {
 	}
 }
 
-func inputFlag(encoding Encoding, secondInput bool) ckalkan.Flag {
+func inputFlag(encoding Encoding) ckalkan.Flag {
 	switch encoding {
 	case EncodingBase64:
-		if secondInput {
-			return ckalkan.In2Base64
-		}
-
 		return ckalkan.InBase64
 	case EncodingPEM:
 		return ckalkan.InPEM

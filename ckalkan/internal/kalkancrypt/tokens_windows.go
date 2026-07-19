@@ -16,7 +16,7 @@ func (h *windowsDriver) GetTokens(storage uint64, bufferSize int) (ListResult, e
 	code := callWindowsStatus(h.funcs.getTokens, ulongArg(storage), bytesPtr(buf), uint32Ptr(&count))
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: code, Data: string(trimCStringBytes(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: code, Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
 }
 
 func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
@@ -31,5 +31,5 @@ func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) 
 	code := callWindowsStatus(h.funcs.getCertificatesList, bytesPtr(buf), uint32Ptr(&count))
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: code, Data: string(trimCStringBytes(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: code, Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
 }

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -134,28 +133,6 @@ func requireKalkanError(t *testing.T, name string, err error) *ckalkan.KalkanErr
 		t.Fatalf("%s returned non-Kalkan error: %T %v", name, err, err)
 	}
 	return kalkanErr
-}
-
-func TestMalformedUVerifyDataDisabledOnWindows(t *testing.T) {
-	if canCallMalformedUVerifyData("windows") {
-		t.Fatal("malformed UVerifyData call must be disabled on Windows")
-	}
-	if !canCallMalformedUVerifyData("linux") {
-		t.Fatal("malformed UVerifyData call should remain enabled on non-Windows platforms")
-	}
-}
-
-func canCallMalformedUVerifyData(goos string) bool {
-	return goos != "windows"
-}
-
-func skipMalformedUVerifyDataOnWindows(t *testing.T) bool {
-	t.Helper()
-	if canCallMalformedUVerifyData(runtime.GOOS) {
-		return false
-	}
-	t.Log("skipping malformed UVerifyData on Windows because KalkanCrypt.dll can access-violate instead of returning a Kalkan error")
-	return true
 }
 
 func requireContains(t *testing.T, name string, value []byte, substr string) {

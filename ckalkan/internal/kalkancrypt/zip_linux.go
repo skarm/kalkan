@@ -27,23 +27,37 @@ import "C"
 
 import "runtime"
 
+const zipVerifyOutputGuardCapacity = 64 << 10
+
 func (h *linuxDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferResult, error) {
+	if err := checkOutputBufferCapacity(capacity); err != nil {
+		return BufferResult{}, err
+	}
+
 	inZip, freeInZip, err := cString(zipFile)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeInZip()
 
-	buf, err := outputBuffer(capacity)
+	physicalCapacity := max(capacity, zipVerifyOutputGuardCapacity)
+	buf, err := outputBuffer(physicalCapacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
-
-	outLen := C.int(capacity)
+	// KalkanCrypt can write past outVerifyInfoLen when the requested
+	// ZipConVerify buffer is very small. Give the SDK a guarded physical capacity,
+	// but expose only the caller's logical capacity. If the real result is larger
+	// than that logical capacity, OutLen still makes the public layer retry.
+	outLen := C.int(physicalCapacity)
 	code := C.bridge_zip_con_verify(h.funcs, inZip, C.int(flags), charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return BufferResult{
+		Code:   uint64(code),
+		Data:   boundedBytes(buf[:capacity:capacity], int(outLen)),
+		OutLen: int(outLen),
+	}, nil
 }
 
 func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
@@ -71,20 +85,20 @@ func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
 	return uint64(C.bridge_zip_con_sign(h.funcs, alias, filePath, name, outDir, C.int(call.Flags)))
 }
 
-func (h *linuxDriver) GetCertFromZipFile(zipFile string, flags, signID, capacity int) (BufferResult, error) {
-	inZip, freeInZip, err := cString(zipFile)
+func (h *linuxDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error) {
+	inZip, freeInZip, err := cString(call.ZipFile)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeInZip()
 
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_get_cert_from_zip_file(h.funcs, inZip, C.int(flags), C.int(signID), charPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_get_cert_from_zip_file(h.funcs, inZip, C.int(call.Flags), C.int(call.SignID), charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
 	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil

@@ -24,12 +24,7 @@ func (c ErrorCode) String() string {
 // Label returns a human-readable label for the KalkanCrypt error code in
 // language. Unsupported languages fall back to English.
 func (c ErrorCode) Label(language ErrorLanguage) string {
-	labels, unknownLabel := errorLabelsForLanguage(language)
-	if label, ok := labels[c]; ok {
-		return label
-	}
-
-	return unknownLabel
+	return errorLabelForLanguage(c, language)
 }
 
 // Hex formats the error code as an eight-digit hexadecimal value.

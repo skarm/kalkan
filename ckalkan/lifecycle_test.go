@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
 func TestNewRequiresExplicitLibrary(t *testing.T) {
@@ -125,5 +127,50 @@ func TestClosePoisonsProcessOnNativeCloseError(t *testing.T) {
 	_, err = New(WithLibrary(filepath.Join(t.TempDir(), "missing.so")))
 	if !errors.Is(err, ErrPoisoned) {
 		t.Fatalf("New after failed Close error = %v, want ErrPoisoned", err)
+	}
+}
+
+func TestClosedClientMethodsReturnErrClosed(t *testing.T) {
+	if !kalkancrypt.Available() {
+		t.Skip("ErrClosed is observable only when the native loader is available")
+	}
+
+	cli := &Client{closed: true}
+
+	if err := cli.Init(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Init on closed client = %v, want ErrClosed", err)
+	}
+	if _, err := cli.HashData(SHA256, 0, []byte("abc")); !errors.Is(err, ErrClosed) {
+		t.Fatalf("HashData on closed client = %v, want ErrClosed", err)
+	}
+	if _, err := cli.VerifyData(VerifyDataRequest{Flags: SignCMS}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("VerifyData on closed client = %v, want ErrClosed", err)
+	}
+}
+
+func TestUnsupportedBuildReturnsUnavailable(t *testing.T) {
+	if kalkancrypt.Available() {
+		t.Skip("test is for builds without a native KalkanCrypt loader")
+	}
+
+	if _, err := New(); !errors.Is(err, ErrNoLibrary) {
+		t.Fatalf("New without library returned %v, want ErrNoLibrary", err)
+	}
+
+	if _, err := New(WithLibrary(filepath.Join(t.TempDir(), "missing.so"))); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("New with library on unsupported build returned %v, want ErrUnavailable", err)
+	}
+
+	var cli Client
+	if err := cli.Init(); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("method on unsupported build returned %v, want ErrUnavailable", err)
+	}
+}
+
+func TestUnavailableErrorsArePlatformNeutral(t *testing.T) {
+	for _, err := range []error{ErrUnavailable, kalkancrypt.ErrUnavailable} {
+		if strings.Contains(strings.ToLower(err.Error()), "linux") {
+			t.Fatalf("unavailable error hard-codes Linux: %q", err)
+		}
 	}
 }

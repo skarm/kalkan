@@ -16,18 +16,18 @@ func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, i
 	return code, out
 }
 
-func (h *windowsDriver) GetCertFromCMS(cms []byte, signID, flags, capacity int) (BufferResult, error) {
-	in, inLen, err := inputBytes(cms)
+func (h *windowsDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
+	in, inLen, err := inputBytes(call.CMS)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.getCertFromCMS, bytesPtr(in), uintptr(uint32(inLen)), intArg(signID), intArg(flags), bytesPtr(buf), int32Ptr(&outLen))
+	outLen := int32(call.Capacity)
+	code := callWindowsStatus(h.funcs.getCertFromCMS, bytesPtr(in), uintptr(uint32(inLen)), intArg(call.SignID), intArg(call.Flags), bytesPtr(buf), int32Ptr(&outLen))
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 

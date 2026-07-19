@@ -9,47 +9,106 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestMaxInputSizeOptionsOverrideConfig(t *testing.T) {
-	cfg := defaultOpenConfig()
-	WithMaxInputSize(123)(&cfg)
+func TestLimitOptionsUseLastValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		apply func(*config)
+		got   func(config) int64
+		want  int64
+	}{
+		{
+			name: "max input size",
+			apply: func(cfg *config) {
+				WithMaxInputSize(123)(cfg)
+			},
+			got:  func(cfg config) int64 { return cfg.maxInputSize },
+			want: 123,
+		},
+		{
+			name: "zero disables max input size",
+			apply: func(cfg *config) {
+				WithMaxInputSize(123)(cfg)
+				WithMaxInputSize(0)(cfg)
+			},
+			got: func(cfg config) int64 { return cfg.maxInputSize },
+		},
+		{
+			name: "negative disables max input size",
+			apply: func(cfg *config) {
+				WithMaxInputSize(123)(cfg)
+				WithMaxInputSize(-1)(cfg)
+			},
+			got: func(cfg config) int64 { return cfg.maxInputSize },
+		},
+		{
+			name: "max output buffer size",
+			apply: func(cfg *config) {
+				WithMaxOutputBufferSize(456)(cfg)
+			},
+			got:  func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
+			want: 456,
+		},
+		{
+			name: "zero disables max output buffer size",
+			apply: func(cfg *config) {
+				WithMaxOutputBufferSize(456)(cfg)
+				WithMaxOutputBufferSize(0)(cfg)
+			},
+			got: func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
+		},
+		{
+			name: "negative disables max output buffer size",
+			apply: func(cfg *config) {
+				WithMaxOutputBufferSize(456)(cfg)
+				WithMaxOutputBufferSize(-1)(cfg)
+			},
+			got: func(cfg config) int64 { return int64(cfg.maxOutputBufferSize) },
+		},
+	}
 
-	if cfg.maxInputSize != 123 {
-		t.Fatalf("max input size = %d, want 123", cfg.maxInputSize)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := defaultOpenConfig()
+			test.apply(&cfg)
+			if got := test.got(cfg); got != test.want {
+				t.Fatalf("configured limit = %d, want %d", got, test.want)
+			}
+		})
 	}
 }
 
 func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
-			t.Fatal("Hash called native with oversized memory input")
+			t.Error("Hash called native with oversized memory input")
 			return nil, nil
 		},
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			t.Fatal("CMS called native with oversized memory input")
+			t.Error("CMS called native with oversized memory input")
 			return nil, nil
 		},
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
-			t.Fatal("SignHash called native with oversized digest input")
+			t.Error("SignHash called native with oversized digest input")
 			return nil, nil
 		},
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
-			t.Fatal("SignXML called native with oversized memory input")
+			t.Error("SignXML called native with oversized memory input")
 			return nil, nil
 		},
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-			t.Fatal("SignWSSE called native with oversized wrapped XML input")
+			t.Error("SignWSSE called native with oversized wrapped XML input")
 			return nil, nil
 		},
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native with oversized memory input")
+			t.Error("ValidateCertificate called native with oversized memory input")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
-			t.Fatal("LoadTrustedCertificate called native with oversized certificate data")
+			t.Error("LoadTrustedCertificate called native with oversized certificate data")
 			return nil
 		},
 		certificateGetInfoFunc: func(cert []byte, prop ckalkan.CertProp) ([]byte, error) {
-			t.Fatal("X509CertificateGetInfo called native with oversized certificate data")
+			t.Error("X509CertificateGetInfo called native with oversized certificate data")
 			return nil, nil
 		},
 	}
@@ -140,7 +199,7 @@ func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
 func TestMaxInputSizeRejectsWrappedWSSE(t *testing.T) {
 	native := &fakeNative{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-			t.Fatal("SignWSSE called native with oversized wrapped XML input")
+			t.Error("SignWSSE called native with oversized wrapped XML input")
 			return nil, nil
 		},
 	}

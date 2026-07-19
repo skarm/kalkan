@@ -4,22 +4,22 @@ package kalkancrypt
 
 import "runtime"
 
-func (h *windowsDriver) SignHash(alias string, flags int, hash []byte, capacity int) (BufferResult, error) {
-	cAlias, err := narrowString(alias)
+func (h *windowsDriver) SignHash(call SignHashCall) (BufferResult, error) {
+	cAlias, err := narrowString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	in, inLen, err := inputBytes(hash)
+	in, inLen, err := inputBytes(call.Hash)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.signHash, bytesPtr(cAlias), intArg(flags), bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
+	outLen := int32(call.Capacity)
+	code := callWindowsStatus(h.funcs.signHash, bytesPtr(cAlias), intArg(call.Flags), bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
 	runtime.KeepAlive(cAlias)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
@@ -27,29 +27,29 @@ func (h *windowsDriver) SignHash(alias string, flags int, hash []byte, capacity 
 	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
 }
 
-func (h *windowsDriver) SignData(alias string, flags int, data, signature []byte, capacity int) (BufferResult, error) {
-	cAlias, err := narrowString(alias)
+func (h *windowsDriver) SignData(call SignDataCall) (BufferResult, error) {
+	cAlias, err := narrowString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	inData, inDataLen, err := inputBytes(data)
+	inData, inDataLen, err := inputBytes(call.Data)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	inSig, inSigLen, err := inputBytes(signature)
+	inSig, inSigLen, err := inputBytes(call.Signature)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(call.Capacity)
 	code := callWindowsStatus(
 		h.funcs.signData,
 		bytesPtr(cAlias),
-		intArg(flags),
+		intArg(call.Flags),
 		bytesPtr(inData),
 		uintptr(uint32(inDataLen)),
 		bytesPtr(inSig),

@@ -67,11 +67,11 @@ func (f *fakeNative) SignHash(alias string, flags ckalkan.Flag, hash []byte) ([]
 	return f.signHashFunc(alias, flags, hash)
 }
 
-func (f *fakeNative) SignData(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
+func (f *fakeNative) SignData(req ckalkan.SignDataRequest) ([]byte, error) {
 	if f.signDataFunc == nil {
 		return nil, errors.New("unexpected SignData call")
 	}
-	return f.signDataFunc(alias, flags, data, signature)
+	return f.signDataFunc(req.Alias, req.Flags, req.Data, req.Signature)
 }
 
 func (f *fakeNative) VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {

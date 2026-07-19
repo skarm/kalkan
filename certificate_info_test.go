@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"reflect"
@@ -41,6 +42,139 @@ func TestX509ExportCertificateFromStoreParsesDERCertificate(t *testing.T) {
 	}
 	if cert.Subject.CommonName != "store-cert" {
 		t.Fatalf("certificate CN = %q, want store-cert", cert.Subject.CommonName)
+	}
+}
+
+func TestParseNativeCertificateFormats(t *testing.T) {
+	der := testCertificateDER(t, "native-format")
+	pemCertificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr string
+	}{
+		{name: "DER", data: der},
+		{name: "NUL-padded DER", data: append(append([]byte(nil), der...), 0, 0, 0)},
+		{name: "PEM", data: pemCertificate},
+		{name: "NUL-terminated PEM", data: append(append([]byte(nil), pemCertificate...), 0, 'x')},
+		{name: "base64 DER", data: []byte(base64.StdEncoding.EncodeToString(der))},
+		{name: "empty", data: []byte(" \t\r\n\x00"), wantErr: "certificate output is empty"},
+		{name: "empty C string with trailing buffer data", data: []byte{0, 'x'}, wantErr: "certificate output is empty"},
+		{
+			name:    "PEM trailing data",
+			data:    append(append([]byte(nil), pemCertificate...), []byte("trailing")...),
+			wantErr: "trailing data",
+		},
+		{
+			name:    "multiple PEM blocks",
+			data:    append(append([]byte(nil), pemCertificate...), pemCertificate...),
+			wantErr: "trailing data",
+		},
+		{
+			name:    "wrong PEM block type",
+			data:    pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}),
+			wantErr: "must be CERTIFICATE",
+		},
+		{
+			name:    "invalid DER in PEM",
+			data:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid")}),
+			wantErr: "invalid DER",
+		},
+		{
+			name:    "leading data before PEM",
+			data:    append([]byte("leading\n"), pemCertificate...),
+			wantErr: "not DER, PEM, or base64 DER",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cert, err := parseNativeCertificate(test.data)
+			if test.wantErr != "" {
+				if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("parseNativeCertificate error = %v, want ErrInvalidInput containing %q", err, test.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseNativeCertificate returned error: %v", err)
+			}
+			if cert.Subject.CommonName != "native-format" {
+				t.Fatalf("certificate CN = %q, want native-format", cert.Subject.CommonName)
+			}
+		})
+	}
+}
+
+func TestCollectSignerCertificatesBoundaries(t *testing.T) {
+	der := testCertificateDER(t, "repeated-signer")
+
+	tests := []struct {
+		name             string
+		certificateCount int
+		emptyTerminator  bool
+		wantCount        int
+		wantCalls        int
+		wantErr          string
+	}{
+		{
+			name:            "empty first result",
+			emptyTerminator: true,
+			wantCalls:       1,
+			wantErr:         "signer certificate output is empty",
+		},
+		{
+			name:             "empty terminates non-empty result",
+			certificateCount: 1,
+			emptyTerminator:  true,
+			wantCount:        1,
+			wantCalls:        2,
+		},
+		{
+			name:             "exact limit",
+			certificateCount: maxExtractedSignerCertificates,
+			wantCount:        maxExtractedSignerCertificates,
+			wantCalls:        maxExtractedSignerCertificates + 1,
+		},
+		{
+			name:             "over limit",
+			certificateCount: maxExtractedSignerCertificates + 1,
+			wantCalls:        maxExtractedSignerCertificates + 1,
+			wantErr:          "signer certificate count exceeds",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			certs, err := collectSignerCertificates(context.Background(), func(signID int) ([]byte, error) {
+				calls++
+				if signID < test.certificateCount {
+					return der, nil
+				}
+				if test.emptyTerminator {
+					return nil, nil
+				}
+
+				return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
+			})
+
+			if test.wantErr != "" {
+				if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("collectSignerCertificates error = %v, want ErrInvalidInput containing %q", err, test.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("collectSignerCertificates returned error: %v", err)
+			}
+			if len(certs) != test.wantCount {
+				t.Fatalf("certificate count = %d, want %d", len(certs), test.wantCount)
+			}
+			if calls != test.wantCalls {
+				t.Fatalf("fetch calls = %d, want %d", calls, test.wantCalls)
+			}
+		})
 	}
 }
 
@@ -126,6 +260,33 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	}
 }
 
+func TestX509CertificateGetInfoFieldsReadsCStringPrefix(t *testing.T) {
+	der := testCertificateDER(t, "embedded-nul")
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	native := &fakeNative{
+		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
+			if prop != ckalkan.CertPropSubjectDN {
+				t.Errorf("unexpected certificate property %#x", prop)
+			}
+
+			return []byte("CN = Native\x00ignored"), nil
+		},
+	}
+	client := &Client{library: native}
+
+	info, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject)
+	if err != nil {
+		t.Fatalf("X509CertificateGetInfoFields returned error: %v", err)
+	}
+	if info.Subject != "CN = Native" {
+		t.Fatalf("Subject = %q, want C-string prefix", info.Subject)
+	}
+}
+
 func TestX509CertificateGetInfoFieldsSelectsProperties(t *testing.T) {
 	der := testCertificateDER(t, "subject-from-cert")
 	cert, err := x509.ParseCertificate(der)
@@ -143,7 +304,7 @@ func TestX509CertificateGetInfoFieldsSelectsProperties(t *testing.T) {
 			case ckalkan.CertPropCertSN:
 				return []byte("certificateSerialNumber=010203"), nil
 			default:
-				t.Fatalf("unexpected certificate property %#x", prop)
+				t.Errorf("unexpected certificate property %#x", prop)
 				return nil, nil
 			}
 		},
@@ -190,7 +351,7 @@ func TestX509CertificateGetInfoFieldsKazakhstanSubject(t *testing.T) {
 			case ckalkan.CertPropPoliciesID:
 				return []byte("certificatePolicies=1.2.398.3.3.4.1.2, 1.2.398.3.3.4.1.2.2, 1.2.398.3.3.4.3.2.1"), nil
 			default:
-				t.Fatalf("unexpected certificate property %#x", prop)
+				t.Errorf("unexpected certificate property %#x", prop)
 				return nil, nil
 			}
 		},
@@ -326,7 +487,7 @@ func TestX509CertificateGetInfoFieldsFixtures(t *testing.T) {
 					case ckalkan.CertPropPoliciesID:
 						return []byte(tt.nativePolicy), nil
 					default:
-						t.Fatalf("unexpected certificate property %#x", prop)
+						t.Errorf("unexpected certificate property %#x", prop)
 						return nil, nil
 					}
 				},
@@ -510,7 +671,7 @@ func TestX509CertificateGetInfoFieldsOptionalSubjectProps(t *testing.T) {
 				ckalkan.CertPropSubjectOrgUnitName:
 				return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
 			default:
-				t.Fatalf("unexpected certificate property %#x", prop)
+				t.Errorf("unexpected certificate property %#x", prop)
 				return nil, nil
 			}
 		},
@@ -823,52 +984,6 @@ func TestGetTimeFromSigUsesSignatureEncoding(t *testing.T) {
 	}
 	if !got.Equal(want) {
 		t.Fatalf("time = %s, want %s", got, want)
-	}
-}
-
-func TestSetProxyValidatesAndCallsNative(t *testing.T) {
-	native := &fakeNative{
-		setProxyFunc: func(req ckalkan.ProxyRequest) error {
-			wantFlags := ckalkan.ProxyOn | ckalkan.ProxyAuth
-			if req.Flags != wantFlags {
-				t.Fatalf("flags = %#x, want %#x", req.Flags, wantFlags)
-			}
-			if req.Address != "127.0.0.1" || req.Port != "3128" {
-				t.Fatalf("proxy address/port = %q/%q", req.Address, req.Port)
-			}
-			if req.User != "user" || req.Password != "password" {
-				t.Fatalf("proxy credentials = %q/%q", req.User, req.Password)
-			}
-
-			return nil
-		},
-	}
-	client := &Client{library: native}
-
-	err := client.SetProxy(context.Background(), Proxy{
-		Enabled:  true,
-		Address:  " 127.0.0.1 ",
-		Port:     " 3128 ",
-		User:     "user",
-		Password: "password",
-	})
-	if err != nil {
-		t.Fatalf("SetProxy returned error: %v", err)
-	}
-}
-
-func TestSetProxyRejectsInvalidProxyBeforeNativeCall(t *testing.T) {
-	native := &fakeNative{
-		setProxyFunc: func(ckalkan.ProxyRequest) error {
-			t.Fatal("SetProxy called native for invalid proxy")
-			return nil
-		},
-	}
-	client := &Client{library: native}
-
-	err := client.SetProxy(context.Background(), Proxy{Enabled: true, Port: "3128"})
-	if err == nil || !strings.Contains(err.Error(), "proxy address is empty") {
-		t.Fatalf("SetProxy error = %v, want proxy address validation", err)
 	}
 }
 

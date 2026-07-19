@@ -34,18 +34,18 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 	return uint64(code), int64(out)
 }
 
-func (h *linuxDriver) GetCertFromCMS(cms []byte, signID, flags, capacity int) (BufferResult, error) {
-	in, inLen, err := inputBytes(cms)
+func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
+	in, inLen, err := inputBytes(call.CMS)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := C.int(capacity)
-	code := C.bridge_get_cert_from_cms(h.funcs, charPtr(in), inLen, C.int(signID), C.int(flags), charPtr(buf), &outLen)
+	outLen := C.int(call.Capacity)
+	code := C.bridge_get_cert_from_cms(h.funcs, charPtr(in), inLen, C.int(call.SignID), C.int(call.Flags), charPtr(buf), &outLen)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 

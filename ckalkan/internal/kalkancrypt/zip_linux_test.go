@@ -34,7 +34,11 @@ func TestGetCertFromZipFileFixtures(t *testing.T) {
 
 	for _, zipPath := range zipFixtures(t, assets) {
 		t.Run(filepath.Base(zipPath), func(t *testing.T) {
-			cert, err := ctx.GetCertFromZipFile(copyZIPFixture(t, zipPath), noCheckCertTime, 0, 1<<20)
+			cert, err := ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{
+				ZipFile:  copyZIPFixture(t, zipPath),
+				Flags:    noCheckCertTime,
+				Capacity: 1 << 20,
+			})
 			if err != nil {
 				t.Fatalf("GetCertFromZipFile returned Go error: %v", err)
 			}

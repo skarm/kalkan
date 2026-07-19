@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -127,6 +128,10 @@ func (p Proxy) validate() error {
 
 	if err := rejectEmbeddedNUL("proxy address", address); err != nil {
 		return err
+	}
+
+	if strings.ContainsFunc(address, unicode.IsSpace) {
+		return fmt.Errorf("%w: proxy address contains whitespace", ErrInvalidInput)
 	}
 
 	port := strings.TrimSpace(p.Port)

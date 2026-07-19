@@ -36,6 +36,22 @@ type ValidateCertificateResult struct {
 	OCSPResponse []byte
 }
 
+// SignDataRequest maps to SignData parameters.
+type SignDataRequest struct {
+	// Alias identifies the loaded key alias used for signing.
+	Alias string
+	// Flags contains SignData/KalkanCrypt flags.
+	Flags Flag
+	// Data contains the input bytes to sign. With InFile it contains the path to
+	// the primary input file.
+	Data []byte
+	// Signature contains an existing in-memory signature when the selected mode
+	// appends to it. In2Base64 marks this secondary input as Base64 text.
+	Signature []byte
+	// OutputCapacity overrides the estimated first signature output buffer size.
+	OutputCapacity int
+}
+
 // SignXMLRequest maps to SignXML parameters.
 type SignXMLRequest struct {
 	// Alias identifies the loaded key alias used for signing.
@@ -54,7 +70,7 @@ type SignXMLRequest struct {
 	OutputCapacity int
 }
 
-// VerifyDataRequest maps to VerifyData and UVerifyData parameters.
+// VerifyDataRequest maps to VerifyData parameters.
 type VerifyDataRequest struct {
 	// Alias is the key/certificate alias parameter accepted by KalkanCrypt.
 	Alias string
@@ -62,11 +78,15 @@ type VerifyDataRequest struct {
 	Flags Flag
 	// Data contains the signed or detached input data, depending on Flags.
 	Data []byte
-	// Signature contains the CMS/signature bytes.
+	// Signature contains the CMS/signature bytes. With InFile it contains the
+	// path to the signature file.
 	Signature []byte
 	// CertID selects a signer certificate from multi-signer data.
 	CertID int
-	// DataCapacity overrides the first decoded-data output buffer size.
+	// DataCapacity overrides the first native data output buffer size. Decoded
+	// data is returned only for an attached CMS passed in memory. On Linux the
+	// value is ignored for detached, draft, and InFile verification; unverified
+	// platforms retain the native buffer for ABI compatibility.
 	DataCapacity int
 	// VerifyInfoCapacity overrides the first verification-info output buffer size.
 	VerifyInfoCapacity int
@@ -74,7 +94,7 @@ type VerifyDataRequest struct {
 	CertCapacity int
 }
 
-// VerifyDataResult is returned by VerifyData and UVerifyData.
+// VerifyDataResult is returned by VerifyData.
 type VerifyDataResult struct {
 	// Data contains decoded data returned by KalkanCrypt.
 	Data []byte

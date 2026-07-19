@@ -49,18 +49,18 @@ func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
 	return code
 }
 
-func (h *windowsDriver) GetCertFromZipFile(zipFile string, flags, signID, capacity int) (BufferResult, error) {
-	inZip, err := narrowString(zipFile)
+func (h *windowsDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error) {
+	inZip, err := narrowString(call.ZipFile)
 	if err != nil {
 		return BufferResult{}, err
 	}
-	buf, err := outputBuffer(capacity)
+	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.getCertFromZipFile, bytesPtr(inZip), intArg(flags), intArg(signID), bytesPtr(buf), int32Ptr(&outLen))
+	outLen := int32(call.Capacity)
+	code := callWindowsStatus(h.funcs.getCertFromZipFile, bytesPtr(inZip), intArg(call.Flags), intArg(call.SignID), bytesPtr(buf), int32Ptr(&outLen))
 	runtime.KeepAlive(inZip)
 	runtime.KeepAlive(buf)
 

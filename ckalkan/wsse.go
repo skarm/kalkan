@@ -17,7 +17,12 @@ func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 		return nil, err
 	}
 
-	initial := c.config.requestOutputInitialCapacity(req.OutputCapacity, initialSignatureBuffer)
+	estimated, err := estimateSignedXMLOutput(req.XML, "SignWSSE")
+	if err != nil {
+		return nil, err
+	}
+
+	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
 	out, err := c.callBufferWithCapacityLocked(initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignWSSE(kalkancrypt.SignWSSECall{
@@ -28,6 +33,9 @@ func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 			Capacity:   capacity,
 		})
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return trimCStringBytes(out), err
+	return bytesBeforeNULTerminator(out), nil
 }

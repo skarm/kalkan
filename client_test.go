@@ -634,55 +634,55 @@ func TestClientMethodsHonorCanceledContext(t *testing.T) {
 
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
-			t.Fatal("Hash called native after context cancellation")
+			t.Error("Hash called native after context cancellation")
 			return nil, nil
 		},
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
-			t.Fatal("SignHash called native after context cancellation")
+			t.Error("SignHash called native after context cancellation")
 			return nil, nil
 		},
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-			t.Fatal("CMS method called native after context cancellation")
+			t.Error("CMS method called native after context cancellation")
 			return nil, nil
 		},
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-			t.Fatal("VerifyCMS called native after context cancellation")
+			t.Error("VerifyCMS called native after context cancellation")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
-			t.Fatal("SignXML called native after context cancellation")
+			t.Error("SignXML called native after context cancellation")
 			return nil, nil
 		},
 		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
-			t.Fatal("VerifyXML called native after context cancellation")
+			t.Error("VerifyXML called native after context cancellation")
 			return "", nil
 		},
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
-			t.Fatal("SignWSSE called native after context cancellation")
+			t.Error("SignWSSE called native after context cancellation")
 			return nil, nil
 		},
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
-			t.Fatal("LoadKeyStore called native after context cancellation")
+			t.Error("LoadKeyStore called native after context cancellation")
 			return nil
 		},
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
-			t.Fatal("LoadTrustedCertificate called native after context cancellation")
+			t.Error("LoadTrustedCertificate called native after context cancellation")
 			return nil
 		},
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native after context cancellation")
+			t.Error("ValidateCertificate called native after context cancellation")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
-			t.Fatal("SignZIP called native after context cancellation")
+			t.Error("SignZIP called native after context cancellation")
 			return nil
 		},
 		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
-			t.Fatal("VerifyZIP called native after context cancellation")
+			t.Error("VerifyZIP called native after context cancellation")
 			return "", nil
 		},
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
-			t.Fatal("ExtractZIPSignerCertificate called native after context cancellation")
+			t.Error("ExtractZIPSignerCertificate called native after context cancellation")
 			return nil, nil
 		},
 	}

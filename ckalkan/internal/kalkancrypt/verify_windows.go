@@ -12,7 +12,7 @@ func (h *windowsDriver) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, true)
 }
 
-func (h *windowsDriver) verifyData(call VerifyDataCall, unsigned bool) (VerifyResult, error) {
+func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyResult, error) {
 	alias, err := narrowString(call.Alias)
 	if err != nil {
 		return VerifyResult{}, err
@@ -42,7 +42,7 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, unsigned bool) (VerifyRe
 	infoLen := int32(call.InfoCapacity)
 	certLen := int32(call.CertCapacity)
 	fn := h.funcs.verifyData
-	if unsigned {
+	if universal {
 		fn = h.funcs.uverifyData
 	}
 	code := callWindowsStatus(

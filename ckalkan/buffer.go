@@ -2,12 +2,16 @@ package ckalkan
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
 func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResult, error)) (ListResult, error) {
-	size := boundedConfiguredBufferSize(c.config.listBufferSize, defaultListBufferSize, c.config.maxBufferSize)
+	size := normalizeConfiguredBufferSize(c.config.listBufferSize, defaultListBufferSize)
+	if size > outputBufferLimit(c.config.maxBufferSize) {
+		return ListResult{}, outputBufferLimitError(c.config.maxBufferSize, size)
+	}
 
 	for {
 		c.clearErrorLocked()
@@ -18,10 +22,10 @@ func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResul
 		}
 
 		code := ErrorCode(result.Code)
-		if code == ErrorBufferTooSmall {
+		if code == ErrorBufferTooSmall || (code == ErrorOK && len(result.Data) == size) {
 			newSize := growCapacity(size, 0, c.config.maxBufferSize)
 			if newSize == size {
-				return ListResult{}, c.wrapCodeLocked(code)
+				return ListResult{}, outputBufferLimitError(c.config.maxBufferSize, 0)
 			}
 
 			size = newSize
@@ -37,10 +41,6 @@ func (c *Client) callListLocked(call func(bufferSize int) (kalkancrypt.ListResul
 	}
 }
 
-func (c *Client) callBufferLocked(call func(capacity int) (kalkancrypt.BufferResult, error)) ([]byte, error) {
-	return c.callBufferWithCapacityLocked(c.config.outputInitialCapacity(defaultOutputBufferSize), call)
-}
-
 func (c *Client) callBufferWithCapacityLocked(initial int, call func(capacity int) (kalkancrypt.BufferResult, error)) ([]byte, error) {
 	size := boundedOutputCapacity(initial, c.config.maxBufferSize)
 
@@ -54,9 +54,17 @@ func (c *Client) callBufferWithCapacityLocked(initial int, call func(capacity in
 
 		code := ErrorCode(result.Code)
 		if shouldRetryOutput(code, result.OutLen, size) {
+			if result.OutLen < 0 {
+				return nil, invalidNativeOutputLength("output", result.OutLen)
+			}
+
+			if result.OutLen > outputBufferLimit(c.config.maxBufferSize) {
+				return nil, outputBufferLimitError(c.config.maxBufferSize, result.OutLen)
+			}
+
 			newSize, grown := growReportedCapacity(size, result.OutLen, c.config.maxBufferSize)
 			if !grown {
-				return nil, c.wrapCodeLocked(retryErrorCode(code))
+				return nil, outputBufferLimitError(c.config.maxBufferSize, result.OutLen)
 			}
 
 			size = newSize
@@ -64,16 +72,101 @@ func (c *Client) callBufferWithCapacityLocked(initial int, call func(capacity in
 			continue
 		}
 
+		if result.OutLen < 0 {
+			return nil, invalidNativeOutputLength("output", result.OutLen)
+		}
+
 		if err := c.wrapCodeLocked(code); err != nil {
 			return nil, err
 		}
 
-		return result.Data, nil
+		if err := validateNativeOutputDataLength("output", result.Data, result.OutLen); err != nil {
+			return nil, err
+		}
+
+		return capacityLimitedBytes(result.Data), nil
 	}
 }
 
 func shouldRetryOutput(code ErrorCode, reportedLength, capacity int) bool {
 	return code == ErrorBufferTooSmall || (code == ErrorOK && reportedLength > capacity)
+}
+
+func outputNeedsGrowth(code ErrorCode, reportedLength, capacity int, retrySaturated bool) bool {
+	return reportedLength > capacity ||
+		code == ErrorBufferTooSmall && reportedLength >= capacity ||
+		code == ErrorOK && retrySaturated && reportedLength == capacity
+}
+
+type outputBufferState struct {
+	current        int
+	reported       int
+	active         bool
+	retrySaturated bool
+	growthHint     int
+}
+
+func nextOutputBufferCapacities(code ErrorCode, hardMaximum int, outputs ...outputBufferState) ([]int, error) {
+	grow := make([]bool, len(outputs))
+	hasGrowthCandidate := false
+
+	for index, output := range outputs {
+		grow[index] = output.active && outputNeedsGrowth(
+			code,
+			output.reported,
+			output.current,
+			output.retrySaturated,
+		)
+		hasGrowthCandidate = hasGrowthCandidate || grow[index]
+	}
+
+	// Some SDK paths return only KCR_BUFFER_TOO_SMALL without useful output
+	// lengths. In that ambiguous case every active output must grow.
+	if code == ErrorBufferTooSmall && !hasGrowthCandidate {
+		for index, output := range outputs {
+			grow[index] = output.active
+		}
+	}
+
+	reported := 0
+	limit := outputBufferLimit(hardMaximum)
+
+	for index, output := range outputs {
+		if !grow[index] {
+			continue
+		}
+
+		reported = max(reported, output.reported)
+		if output.reported > limit {
+			return nil, outputBufferLimitError(hardMaximum, reported)
+		}
+	}
+
+	next := make([]int, len(outputs))
+	grew := false
+
+	for index, output := range outputs {
+		next[index] = output.current
+		if !grow[index] {
+			continue
+		}
+
+		required := output.reported
+		if required >= output.current {
+			required = max(required, output.growthHint)
+		}
+
+		var outputGrew bool
+
+		next[index], outputGrew = growReportedCapacity(output.current, required, hardMaximum)
+		grew = grew || outputGrew
+	}
+
+	if !grew {
+		return nil, outputBufferLimitError(hardMaximum, reported)
+	}
+
+	return next, nil
 }
 
 func retryErrorCode(code ErrorCode) ErrorCode {
@@ -104,20 +197,13 @@ func normalizeConfiguredBufferSize(value, fallback int) int {
 	return max(size, conservativeOutputBufferSize)
 }
 
-func boundedConfiguredBufferSize(value, fallback, maximum int) int {
-	size := normalizeConfiguredBufferSize(value, fallback)
-	maximum = normalizeMaxOutputBufferSize(maximum)
-
-	return min(size, maximum)
-}
-
 func boundedOutputCapacity(value, maximum int) int {
 	size := value
 	if size <= 0 {
 		size = defaultOutputBufferSize
 	}
 
-	maximum = normalizeMaxOutputBufferSize(maximum)
+	maximum = outputBufferLimit(maximum)
 
 	return min(size, maximum)
 }
@@ -142,41 +228,106 @@ func (c config) requestOutputInitialCapacity(requested, defaultInitial int) int 
 	return c.outputInitialCapacity(defaultInitial)
 }
 
-func normalizeMaxOutputBufferSize(maximum int) int {
-	if maximum <= 0 {
-		maximum = defaultMaxOutputBufferSize
+func outputBufferLimit(hardMaximum int) int {
+	if hardMaximum > 0 {
+		return min(hardMaximum, maxNativeOutputBufferSize)
 	}
 
-	return max(maximum, conservativeOutputBufferSize)
+	return maxNativeOutputBufferSize
 }
 
 func growCapacity(current, requested, maximum int) int {
-	maximum = normalizeMaxOutputBufferSize(maximum)
+	limit := outputBufferLimit(maximum)
+	if current >= limit {
+		return current
+	}
 
-	next := current * 2
+	next := limit
+	if current <= limit/2 {
+		next = current * 2
+	}
+
 	if requested > current {
 		next = requested
 	}
 
-	if next < current {
-		return current
+	// The default 64 MiB threshold is soft. Stop geometric growth there once,
+	// but allow the next retry, a native reported size, or an operation estimate
+	// to cross it. An explicit hard maximum always takes precedence.
+	if maximum <= 0 && requested <= current && current < defaultSoftOutputBufferSize && next > defaultSoftOutputBufferSize {
+		next = defaultSoftOutputBufferSize
 	}
 
-	if next > maximum {
-		if current < maximum {
-			return maximum
-		}
-
-		return current
+	if next > limit {
+		return limit
 	}
 
 	return next
 }
 
-func trimCStringBytes(value []byte) []byte {
-	if i := bytes.IndexByte(value, 0); i >= 0 {
-		return value[:i]
+func outputBufferLimitError(hardMaximum, reported int) error {
+	limit := outputBufferLimit(hardMaximum)
+	if hardMaximum > 0 {
+		if reported > limit {
+			return &KalkanError{
+				Code:    ErrorBufferTooSmall,
+				Message: fmt.Sprintf("required output buffer size %d exceeds configured hard limit %d", reported, limit),
+			}
+		}
+
+		return &KalkanError{
+			Code:    ErrorBufferTooSmall,
+			Message: fmt.Sprintf("output exceeds configured hard buffer limit %d", limit),
+		}
 	}
 
-	return value
+	return &KalkanError{
+		Code:    ErrorBufferTooSmall,
+		Message: fmt.Sprintf("output exceeds native C int buffer limit %d", limit),
+	}
+}
+
+func outputBufferSafetyMinimumError(operation string, hardMaximum, minimum int) error {
+	return &KalkanError{
+		Code: ErrorBufferTooSmall,
+		Message: fmt.Sprintf(
+			"%s requires a native safety buffer of at least %d bytes, exceeding configured hard limit %d",
+			operation,
+			minimum,
+			hardMaximum,
+		),
+	}
+}
+
+func invalidNativeOutputLength(output string, length int) error {
+	return fmt.Errorf("ckalkan: native %s length is negative: %d", output, length)
+}
+
+func validateNativeOutputDataLength(output string, data []byte, reportedLength int) error {
+	if len(data) != reportedLength {
+		return fmt.Errorf(
+			"ckalkan: native %s data length %d does not match reported length %d",
+			output,
+			len(data),
+			reportedLength,
+		)
+	}
+
+	return nil
+}
+
+func capacityLimitedBytes(value []byte) []byte {
+	return value[:len(value):len(value)]
+}
+
+// bytesBeforeNULTerminator decodes an output whose native contract is textual.
+// Some KalkanCrypt methods report a fixed-size block rather than the C-string
+// length, so bytes after the first NUL are unspecified and must be ignored.
+func bytesBeforeNULTerminator(value []byte) []byte {
+	index := bytes.IndexByte(value, 0)
+	if index >= 0 {
+		return value[:index:index]
+	}
+
+	return capacityLimitedBytes(value)
 }

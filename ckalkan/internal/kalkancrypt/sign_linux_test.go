@@ -4,6 +4,8 @@ package kalkancrypt_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
@@ -26,7 +28,11 @@ func TestContextSignDataDetachedCMS(t *testing.T) {
 	}
 
 	data := []byte("kalkancrypt low-level detached CMS roundtrip")
-	signResult, err := ctx.SignData("", signCMS|outBase64|detachedData|noCheckCertTime, data, nil, 1<<20)
+	signResult, err := ctx.SignData(kalkancrypt.SignDataCall{
+		Flags:    signCMS | outBase64 | detachedData | noCheckCertTime,
+		Data:     data,
+		Capacity: 1 << 20,
+	})
 	signature := requireBufferOK(t, "SignData(detached CMS)", signResult, err)
 
 	verifyResult, err := ctx.VerifyData(kalkancrypt.VerifyDataCall{
@@ -43,7 +49,7 @@ func TestContextSignDataDetachedCMS(t *testing.T) {
 	}
 }
 
-func TestContextSignHashAndUVerifyDataNativeResult(t *testing.T) {
+func TestContextSignHashNativeResult(t *testing.T) {
 	ctx := openContext(t)
 	loadPKCS12Fixture(t, ctx)
 
@@ -51,27 +57,44 @@ func TestContextSignHashAndUVerifyDataNativeResult(t *testing.T) {
 	for i := range digest {
 		digest[i] = byte(i)
 	}
-	signedHashResult, err := ctx.SignHash("", signCMS|outBase64|noCheckCertTime, digest, 1<<20)
+	signedHashResult, err := ctx.SignHash(kalkancrypt.SignHashCall{
+		Flags:    signCMS | outBase64 | noCheckCertTime,
+		Hash:     digest,
+		Capacity: 1 << 20,
+	})
 	signedHash := requireBufferOK(t, "SignHash(CMS)", signedHashResult, err)
 	if len(bytes.TrimSpace(signedHash)) == 0 {
 		t.Fatal("SignHash(CMS) returned only whitespace")
 	}
+}
+
+func TestContextUVerifyDataAutoDetectsAttachedCMSFile(t *testing.T) {
+	ctx := openContext(t)
+	loadPKCS12Fixture(t, ctx)
 
 	data := []byte("kalkancrypt low-level UVerifyData attached CMS roundtrip")
-	signResult, err := ctx.SignData("", signCMS|outBase64|noCheckCertTime, data, nil, 1<<20)
+	signResult, err := ctx.SignData(kalkancrypt.SignDataCall{
+		Flags:    signCMS | outBase64 | noCheckCertTime,
+		Data:     data,
+		Capacity: 1 << 20,
+	})
 	signature := requireBufferOK(t, "SignData(attached CMS)", signResult, err)
+	signaturePath := filepath.Join(t.TempDir(), "attached.cms")
+	if err := os.WriteFile(signaturePath, signature, 0o600); err != nil {
+		t.Fatalf("write attached CMS: %v", err)
+	}
 
 	verifyResult, err := ctx.UVerifyData(kalkancrypt.VerifyDataCall{
-		Flags:        signCMS | inBase64 | noCheckCertTime,
+		// UVerifyData reads the file and auto-detects CMS/base64; no format flag
+		// is intentionally supplied here.
+		Flags:        noCheckCertTime,
 		Data:         data,
-		Signature:    signature,
+		Signature:    []byte(signaturePath),
 		DataCapacity: 1 << 20,
 		InfoCapacity: 1 << 20,
 		CertCapacity: 1 << 20,
 	})
-	if err != nil {
-		t.Fatalf("UVerifyData(attached CMS) returned Go error: %v", err)
-	}
+	verifyResult = requireVerifyOK(t, "UVerifyData(attached CMS file)", verifyResult, err)
 	if verifyResult.DataLen != len(verifyResult.Data) {
 		t.Fatalf("UVerifyData DataLen = %d, data length = %d", verifyResult.DataLen, len(verifyResult.Data))
 	}
@@ -81,12 +104,10 @@ func TestContextSignHashAndUVerifyDataNativeResult(t *testing.T) {
 	if verifyResult.CertLen != len(verifyResult.Cert) {
 		t.Fatalf("UVerifyData CertLen = %d, cert length = %d", verifyResult.CertLen, len(verifyResult.Cert))
 	}
-	if verifyResult.Code == kcrOK {
-		if !bytes.Contains(verifyResult.Info, []byte("Verify - OK")) {
-			t.Fatalf("UVerifyData info = %q, want Verify - OK", verifyResult.Info)
-		}
-		if !bytes.Equal(verifyResult.Data, data) {
-			t.Fatalf("UVerifyData data = %q, want %q", verifyResult.Data, data)
-		}
+	if !bytes.Contains(verifyResult.Info, []byte("Verify - OK")) {
+		t.Fatalf("UVerifyData info = %q, want Verify - OK", verifyResult.Info)
+	}
+	if !bytes.Equal(verifyResult.Data, data) {
+		t.Fatalf("UVerifyData data = %q, want %q", verifyResult.Data, data)
 	}
 }

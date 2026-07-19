@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestGeneratedCertificateAPI(t *testing.T) {
 	if err == nil {
 		t.Fatal("X509ValidateCertificate unexpectedly trusted the generated self-signed certificate")
 	}
-	requireKalkanError(t, "X509ValidateCertificate", err)
+	_ = requireKalkanError(t, "X509ValidateCertificate", err)
 }
 
 func TestGeneratedPKCS12CMS(t *testing.T) {
@@ -97,7 +98,11 @@ func TestGeneratedPKCS12CMS(t *testing.T) {
 		t.Fatal("SignHash returned an empty signature")
 	}
 
-	attachedCMS, err := client.SignData(fixture.Alias, ckalkan.SignCMS|ckalkan.OutBase64|ckalkan.NoCheckCertTime, fixture.Data, nil)
+	attachedCMS, err := client.SignData(ckalkan.SignDataRequest{
+		Alias: fixture.Alias,
+		Flags: ckalkan.SignCMS | ckalkan.OutBase64 | ckalkan.NoCheckCertTime,
+		Data:  fixture.Data,
+	})
 	if err != nil {
 		t.Fatalf("SignData(attached CMS) failed: %v", err)
 	}
@@ -118,7 +123,11 @@ func TestGeneratedPKCS12CMS(t *testing.T) {
 		t.Fatalf("VerifyData(attached CMS) data = %q, want %q", attachedVerify.Data, fixture.Data)
 	}
 
-	detachedCMS, err := client.SignData(fixture.Alias, ckalkan.SignCMS|ckalkan.OutBase64|ckalkan.DetachedData|ckalkan.NoCheckCertTime, fixture.Data, nil)
+	detachedCMS, err := client.SignData(ckalkan.SignDataRequest{
+		Alias: fixture.Alias,
+		Flags: ckalkan.SignCMS | ckalkan.OutBase64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime,
+		Data:  fixture.Data,
+	})
 	if err != nil {
 		t.Fatalf("SignData(detached CMS) failed: %v", err)
 	}
@@ -144,11 +153,46 @@ func TestGeneratedPKCS12CMS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCertFromCMS returned error: %v", err)
 	}
-	// libkalkancryptwr-64.so 2.0.13 returns OK but an empty buffer for the
+	// libkalkancryptwr-64.so returns OK but an empty buffer for the
 	// generated RSA CMS. Keep the call in the flow test so ABI regressions are
 	// still caught without asserting a value that this library version does not
 	// reliably produce.
 	_ = certFromCMS
+}
+
+func TestVerifyDataRetriesTruncatedNativeOutput(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the saturated VerifyData behavior is verified only for the Linux SDK")
+	}
+
+	fixture := generatePKCS12Fixture(t)
+	client := newRealClient(t)
+
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixture.Password, fixture.P12Path, fixture.Alias); err != nil {
+		t.Fatalf("LoadKeyStore(generated PKCS#12) failed: %v", err)
+	}
+
+	signature, err := client.SignData(ckalkan.SignDataRequest{
+		Alias: fixture.Alias,
+		Flags: ckalkan.SignCMS | ckalkan.OutBase64 | ckalkan.NoCheckCertTime,
+		Data:  fixture.Data,
+	})
+	if err != nil {
+		t.Fatalf("SignData(attached CMS) failed: %v", err)
+	}
+
+	verified, err := client.VerifyData(ckalkan.VerifyDataRequest{
+		Flags:        ckalkan.SignCMS | ckalkan.InBase64 | ckalkan.NoCheckCertTime,
+		Data:         fixture.Data,
+		Signature:    signature,
+		DataCapacity: len(fixture.Data) - 1,
+	})
+	if err != nil {
+		t.Fatalf("VerifyData(attached CMS) failed: %v", err)
+	}
+	if !bytes.Equal(verified.Data, fixture.Data) {
+		t.Fatalf("VerifyData data = %q, want complete payload %q", verified.Data, fixture.Data)
+	}
 }
 
 func TestGeneratedXMLAndWSSE(t *testing.T) {
@@ -190,7 +234,7 @@ func TestGeneratedXMLAndWSSE(t *testing.T) {
 	if _, err := client.VerifyXML("", ckalkan.XMLInclC14N|ckalkan.NoCheckCertTime, signedXML); err == nil {
 		t.Fatal("VerifyXML unexpectedly trusted the generated self-signed certificate")
 	} else {
-		requireKalkanError(t, "VerifyXML", err)
+		_ = requireKalkanError(t, "VerifyXML", err)
 	}
 
 	soap := []byte(`<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"><soap:Header><wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"></wsse:Security></soap:Header><soap:Body wsu:Id="body"><root>hello</root></soap:Body></soap:Envelope>`)
@@ -239,14 +283,14 @@ func TestGeneratedZIP(t *testing.T) {
 	if _, err := client.ZipConVerify(zipPath, ckalkan.NoCheckCertTime); err == nil {
 		t.Log("ZipConVerify accepted the generated container")
 	} else {
-		// KalkanCrypt 2.0.13 signs the generated test payload but does not reliably
+		// KalkanCrypt signs the generated test payload but does not reliably
 		// verify that synthetic container back. Treat the native Kalkan error as a
 		// covered call, not as an ABI failure.
-		requireKalkanError(t, "ZipConVerify", err)
+		_ = requireKalkanError(t, "ZipConVerify", err)
 	}
 	if _, err := client.GetCertFromZipFile(zipPath, ckalkan.NoCheckCertTime, 0); err == nil {
 		t.Log("GetCertFromZipFile extracted a certificate from the generated container")
 	} else {
-		requireKalkanError(t, "GetCertFromZipFile", err)
+		_ = requireKalkanError(t, "GetCertFromZipFile", err)
 	}
 }

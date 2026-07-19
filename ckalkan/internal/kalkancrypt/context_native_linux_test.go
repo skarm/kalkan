@@ -48,9 +48,9 @@ func TestContextMethodsReturnNativeStatusForInvalidInputs(t *testing.T) {
 	}
 	requireNativeFailureCode(t, "X509ValidateCertificate(invalid)", validation.Code)
 
-	signedHash, err := ctx.SignHash("missing-alias", signCMS|outBase64, []byte("hash"), 4096)
+	signedHash, err := ctx.SignHash(kalkancrypt.SignHashCall{Alias: "missing-alias", Flags: signCMS | outBase64, Hash: []byte("hash"), Capacity: 4096})
 	requireBufferNativeFailure(t, "SignHash(missing)", signedHash, err)
-	signedData, err := ctx.SignData("missing-alias", signCMS|outBase64, []byte("data"), nil, 4096)
+	signedData, err := ctx.SignData(kalkancrypt.SignDataCall{Alias: "missing-alias", Flags: signCMS | outBase64, Data: []byte("data"), Capacity: 4096})
 	requireBufferNativeFailure(t, "SignData(missing)", signedData, err)
 	signedXML, err := ctx.SignXML(kalkancrypt.SignXMLCall{Alias: "missing-alias", Flags: signCMS, XML: []byte("<root/>"), Capacity: 4096})
 	requireBufferNativeFailure(t, "SignXML(missing)", signedXML, err)
@@ -66,23 +66,23 @@ func TestContextMethodsReturnNativeStatusForInvalidInputs(t *testing.T) {
 		CertCapacity: 4096,
 	})
 	requireVerifyNativeFailure(t, "VerifyData(invalid)", verified, err)
-	unsignedVerified, err := ctx.UVerifyData(kalkancrypt.VerifyDataCall{
-		Flags:        signCMS,
+	universalVerified, err := ctx.UVerifyData(kalkancrypt.VerifyDataCall{
+		Flags:        noCheckCertTime,
 		Data:         []byte("data"),
-		Signature:    []byte("sig"),
+		Signature:    []byte("/tmp/ckalkan-no-such-universal-signature"),
 		DataCapacity: 4096,
 		InfoCapacity: 4096,
 		CertCapacity: 4096,
 	})
-	requireVerifyNativeFailure(t, "UVerifyData(invalid)", unsignedVerified, err)
+	requireVerifyNativeFailure(t, "UVerifyData(missing file)", universalVerified, err)
 
-	xmlVerified, err := ctx.VerifyXML("", signCMS, []byte("<root/>"), 4096)
-	requireBufferNativeFailure(t, "VerifyXML(unsigned)", xmlVerified, err)
+	xmlVerified, err := ctx.VerifyXML(kalkancrypt.VerifyXMLCall{Flags: signCMS, XML: []byte("<root/>"), Capacity: 4096})
+	requireBufferNativeFailure(t, "VerifyXML(invalid)", xmlVerified, err)
 	certFromXML, err := ctx.GetCertFromXML([]byte("<root/>"), 0, 4096)
-	requireBufferNativeFailure(t, "GetCertFromXML(unsigned)", certFromXML, err)
+	requireBufferNativeFailure(t, "GetCertFromXML(invalid)", certFromXML, err)
 	sigAlgFromXML, err := ctx.GetSigAlgFromXML([]byte("<root/>"), 4096)
-	requireBufferNativeFailure(t, "GetSigAlgFromXML(unsigned)", sigAlgFromXML, err)
-	certFromCMS, err := ctx.GetCertFromCMS([]byte("cms"), 0, inBase64, 4096)
+	requireBufferNativeFailure(t, "GetSigAlgFromXML(invalid)", sigAlgFromXML, err)
+	certFromCMS, err := ctx.GetCertFromCMS(kalkancrypt.GetCertFromCMSCall{CMS: []byte("cms"), Flags: inBase64, Capacity: 4096})
 	requireBufferNativeFailure(t, "GetCertFromCMS(invalid)", certFromCMS, err)
 	if code, _ := ctx.GetTimeFromSig([]byte("cms"), inBase64, 0); code == kcrOK {
 		t.Fatal("GetTimeFromSig(invalid) unexpectedly returned KCR_OK")
@@ -97,7 +97,7 @@ func TestContextMethodsReturnNativeStatusForInvalidInputs(t *testing.T) {
 		OutDir:   "/tmp",
 		Flags:    inFile,
 	}))
-	certFromZip, err := ctx.GetCertFromZipFile("/tmp/ckalkan-no-such.zip", inFile, 0, 4096)
+	certFromZip, err := ctx.GetCertFromZipFile(kalkancrypt.GetCertFromZipFileCall{ZipFile: "/tmp/ckalkan-no-such.zip", Flags: inFile, Capacity: 4096})
 	requireBufferNativeFailure(t, "GetCertFromZipFile(missing)", certFromZip, err)
 
 	ctx.XMLFinalize()

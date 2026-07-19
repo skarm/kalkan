@@ -110,7 +110,7 @@ func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 		return nil, err
 	}
 
-	flags := inputFlag(effectiveEncoding(req.Data, EncodingRaw), false)
+	flags := inputFlag(effectiveEncoding(req.Data, EncodingRaw))
 	if req.Data.file {
 		flags |= ckalkan.InFile
 	}
@@ -133,6 +133,10 @@ func (c *Client) SignHash(ctx context.Context, req SignHashRequest) (*CMS, error
 	}
 
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := rejectEmbeddedNUL("alias", req.Alias); err != nil {
 		return nil, err
 	}
 

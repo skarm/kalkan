@@ -150,7 +150,7 @@ func TestValidateCertificateDoesNotReloadDefaults(t *testing.T) {
 func TestValidateCertificateRejectsUnusedRevocationSource(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native with RevocationSource and CertificateValidationNone")
+			t.Error("ValidateCertificate called native with RevocationSource and CertificateValidationNone")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
@@ -169,7 +169,7 @@ func TestValidateCertificateRejectsUnusedRevocationSource(t *testing.T) {
 func TestValidateCertificateRejectsInvalidOCSPURL(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native with invalid OCSP RevocationSource")
+			t.Error("ValidateCertificate called native with invalid OCSP RevocationSource")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
@@ -228,7 +228,7 @@ func TestValidateCertificateRequiresOCSPModeForResponse(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &fakeNative{
 				validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-					t.Fatal("ValidateCertificate called native with ReturnOCSPResponse outside OCSP mode")
+					t.Error("ValidateCertificate called native with ReturnOCSPResponse outside OCSP mode")
 					return ckalkan.ValidateCertificateResult{}, nil
 				},
 			}
@@ -269,7 +269,7 @@ func TestValidateCertificateCRLPath(t *testing.T) {
 	t.Run("reject NUL", func(t *testing.T) {
 		native := &fakeNative{
 			validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-				t.Fatal("ValidateCertificate called native with embedded NUL RevocationSource")
+				t.Error("ValidateCertificate called native with embedded NUL RevocationSource")
 				return ckalkan.ValidateCertificateResult{}, nil
 			},
 		}
@@ -343,7 +343,7 @@ func TestValidateCertificateOnNilClient(t *testing.T) {
 func TestValidateCertificateRequiresMode(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native X509ValidateCertificate for unspecified validation mode")
+			t.Error("ValidateCertificate called native X509ValidateCertificate for unspecified validation mode")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
@@ -360,7 +360,7 @@ func TestValidateCertificateRequiresMode(t *testing.T) {
 func TestValidateCertificateRejectsEmptyCertificate(t *testing.T) {
 	native := &fakeNative{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-			t.Fatal("ValidateCertificate called native X509ValidateCertificate for empty certificate")
+			t.Error("ValidateCertificate called native X509ValidateCertificate for empty certificate")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
@@ -409,7 +409,7 @@ func TestValidateCertificateRejectsInvalidPEM(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &fakeNative{
 				validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
-					t.Fatal("ValidateCertificate called native with invalid PEM")
+					t.Error("ValidateCertificate called native with invalid PEM")
 					return ckalkan.ValidateCertificateResult{}, nil
 				},
 			}

@@ -60,25 +60,21 @@ func WithTrustedCertificate(cert TrustedCertificate) Option {
 }
 
 // WithMaxInputSize sets a byte limit for high-level in-memory byte inputs
-// before native calls. Values less than or equal to zero leave memory inputs
+// before native calls. Values less than or equal to zero make memory inputs
 // unlimited.
 func WithMaxInputSize(size int64) Option {
 	return func(c *config) {
-		if size > 0 {
-			c.maxInputSize = size
-		}
+		c.maxInputSize = max(size, 0)
 	}
 }
 
-// WithMaxOutputBufferSize sets the hard cap used by the low-level KalkanCrypt
-// output-buffer retry policy. Values less than or equal to zero keep the
-// low-level default. Very small positive values are normalized by ckalkan to its
-// conservative minimum output buffer size.
+// WithMaxOutputBufferSize enables a hard cap for the low-level KalkanCrypt
+// output-buffer retry policy. Values less than or equal to zero disable the
+// hard limit. Positive values are honored exactly, subject to the native C int
+// ABI maximum.
 func WithMaxOutputBufferSize(size int) Option {
 	return func(c *config) {
-		if size > 0 {
-			c.maxOutputBufferSize = size
-		}
+		c.maxOutputBufferSize = max(size, 0)
 	}
 }
 

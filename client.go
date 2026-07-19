@@ -51,7 +51,7 @@ type hashing interface {
 }
 
 type cmsSignatures interface {
-	SignData(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error)
+	SignData(req ckalkan.SignDataRequest) ([]byte, error)
 	VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error)
 	GetCertFromCMS(data []byte, signID int, flags ckalkan.Flag) ([]byte, error)
 	GetTimeFromSig(data []byte, flags ckalkan.Flag, sigID int) (time.Time, error)

@@ -13,7 +13,7 @@ func TestVerifyDataValidatesCertID(t *testing.T) {
 	t.Run("negative rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			verifyDataFunc: func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
-				t.Fatal("VerifyData reached native for negative CertID")
+				t.Error("VerifyData reached native for negative CertID")
 				return kalkancrypt.VerifyResult{}, nil
 			},
 		}
@@ -45,7 +45,7 @@ func TestVerifyDataValidatesCertID(t *testing.T) {
 	t.Run("overflow rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			verifyDataFunc: func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
-				t.Fatal("VerifyData reached native for overflowing CertID")
+				t.Error("VerifyData reached native for overflowing CertID")
 				return kalkancrypt.VerifyResult{}, nil
 			},
 		}
@@ -71,9 +71,9 @@ func TestCertificateExtractionValidatesSignID(t *testing.T) {
 			},
 			ctx: func(t *testing.T, wantSignID int) *fakeNativeContext {
 				return &fakeNativeContext{
-					getCertFromCMSFunc: func(cms []byte, signID, flags, capacity int) (kalkancrypt.BufferResult, error) {
-						if signID != wantSignID {
-							t.Fatalf("signID = %d, want %d", signID, wantSignID)
+					getCertFromCMSFunc: func(call kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error) {
+						if call.SignID != wantSignID {
+							t.Fatalf("signID = %d, want %d", call.SignID, wantSignID)
 						}
 
 						return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
@@ -105,9 +105,9 @@ func TestCertificateExtractionValidatesSignID(t *testing.T) {
 			},
 			ctx: func(t *testing.T, wantSignID int) *fakeNativeContext {
 				return &fakeNativeContext{
-					getCertFromZipFileFunc: func(zipFile string, flags, signID, capacity int) (kalkancrypt.BufferResult, error) {
-						if signID != wantSignID {
-							t.Fatalf("signID = %d, want %d", signID, wantSignID)
+					getCertFromZipFileFunc: func(call kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error) {
+						if call.SignID != wantSignID {
+							t.Fatalf("signID = %d, want %d", call.SignID, wantSignID)
 						}
 
 						return kalkancrypt.BufferResult{Code: uint64(ErrorOK)}, nil
@@ -120,9 +120,9 @@ func TestCertificateExtractionValidatesSignID(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name+"/negative rejected", func(t *testing.T) {
 			ctx := test.ctx(t, 0)
-			ctx.getCertFromCMSFunc = failGetCertFromCMS(t, ctx.getCertFromCMSFunc)
-			ctx.getCertFromXMLFunc = failGetCertFromXML(t, ctx.getCertFromXMLFunc)
-			ctx.getCertFromZipFileFunc = failGetCertFromZipFile(t, ctx.getCertFromZipFileFunc)
+			ctx.getCertFromCMSFunc = failGetCertFromCMS(t)
+			ctx.getCertFromXMLFunc = failGetCertFromXML(t)
+			ctx.getCertFromZipFileFunc = failGetCertFromZipFile(t)
 			cli := &Client{ctx: ctx, config: defaultConfig()}
 
 			_, err := test.call(cli, -1)
@@ -141,9 +141,9 @@ func TestCertificateExtractionValidatesSignID(t *testing.T) {
 
 		t.Run(test.name+"/overflow rejected", func(t *testing.T) {
 			ctx := test.ctx(t, 0)
-			ctx.getCertFromCMSFunc = failGetCertFromCMS(t, ctx.getCertFromCMSFunc)
-			ctx.getCertFromXMLFunc = failGetCertFromXML(t, ctx.getCertFromXMLFunc)
-			ctx.getCertFromZipFileFunc = failGetCertFromZipFile(t, ctx.getCertFromZipFileFunc)
+			ctx.getCertFromCMSFunc = failGetCertFromCMS(t)
+			ctx.getCertFromXMLFunc = failGetCertFromXML(t)
+			ctx.getCertFromZipFileFunc = failGetCertFromZipFile(t)
 			cli := &Client{ctx: ctx, config: defaultConfig()}
 
 			_, err := test.call(cli, signIDOverflowValue(t))
@@ -158,7 +158,7 @@ func TestGetTimeFromSigValidatesSigID(t *testing.T) {
 	t.Run("negative rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			getTimeFromSigFunc: func(data []byte, flags, sigID int) (uint64, int64) {
-				t.Fatal("GetTimeFromSig reached native for negative sigID")
+				t.Error("GetTimeFromSig reached native for negative sigID")
 				return uint64(ErrorOK), 0
 			},
 		}
@@ -195,7 +195,7 @@ func TestGetTimeFromSigValidatesSigID(t *testing.T) {
 	t.Run("overflow rejected", func(t *testing.T) {
 		ctx := &fakeNativeContext{
 			getTimeFromSigFunc: func(data []byte, flags, sigID int) (uint64, int64) {
-				t.Fatal("GetTimeFromSig reached native for overflowing sigID")
+				t.Error("GetTimeFromSig reached native for overflowing sigID")
 				return uint64(ErrorOK), 0
 			},
 		}
@@ -217,29 +217,29 @@ func signIDOverflowValue(t *testing.T) int {
 	return int(int64(maxNativeCInt) + 1)
 }
 
-func failGetCertFromCMS(t *testing.T, fallback func([]byte, int, int, int) (kalkancrypt.BufferResult, error)) func([]byte, int, int, int) (kalkancrypt.BufferResult, error) {
+func failGetCertFromCMS(t *testing.T) func(kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error) {
 	t.Helper()
 
-	return func(cms []byte, signID, flags, capacity int) (kalkancrypt.BufferResult, error) {
-		t.Fatal("GetCertFromCMS reached native for invalid signID")
-		return fallback(cms, signID, flags, capacity)
+	return func(call kalkancrypt.GetCertFromCMSCall) (kalkancrypt.BufferResult, error) {
+		t.Error("GetCertFromCMS reached native for invalid signID")
+		return kalkancrypt.BufferResult{}, nil
 	}
 }
 
-func failGetCertFromXML(t *testing.T, fallback func([]byte, int, int) (kalkancrypt.BufferResult, error)) func([]byte, int, int) (kalkancrypt.BufferResult, error) {
+func failGetCertFromXML(t *testing.T) func([]byte, int, int) (kalkancrypt.BufferResult, error) {
 	t.Helper()
 
 	return func(xml []byte, signID, capacity int) (kalkancrypt.BufferResult, error) {
-		t.Fatal("GetCertFromXML reached native for invalid signID")
-		return fallback(xml, signID, capacity)
+		t.Error("GetCertFromXML reached native for invalid signID")
+		return kalkancrypt.BufferResult{}, nil
 	}
 }
 
-func failGetCertFromZipFile(t *testing.T, fallback func(string, int, int, int) (kalkancrypt.BufferResult, error)) func(string, int, int, int) (kalkancrypt.BufferResult, error) {
+func failGetCertFromZipFile(t *testing.T) func(kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error) {
 	t.Helper()
 
-	return func(zipFile string, flags, signID, capacity int) (kalkancrypt.BufferResult, error) {
-		t.Fatal("GetCertFromZipFile reached native for invalid signID")
-		return fallback(zipFile, flags, signID, capacity)
+	return func(call kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error) {
+		t.Error("GetCertFromZipFile reached native for invalid signID")
+		return kalkancrypt.BufferResult{}, nil
 	}
 }

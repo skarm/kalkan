@@ -97,59 +97,64 @@ func TestFileSourcePathValidation(t *testing.T) {
 }
 
 func TestFileSourceValidatesPath(t *testing.T) {
-	t.Run("Hash", func(t *testing.T) {
-		native := &fakeNative{
-			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
-				t.Fatal("Hash called native HashData with invalid file source")
-				return nil, nil
+	tests := []struct {
+		name string
+		call func(*Client) error
+		want string
+	}{
+		{
+			name: "Hash empty path",
+			call: func(client *Client) error {
+				_, err := client.Hash(context.Background(), HashRequest{Data: File("")})
+				return err
 			},
-		}
-		client := &Client{library: native}
-
-		_, err := client.Hash(context.Background(), HashRequest{Data: File("")})
-		if err == nil || !strings.Contains(err.Error(), "file source path is empty") {
-			t.Fatalf("Hash error = %v, want file source path validation error", err)
-		}
-	})
-
-	t.Run("SignCMS", func(t *testing.T) {
-		native := &fakeNative{
-			signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
-				t.Fatal("SignCMS called native SignData with invalid file source")
-				return nil, nil
+			want: "file source path is empty",
+		},
+		{
+			name: "SignCMS embedded NUL",
+			call: func(client *Client) error {
+				_, err := client.SignCMS(context.Background(), SignCMSRequest{Data: File("a\x00b")})
+				return err
 			},
-		}
-		client := &Client{library: native}
-
-		_, err := client.SignCMS(context.Background(), SignCMSRequest{Data: File("a\x00b")})
-		if err == nil || !strings.Contains(err.Error(), "NUL") {
-			t.Fatalf("SignCMS error = %v, want file source NUL validation error", err)
-		}
-	})
-
-	t.Run("VerifyCMS", func(t *testing.T) {
-		signaturePath := filepath.Join(t.TempDir(), "signature.cms")
-		if err := os.WriteFile(signaturePath, []byte("cms"), 0o600); err != nil {
-			t.Fatalf("write signature file source: %v", err)
-		}
-
-		native := &fakeNative{
-			verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
-				t.Fatal("VerifyCMS called native VerifyData with invalid detached file source")
-				return ckalkan.VerifyDataResult{}, nil
+			want: "NUL",
+		},
+		{
+			name: "VerifyCMS empty detached path",
+			call: func(client *Client) error {
+				_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+					Signature: File("signature.cms"),
+					Data:      File(""),
+					Detached:  true,
+				})
+				return err
 			},
-		}
-		client := &Client{library: native}
+			want: "file source path is empty",
+		},
+	}
 
-		_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
-			Signature: File(signaturePath),
-			Data:      File(""),
-			Detached:  true,
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			native := &fakeNative{
+				hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
+					t.Error("Hash called native HashData with invalid file source")
+					return nil, nil
+				},
+				signDataFunc: func(string, ckalkan.Flag, []byte, []byte) ([]byte, error) {
+					t.Error("SignCMS called native SignData with invalid file source")
+					return nil, nil
+				},
+				verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+					t.Error("VerifyCMS called native VerifyData with invalid file source")
+					return ckalkan.VerifyDataResult{}, nil
+				},
+			}
+			client := &Client{library: native}
+
+			if err := test.call(client); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("operation error = %v, want %q", err, test.want)
+			}
 		})
-		if err == nil || !strings.Contains(err.Error(), "file source path is empty") {
-			t.Fatalf("VerifyCMS error = %v, want file source path validation error", err)
-		}
-	})
+	}
 }
 
 func TestFileSourceDoesNotStatPath(t *testing.T) {

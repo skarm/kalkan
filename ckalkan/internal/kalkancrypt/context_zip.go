@@ -19,10 +19,10 @@ func (c *Context) ZipConSign(call ZipConSignCall) uint64 {
 }
 
 // GetCertFromZipFile calls KC_getCertFromZipFile.
-func (c *Context) GetCertFromZipFile(zipFile string, flags, signID, capacity int) (BufferResult, error) {
+func (c *Context) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
 	}
 
-	return c.driver.GetCertFromZipFile(zipFile, flags, signID, capacity)
+	return c.driver.GetCertFromZipFile(call)
 }
