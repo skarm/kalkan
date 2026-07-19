@@ -153,21 +153,27 @@ func (c *Client) CloseContext(ctx context.Context) error {
 func (c *Client) closeLibrary(ctx context.Context, library closer, gate chan struct{}, closing *closeState, start time.Time) {
 	<-gate
 
-	err := library.Close()
+	var callLog nativeCallLog
 
-	c.mu.Lock()
-	c.library = nil
-	closing.err = err
-	c.mu.Unlock()
+	func() {
+		defer func() { gate <- struct{}{} }()
 
-	gate <- struct{}{}
+		err := library.Close()
 
-	logNativeCall(c, ctx, "Close", start, err)
+		c.mu.Lock()
+		c.library = nil
+		closing.err = err
+		c.mu.Unlock()
+
+		callLog = newNativeCallLog("Close", start, err)
+	}()
 
 	c.mu.Lock()
 	close(closing.done)
 	c.closing = nil
 	c.mu.Unlock()
+
+	logNativeCall(c, ctx, callLog)
 }
 
 func waitCloseContext(ctx context.Context, closing *closeState) error {
@@ -386,28 +392,35 @@ func withLockedLibrary[T any](c *Client, ctx context.Context, operation string, 
 
 	library, unlock, err := c.lockLibrary(ctx)
 	if err != nil {
-		logNativeCall(c, ctx, operation, start, err)
-
-		return err
-	}
-	defer unlock()
-
-	capability, ok := any(library).(T)
-	if !ok {
-		err = unsupportedLibraryCapability(operation)
-		logNativeCall(c, ctx, operation, start, err)
+		logNativeCall(c, ctx, newNativeCallLog(operation, start, err))
 
 		return err
 	}
 
-	err = call(capability)
-	logNativeCall(c, ctx, operation, start, err)
+	var callLog nativeCallLog
+
+	func() {
+		defer unlock()
+
+		capability, ok := any(library).(T)
+		if !ok {
+			err = unsupportedLibraryCapability(operation)
+			callLog = newNativeCallLog(operation, start, err)
+
+			return
+		}
+
+		err = call(capability)
+		callLog = newNativeCallLog(operation, start, err)
+	}()
+
+	logNativeCall(c, ctx, callLog)
 
 	return err
 }
 
 // withLockedLibraryResult holds the process-global call gate only while call runs.
-func withLockedLibraryResult[T any, N any](c *Client, ctx context.Context, operation string, call func(N) (T, error)) (T, error) {
+func withLockedLibraryResult[T, N any](c *Client, ctx context.Context, operation string, call func(N) (T, error)) (T, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -416,26 +429,34 @@ func withLockedLibraryResult[T any, N any](c *Client, ctx context.Context, opera
 
 	library, unlock, err := c.lockLibrary(ctx)
 	if err != nil {
-		logNativeCall(c, ctx, operation, start, err)
-
-		var zero T
-
-		return zero, err
-	}
-	defer unlock()
-
-	capability, ok := any(library).(N)
-	if !ok {
-		err = unsupportedLibraryCapability(operation)
-		logNativeCall(c, ctx, operation, start, err)
+		logNativeCall(c, ctx, newNativeCallLog(operation, start, err))
 
 		var zero T
 
 		return zero, err
 	}
 
-	result, err := call(capability)
-	logNativeCall(c, ctx, operation, start, err)
+	var (
+		result  T
+		callLog nativeCallLog
+	)
+
+	func() {
+		defer unlock()
+
+		capability, ok := any(library).(N)
+		if !ok {
+			err = unsupportedLibraryCapability(operation)
+			callLog = newNativeCallLog(operation, start, err)
+
+			return
+		}
+
+		result, err = call(capability)
+		callLog = newNativeCallLog(operation, start, err)
+	}()
+
+	logNativeCall(c, ctx, callLog)
 
 	return result, err
 }
@@ -444,17 +465,31 @@ func unsupportedLibraryCapability(operation string) error {
 	return fmt.Errorf("kalkan: library does not support %s", operation)
 }
 
-func logNativeCall(c *Client, ctx context.Context, operation string, start time.Time, err error) {
+type nativeCallLog struct {
+	operation string
+	duration  time.Duration
+	err       error
+}
+
+func newNativeCallLog(operation string, start time.Time, err error) nativeCallLog {
+	return nativeCallLog{
+		operation: operation,
+		duration:  time.Since(start),
+		err:       err,
+	}
+}
+
+func logNativeCall(c *Client, ctx context.Context, call nativeCallLog) {
 	if c == nil || c.logger == nil {
 		return
 	}
 
 	attrs := []slog.Attr{
-		slog.String("operation", operation),
-		slog.Duration("duration", time.Since(start)),
+		slog.String("operation", call.operation),
+		slog.Duration("duration", call.duration),
 	}
-	if err != nil {
-		attrs = append(attrs, slog.Any("error", err))
+	if call.err != nil {
+		attrs = append(attrs, slog.Any("error", call.err))
 		c.logger.LogAttrs(ctx, slog.LevelError, "kalkan native call failed", attrs...)
 
 		return
