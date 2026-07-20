@@ -70,9 +70,11 @@ type VerifyCMSRequest struct {
 	// Signature is the CMS/signature input. Use File for large signatures or
 	// Bytes for in-memory raw CMS bytes.
 	Signature Source
-	// Data is the detached payload. It is valid only when Detached is true. For
-	// detached verification the zero-value Source is rejected; Bytes(nil) or
-	// Bytes([]byte{}) means an explicit empty detached payload.
+	// Data is the detached payload. It is valid only when Detached is true and
+	// must be an in-memory source: KalkanCrypt's KC_IN_FILE flag applies to the
+	// CMS signature input during verification. For detached verification the
+	// zero-value Source is rejected; Bytes(nil) or Bytes([]byte{}) means an
+	// explicit empty detached payload.
 	Data Source
 	// Detached verifies a detached CMS signature.
 	Detached bool
@@ -213,10 +215,6 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 		return nil, fmt.Errorf("%w: detached CMS data is required for detached verification", ErrInvalidInput)
 	}
 
-	if req.Detached && (req.Signature.file != req.Data.file) {
-		return nil, fmt.Errorf("%w: detached CMS file verification requires both signature and data as file sources", ErrInvalidInput)
-	}
-
 	maxInputSize := c.configuredMaxInputSize()
 
 	signature, flags, err := cmsSignatureInput(req.Signature, req.Encoding, maxInputSize)
@@ -227,6 +225,10 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 	data, dataFlags, err := cmsDataInput(req.Data, maxInputSize)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.Detached && req.Data.file {
+		return nil, fmt.Errorf("%w: detached CMS data must be an in-memory source; KalkanCrypt accepts a file source only for the CMS signature during verification", ErrInvalidInput)
 	}
 
 	flags |= ckalkan.SignCMS | dataFlags

@@ -290,16 +290,13 @@ func TestVerifyCMSPassesRawSignatureFileWithoutBase64Flag(t *testing.T) {
 	}
 }
 
-func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
+func TestVerifyCMSPassesDetachedSignatureFileAndInFileFlag(t *testing.T) {
 	dir := t.TempDir()
 	signaturePath := filepath.Join(dir, "signature.cms")
 	if err := os.WriteFile(signaturePath, []byte("signature cms"), 0o600); err != nil {
 		t.Fatalf("write signature file source: %v", err)
 	}
-	payloadPath := filepath.Join(dir, "payload.bin")
-	if err := os.WriteFile(payloadPath, []byte("payload"), 0o600); err != nil {
-		t.Fatalf("write payload file source: %v", err)
-	}
+	payload := []byte("payload")
 
 	native := &fakeNative{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
@@ -310,8 +307,8 @@ func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
 			if string(req.Signature) != signaturePath {
 				t.Fatalf("signature input = %q, want signature path", req.Signature)
 			}
-			if string(req.Data) != payloadPath {
-				t.Fatalf("data input = %q, want detached data path", req.Data)
+			if string(req.Data) != string(payload) {
+				t.Fatalf("data input = %q, want detached payload", req.Data)
 			}
 			return ckalkan.VerifyDataResult{
 				VerifyInfo: "Verify - OK",
@@ -323,7 +320,7 @@ func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
 
 	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature:            File(signaturePath),
-		Data:                 File(payloadPath),
+		Data:                 Bytes(payload),
 		Detached:             true,
 		Encoding:             EncodingBase64,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
@@ -336,6 +333,28 @@ func TestVerifyCMSPassesDetachedFilePathsAndInFileFlag(t *testing.T) {
 	}
 	if string(verification.SignerCert) != "signer-cert" {
 		t.Fatalf("signer cert = %q", verification.SignerCert)
+	}
+}
+
+func TestVerifyCMSRejectsDetachedDataFile(t *testing.T) {
+	payloadPath := filepath.Join(t.TempDir(), "payload.bin")
+	if err := os.WriteFile(payloadPath, []byte("payload"), 0o600); err != nil {
+		t.Fatalf("write payload file source: %v", err)
+	}
+	client := &Client{library: &fakeNative{
+		verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+			t.Error("VerifyCMS called native VerifyData with a detached data file")
+			return ckalkan.VerifyDataResult{}, nil
+		},
+	}}
+
+	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
+		Signature: Bytes([]byte("detached cms")),
+		Data:      File(payloadPath),
+		Detached:  true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "detached CMS data must be an in-memory source") {
+		t.Fatalf("VerifyCMS error = %v, want detached data file rejection", err)
 	}
 }
 
