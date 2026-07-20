@@ -61,6 +61,126 @@ func TestClientFixtureOperations(t *testing.T) {
 	})
 }
 
+func TestClientFixtureLargeFileCMSRoundTrip(t *testing.T) {
+	const payloadSize = 8 << 20
+
+	ctx := context.Background()
+	assets := loadFixtureAssets(t)
+	client := openFixtureClient(t, assets)
+	if err := client.LoadKeyStore(ctx, KeyStore{
+		Type:     PKCS12,
+		Path:     keyStorePath(t, assets),
+		Password: fixturePassword,
+	}); err != nil {
+		t.Fatalf("LoadKeyStore failed: %v", err)
+	}
+
+	payloadPath, payloadHash := writeLargeCMSPayloadFile(t, payloadSize)
+
+	t.Run("attached", func(t *testing.T) {
+		attached, err := client.SignCMS(ctx, SignCMSRequest{
+			Data:                 File(payloadPath),
+			IncludeCertificate:   true,
+			CertificateTimeCheck: SkipCertificateTimeCheck,
+		})
+		if err != nil {
+			t.Fatalf("SignCMS(attached file) failed: %v", err)
+		}
+		if len(attached.Data) <= payloadSize {
+			t.Fatalf("attached CMS length = %d, want more than embedded payload size %d", len(attached.Data), payloadSize)
+		}
+
+		verification, err := client.VerifyCMS(ctx, VerifyCMSRequest{
+			Signature:            DER(attached.Data),
+			CertificateTimeCheck: SkipCertificateTimeCheck,
+		})
+		if err != nil {
+			t.Fatalf("VerifyCMS(attached file) failed: %v", err)
+		}
+		requireContains(t, "attached CMS verification", verification.Info, "Verify - OK")
+		if len(verification.Data) != payloadSize {
+			t.Fatalf("attached CMS data length = %d, want %d", len(verification.Data), payloadSize)
+		}
+		if got := sha256.Sum256(verification.Data); got != payloadHash {
+			t.Fatal("attached CMS data hash does not match the signed file")
+		}
+	})
+
+	t.Run("detached", func(t *testing.T) {
+		detached, err := client.SignCMS(ctx, SignCMSRequest{
+			Data:                 File(payloadPath),
+			Detached:             true,
+			IncludeCertificate:   true,
+			CertificateTimeCheck: SkipCertificateTimeCheck,
+		})
+		if err != nil {
+			t.Fatalf("SignCMS(detached file) failed: %v", err)
+		}
+		if len(detached.Data) == 0 {
+			t.Fatal("SignCMS(detached file) returned an empty CMS")
+		}
+
+		signaturePath := filepath.Join(t.TempDir(), "detached.cms")
+		if err := os.WriteFile(signaturePath, detached.Data, 0o600); err != nil {
+			t.Fatalf("write detached CMS: %v", err)
+		}
+		payload, err := os.ReadFile(payloadPath)
+		if err != nil {
+			t.Fatalf("read detached CMS payload: %v", err)
+		}
+		if len(payload) != payloadSize || sha256.Sum256(payload) != payloadHash {
+			t.Fatal("detached CMS payload does not match the file that was signed")
+		}
+		verification, err := client.VerifyCMS(ctx, VerifyCMSRequest{
+			Signature:            File(signaturePath),
+			Data:                 Bytes(payload),
+			Detached:             true,
+			CertificateTimeCheck: SkipCertificateTimeCheck,
+		})
+		if err != nil {
+			t.Fatalf("VerifyCMS(detached file) failed: %v", err)
+		}
+		requireContains(t, "detached CMS verification", verification.Info, "Verify - OK")
+	})
+}
+
+func writeLargeCMSPayloadFile(t *testing.T, size int) (string, [sha256.Size]byte) {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "payload.bin")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatalf("create large CMS payload: %v", err)
+	}
+
+	block := make([]byte, 64<<10)
+	for i := range block {
+		block[i] = byte(i*31 + 17)
+	}
+
+	hash := sha256.New()
+	for remaining := size; remaining > 0; {
+		chunk := block[:min(len(block), remaining)]
+		if _, err := file.Write(chunk); err != nil {
+			_ = file.Close()
+			t.Fatalf("write large CMS payload: %v", err)
+		}
+		if _, err := hash.Write(chunk); err != nil {
+			_ = file.Close()
+			t.Fatalf("hash large CMS payload: %v", err)
+		}
+		remaining -= len(chunk)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close large CMS payload: %v", err)
+	}
+
+	var sum [sha256.Size]byte
+	copy(sum[:], hash.Sum(nil))
+
+	return path, sum
+}
+
 func assertHashing(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
