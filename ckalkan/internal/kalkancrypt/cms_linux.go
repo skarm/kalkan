@@ -23,7 +23,7 @@ import "C"
 import "runtime"
 
 func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
-	in, inLen, err := inputBytes(data)
+	in, inLen, err := inputBytesWithFlags(data, flags)
 	if err != nil {
 		return errorParam, 0
 	}
@@ -35,7 +35,7 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 }
 
 func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	in, inLen, err := inputBytes(call.CMS)
+	in, inLen, err := inputBytesWithFlags(call.CMS, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

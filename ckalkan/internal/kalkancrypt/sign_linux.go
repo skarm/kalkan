@@ -64,7 +64,7 @@ func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
 	}
 	defer freeAlias()
 
-	inData, inDataLen, err := inputBytes(call.Data)
+	inData, inDataLen, err := inputBytesWithFlags(call.Data, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

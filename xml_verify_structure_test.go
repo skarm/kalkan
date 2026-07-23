@@ -35,12 +35,14 @@ func TestVerifyXMLSOAPBinding(t *testing.T) {
 		{"duplicate URI attribute", strings.Replace(validSignedSOAP("#TheBody", ""), `URI="#TheBody"`, `URI="#TheBody" URI="#Other"`, 1), "TheBody", "duplicate attribute"},
 		{"SOAP 1.1 without Body ID", validSignedSOAP("#TheBody", ""), "", "ExpectedBodyID is required"},
 		{"SOAP 1.2 without Body ID", strings.ReplaceAll(validSignedSOAP("#TheBody", ""), xmlnsSOAP, xmlnsSOAP12), "", "ExpectedBodyID is required"},
+		{"DOCTYPE without Body ID", `<!DOCTYPE soap:Envelope>` + validSignedSOAP("#TheBody", ""), "", "ExpectedBodyID is required"},
 		{"Body without wsu Id", strings.Replace(validSignedSOAP("#TheBody", ""), `wsu:Id="TheBody"`, `Id="TheBody"`, 1), "TheBody", "SOAP Body must have wsu:Id"},
 		{"nested Body", strings.Replace(validSignedSOAP("#TheBody", ""), `<soap:Body wsu:Id="TheBody"><payload>ok</payload></soap:Body>`, `<wrapper><soap:Body wsu:Id="TheBody"><payload>ok</payload></soap:Body></wrapper>`, 1), "TheBody", "direct child"},
 		{"DOCTYPE", `<!DOCTYPE soap:Envelope SYSTEM "http://127.0.0.1/x">` + validSignedSOAP("#TheBody", ""), "TheBody", "DTDs are not allowed"},
 		{"multiple document roots", validSignedSOAP("#TheBody", "") + `<extra/>`, "TheBody", "exactly one document element"},
 		{"signed generic XML", validSignedGenericXML(), "", ""},
 		{"unsigned generic XML", `<document/>`, "", ""},
+		{"generic XML with DOCTYPE", `<!DOCTYPE document><document/>`, "", ""},
 		{"generic nested SignedInfo", strings.Replace(validSignedGenericXML(), `</ds:Signature>`, `<ds:Object><ds:SignedInfo/></ds:Object></ds:Signature>`, 1), "", ""},
 	}
 

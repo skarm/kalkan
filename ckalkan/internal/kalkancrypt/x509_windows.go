@@ -63,7 +63,7 @@ func (h *windowsDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) 
 }
 
 func (h *windowsDriver) X509ValidateCertificate(call ValidateCertificateCall) (ValidateResult, error) {
-	in, inLen, err := inputBytes(call.Certificate)
+	in, inLen, err := inputBytesWithFlags(call.Certificate, call.Flags)
 	if err != nil {
 		return ValidateResult{}, err
 	}

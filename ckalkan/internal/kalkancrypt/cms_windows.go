@@ -5,7 +5,7 @@ package kalkancrypt
 import "runtime"
 
 func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
-	in, inLen, err := inputBytes(data)
+	in, inLen, err := inputBytesWithFlags(data, flags)
 	if err != nil {
 		return errorParam, 0
 	}
@@ -17,7 +17,7 @@ func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, i
 }
 
 func (h *windowsDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	in, inLen, err := inputBytes(call.CMS)
+	in, inLen, err := inputBytesWithFlags(call.CMS, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

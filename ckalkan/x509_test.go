@@ -8,8 +8,8 @@ import (
 
 func TestValidateCertificateRetriesInfoAndOCSPBuffers(t *testing.T) {
 	const (
-		wantInfoOutput = 4 << 10
-		wantOCSPOutput = 8 << 10
+		wantInfoOutput = initialInfoOutputBuffer
+		wantOCSPOutput = initialCertOutputBuffer
 	)
 
 	ctx := &fakeNativeContext{}

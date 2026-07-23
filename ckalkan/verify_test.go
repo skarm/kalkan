@@ -8,9 +8,9 @@ import (
 
 func TestVerifyDataGrowsAllReportedOutputsAfterBufferTooSmall(t *testing.T) {
 	const (
-		wantDataOutput = 64 << 10
-		wantInfoOutput = 4 << 10
-		wantCertOutput = 8 << 10
+		wantDataOutput = initialSignatureBuffer
+		wantInfoOutput = initialInfoOutputBuffer
+		wantCertOutput = initialCertOutputBuffer
 	)
 
 	ctx := &fakeNativeContext{}

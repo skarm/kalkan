@@ -9,7 +9,7 @@ func (h *windowsDriver) HashData(call HashDataCall) (BufferResult, error) {
 	if err != nil {
 		return BufferResult{}, err
 	}
-	in, inLen, err := inputBytes(call.Data)
+	in, inLen, err := inputBytesWithFlags(call.Data, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

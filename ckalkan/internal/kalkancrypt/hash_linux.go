@@ -22,7 +22,7 @@ func (h *linuxDriver) HashData(call HashDataCall) (BufferResult, error) {
 	}
 	defer freeAlgorithm()
 
-	in, inLen, err := inputBytes(call.Data)
+	in, inLen, err := inputBytesWithFlags(call.Data, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

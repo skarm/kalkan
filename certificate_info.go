@@ -187,6 +187,35 @@ const CertificateInfoAllFields = CertificateInfoSubject |
 	CertificateInfoSubjectOrganization |
 	CertificateInfoSubjectOrganizationalUnit
 
+type certificateInfoProperty struct {
+	field    CertificateInfoField
+	prop     ckalkan.CertProp
+	optional bool
+}
+
+//nolint:gochecknoglobals // immutable operation metadata avoids rebuilding closure tables per call.
+var certificateInfoProperties = [...]certificateInfoProperty{
+	{field: CertificateInfoSubject, prop: ckalkan.CertPropSubjectDN},
+	{field: CertificateInfoSerialNumber, prop: ckalkan.CertPropCertSN},
+	{field: CertificateInfoValidFrom, prop: ckalkan.CertPropNotBefore},
+	{field: CertificateInfoValidUntil, prop: ckalkan.CertPropNotAfter},
+	{field: CertificateInfoIssuer, prop: ckalkan.CertPropIssuerDN},
+	{field: CertificateInfoPolicy, prop: ckalkan.CertPropPoliciesID},
+	{field: CertificateInfoSubjectCountry, prop: ckalkan.CertPropSubjectCountryName, optional: true},
+	{field: CertificateInfoSubjectSerialNumber, prop: ckalkan.CertPropSubjectSerialNumber, optional: true},
+	{field: CertificateInfoSubjectOrganization, prop: ckalkan.CertPropSubjectOrgName, optional: true},
+	{field: CertificateInfoSubjectOrganizationalUnit, prop: ckalkan.CertPropSubjectOrgUnitName, optional: true},
+	{field: CertificateInfoKeyUsage, prop: ckalkan.CertPropKeyUsage},
+	{field: CertificateInfoExtKeyUsage, prop: ckalkan.CertPropExtKeyUsage},
+	{field: CertificateInfoAuthKeyID, prop: ckalkan.CertPropAuthKeyID},
+	{field: CertificateInfoSubjKeyID, prop: ckalkan.CertPropSubjKeyID},
+	{field: CertificateInfoAlgorithmSignCert, prop: ckalkan.CertPropSignatureAlg},
+	{field: CertificateInfoPublicKey, prop: ckalkan.CertPropPubKey},
+	{field: CertificateInfoOCSPURL, prop: ckalkan.CertPropOCSP, optional: true},
+	{field: CertificateInfoCRLURL, prop: ckalkan.CertPropGetCRL, optional: true},
+	{field: CertificateInfoDeltaCRLURL, prop: ckalkan.CertPropGetDeltaCRL, optional: true},
+}
+
 // X509ExportCertificateFromStore exports the default certificate from
 // KalkanCrypt's native store and parses it as an x509 certificate.
 func (c *Client) X509ExportCertificateFromStore(ctx context.Context) (*x509.Certificate, error) {
@@ -246,116 +275,18 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 		return nil, fmt.Errorf("%w: unknown certificate info fields %#x", ErrInvalidInput, uint64(unknown))
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	certPEM := c.cachedPEMForCertificate(cert.Raw)
+	if certPEM == nil {
+		certPEM = c.encodeAndCacheCertificatePEM(cert.Raw)
+	}
+
 	if err := validateBytesSize(certPEM, "certificate", c.configuredMaxInputSize()); err != nil {
 		return nil, err
 	}
 
 	info := &CertificateInfo{}
 
-	props := []struct {
-		field    CertificateInfoField
-		prop     ckalkan.CertProp
-		optional bool
-		apply    func(string) error
-	}{
-		{field: CertificateInfoSubject, prop: ckalkan.CertPropSubjectDN, apply: func(value string) error {
-			info.Subject = value
-			return nil
-		}},
-		{field: CertificateInfoSerialNumber, prop: ckalkan.CertPropCertSN, apply: func(value string) error {
-			info.SerialNumber = value
-			return nil
-		}},
-		{field: CertificateInfoValidFrom, prop: ckalkan.CertPropNotBefore, apply: func(value string) error {
-			parsed, err := parseNativeCertificateTime("notBefore", value)
-			if err != nil {
-				return err
-			}
-
-			info.ValidFrom = parsed
-
-			return nil
-		}},
-		{field: CertificateInfoValidUntil, prop: ckalkan.CertPropNotAfter, apply: func(value string) error {
-			parsed, err := parseNativeCertificateTime("notAfter", value)
-			if err != nil {
-				return err
-			}
-
-			info.ValidUntil = parsed
-
-			return nil
-		}},
-		{field: CertificateInfoIssuer, prop: ckalkan.CertPropIssuerDN, apply: func(value string) error {
-			info.Issuer = value
-			return nil
-		}},
-		{field: CertificateInfoPolicy, prop: ckalkan.CertPropPoliciesID, apply: func(value string) error {
-			info.Policy = value
-			info.Policies = splitNativePropertyValues(value)
-
-			return nil
-		}},
-		{field: CertificateInfoSubjectCountry, prop: ckalkan.CertPropSubjectCountryName, optional: true, apply: func(value string) error {
-			info.SubjectCountry = nativePropertyValue(value)
-			return nil
-		}},
-		{field: CertificateInfoSubjectSerialNumber, prop: ckalkan.CertPropSubjectSerialNumber, optional: true, apply: func(value string) error {
-			info.SubjectSerialNumber = nativePropertyValue(value)
-			return nil
-		}},
-		{field: CertificateInfoSubjectOrganization, prop: ckalkan.CertPropSubjectOrgName, optional: true, apply: func(value string) error {
-			info.SubjectOrganization = nativePropertyValue(value)
-			return nil
-		}},
-		{field: CertificateInfoSubjectOrganizationalUnit, prop: ckalkan.CertPropSubjectOrgUnitName, optional: true, apply: func(value string) error {
-			info.SubjectOrganizationalUnit = nativePropertyValue(value)
-			return nil
-		}},
-		{field: CertificateInfoKeyUsage, prop: ckalkan.CertPropKeyUsage, apply: func(value string) error {
-			info.KeyUsage = value
-			info.KeyUsages = splitNativePropertyValues(value)
-
-			return nil
-		}},
-		{field: CertificateInfoExtKeyUsage, prop: ckalkan.CertPropExtKeyUsage, apply: func(value string) error {
-			info.ExtKeyUsage = value
-			info.ExtKeyUsages = splitNativePropertyValues(value)
-
-			return nil
-		}},
-		{field: CertificateInfoAuthKeyID, prop: ckalkan.CertPropAuthKeyID, apply: func(value string) error {
-			info.AuthKeyID = value
-			return nil
-		}},
-		{field: CertificateInfoSubjKeyID, prop: ckalkan.CertPropSubjKeyID, apply: func(value string) error {
-			info.SubjKeyID = value
-			return nil
-		}},
-		{field: CertificateInfoAlgorithmSignCert, prop: ckalkan.CertPropSignatureAlg, apply: func(value string) error {
-			info.AlgorithmSignCert = value
-			return nil
-		}},
-		{field: CertificateInfoPublicKey, prop: ckalkan.CertPropPubKey, apply: func(value string) error {
-			info.PublicKey = value
-			return nil
-		}},
-		{field: CertificateInfoOCSPURL, prop: ckalkan.CertPropOCSP, optional: true, apply: func(value string) error {
-			info.OCSPURL = value
-			return nil
-		}},
-		{field: CertificateInfoCRLURL, prop: ckalkan.CertPropGetCRL, optional: true, apply: func(value string) error {
-			info.CRLURL = value
-			return nil
-		}},
-		{field: CertificateInfoDeltaCRLURL, prop: ckalkan.CertPropGetDeltaCRL, optional: true, apply: func(value string) error {
-			info.DeltaCRLURL = value
-			return nil
-		}},
-	}
-
-	for _, item := range props {
+	for _, item := range certificateInfoProperties {
 		if fields&item.field == 0 {
 			continue
 		}
@@ -371,7 +302,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			return nil, fmt.Errorf("kalkan: get certificate property %v: %w", item.prop, err)
 		}
 
-		if err := item.apply(string(bytesBeforeNULTerminator(value))); err != nil {
+		if err := applyCertificateInfoProperty(info, item.field, string(bytesBeforeNULTerminator(value))); err != nil {
 			return nil, err
 		}
 	}
@@ -379,6 +310,119 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 	info.applyKazakhstanSubjectDetails()
 
 	return info, nil
+}
+
+type entry struct {
+	der []byte
+	pem []byte
+}
+
+func (c *Client) cachedPEMForCertificate(der []byte) []byte {
+	if cached := c.pemCache.Load(); cached != nil && bytes.Equal(cached.der, der) {
+		return cached.pem
+	}
+
+	return nil
+}
+
+func (c *Client) encodeAndCacheCertificatePEM(der []byte) []byte {
+	encoded := encodeCertificatePEM(der)
+	c.pemCache.Store(&entry{
+		der: slices.Clone(der),
+		pem: encoded,
+	})
+
+	return encoded
+}
+
+func encodeCertificatePEM(der []byte) []byte {
+	const (
+		header       = "-----BEGIN CERTIFICATE-----\n"
+		footer       = "-----END CERTIFICATE-----\n"
+		pemLineWidth = 64
+		rawChunkSize = pemLineWidth / 4 * 3
+	)
+
+	encodedLen := base64.StdEncoding.EncodedLen(len(der))
+	lineCount := (encodedLen + pemLineWidth - 1) / pemLineWidth
+	logicalLen := len(header) + encodedLen + lineCount + len(footer)
+	out := make([]byte, logicalLen+1)
+	offset := copy(out, header)
+
+	for len(der) > 0 {
+		chunkLen := min(len(der), rawChunkSize)
+		chunkEncodedLen := base64.StdEncoding.EncodedLen(chunkLen)
+		base64.StdEncoding.Encode(out[offset:offset+chunkEncodedLen], der[:chunkLen])
+		offset += chunkEncodedLen
+		out[offset] = '\n'
+		offset++
+		der = der[chunkLen:]
+	}
+
+	copy(out[offset:], footer)
+
+	// Keep a trailing zero outside the logical slice. The Linux native adapter
+	// can pass this internal buffer directly to KalkanCrypt without another
+	// full PEM copy.
+	return out[:logicalLen]
+}
+
+func applyCertificateInfoProperty(info *CertificateInfo, field CertificateInfoField, value string) error {
+	switch field {
+	case CertificateInfoSubject:
+		info.Subject = value
+	case CertificateInfoSerialNumber:
+		info.SerialNumber = value
+	case CertificateInfoValidFrom:
+		parsed, err := parseNativeCertificateTime("notBefore", value)
+		if err != nil {
+			return err
+		}
+
+		info.ValidFrom = parsed
+	case CertificateInfoValidUntil:
+		parsed, err := parseNativeCertificateTime("notAfter", value)
+		if err != nil {
+			return err
+		}
+
+		info.ValidUntil = parsed
+	case CertificateInfoIssuer:
+		info.Issuer = value
+	case CertificateInfoPolicy:
+		info.Policy = value
+		info.Policies = splitNativePropertyValues(value)
+	case CertificateInfoSubjectCountry:
+		info.SubjectCountry = nativePropertyValue(value)
+	case CertificateInfoSubjectSerialNumber:
+		info.SubjectSerialNumber = nativePropertyValue(value)
+	case CertificateInfoSubjectOrganization:
+		info.SubjectOrganization = nativePropertyValue(value)
+	case CertificateInfoSubjectOrganizationalUnit:
+		info.SubjectOrganizationalUnit = nativePropertyValue(value)
+	case CertificateInfoKeyUsage:
+		info.KeyUsage = value
+		info.KeyUsages = splitNativePropertyValues(value)
+	case CertificateInfoExtKeyUsage:
+		info.ExtKeyUsage = value
+		info.ExtKeyUsages = splitNativePropertyValues(value)
+	case CertificateInfoAuthKeyID:
+		info.AuthKeyID = value
+	case CertificateInfoSubjKeyID:
+		info.SubjKeyID = value
+	case CertificateInfoAlgorithmSignCert:
+		info.AlgorithmSignCert = value
+	case CertificateInfoPublicKey:
+		info.PublicKey = value
+	case CertificateInfoOCSPURL:
+		info.OCSPURL = value
+	case CertificateInfoCRLURL:
+		info.CRLURL = value
+	case CertificateInfoDeltaCRLURL:
+		info.DeltaCRLURL = value
+	}
+
+	return nil
 }
 
 // GetCertFromCMS extracts signer certificates embedded in a CMS container.
