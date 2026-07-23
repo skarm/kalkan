@@ -122,7 +122,7 @@ Operations use `Source` values:
 
 Supported variants are operation-specific.
 
-The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. `File` forwards the original path after empty-path and NUL validation. Keep borrowed slices and referenced files unchanged until the call returns.
+The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. On Linux and Windows, length-delimited in-memory inputs are passed directly to KalkanCrypt without an adapter copy. `File` forwards the original path after empty-path and NUL validation; the native adapter adds the C-string terminator required by `KC_IN_FILE`. Keep borrowed slices and referenced files unchanged until the call returns.
 
 `WithMaxInputSize` caps high-level in-memory inputs. It does not apply to file sources or native output buffers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
 

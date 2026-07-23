@@ -32,7 +32,7 @@ func (h *windowsDriver) SignData(call SignDataCall) (BufferResult, error) {
 	if err != nil {
 		return BufferResult{}, err
 	}
-	inData, inDataLen, err := inputBytes(call.Data)
+	inData, inDataLen, err := inputBytesWithFlags(call.Data, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}

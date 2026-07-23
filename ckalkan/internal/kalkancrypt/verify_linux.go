@@ -39,7 +39,7 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	signature, signatureLen, err := inputBytes(call.Signature)
+	signature, signatureLen, err := verifySignatureInput(call.Signature, call.Flags, universal)
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -112,4 +112,14 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 		Cert:    boundedBytes(certBuf, int(certLen)),
 		CertLen: int(certLen),
 	}, nil
+}
+
+func verifySignatureInput(signature []byte, flags int, universal bool) ([]byte, C.int, error) {
+	if universal {
+		// UVerifyData in the verified Linux SDK always interprets Signature as
+		// the path to a signature or container file, independently of flags.
+		return filePathBytes(signature)
+	}
+
+	return inputBytesWithFlags(signature, flags)
 }

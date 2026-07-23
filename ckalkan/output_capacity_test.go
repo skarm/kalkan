@@ -35,7 +35,7 @@ func TestCallBufferUsesSmallInitialSize(t *testing.T) {
 
 func TestSingleOutputMethodsUseOperationSpecificInitialCapacity(t *testing.T) {
 	const (
-		wantHashOutput      = 128
+		wantHashOutput      = 32
 		wantInfoOutput      = 4 << 10
 		wantCertOutput      = 8 << 10
 		wantSignatureOutput = 64 << 10
@@ -248,6 +248,31 @@ func TestSingleOutputMethodsUseOperationSpecificInitialCapacity(t *testing.T) {
 	}
 }
 
+func TestInitialHashOutputCapacity(t *testing.T) {
+	tests := []struct {
+		name      string
+		algorithm HashAlgorithm
+		flags     Flag
+		want      int
+	}{
+		{name: "SHA256 raw", algorithm: SHA256, want: 32},
+		{name: "GOST95 raw", algorithm: GOST95, want: 32},
+		{name: "GOST 2015 256 raw", algorithm: GOST2015_256, want: 32},
+		{name: "GOST 2015 512 raw", algorithm: GOST2015_512, want: 64},
+		{name: "unknown raw", algorithm: HashAlgorithm("future"), want: 128},
+		{name: "base64", algorithm: SHA256, flags: OutBase64, want: 256},
+		{name: "PEM", algorithm: SHA256, flags: OutPEM, want: 256},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := initialHashOutputCapacity(test.algorithm, test.flags); got != test.want {
+				t.Fatalf("initialHashOutputCapacity(%q, %#x) = %d, want %d", test.algorithm, test.flags, got, test.want)
+			}
+		})
+	}
+}
+
 func TestConfiguredBufferSizeIsClampedToConservativeMinimum(t *testing.T) {
 	var firstCapacity int
 	ctx := &fakeNativeContext{}
@@ -276,9 +301,9 @@ func BenchmarkCallBufferSmallInitialOutput(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		got, err := cli.callBufferWithCapacityLocked("benchmark output", initialHashOutputBuffer, func(capacity int) (kalkancrypt.BufferResult, error) {
-			if capacity != initialHashOutputBuffer {
-				b.Fatalf("capacity = %d, want %d", capacity, initialHashOutputBuffer)
+		got, err := cli.callBufferWithCapacityLocked("benchmark output", initialRawHash512Capacity, func(capacity int) (kalkancrypt.BufferResult, error) {
+			if capacity != initialRawHash512Capacity {
+				b.Fatalf("capacity = %d, want %d", capacity, initialRawHash512Capacity)
 			}
 			return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: output, OutLen: len(output)}, nil
 		})

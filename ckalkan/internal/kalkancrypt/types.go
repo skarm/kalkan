@@ -15,6 +15,9 @@ var (
 // instead of importing C constants so that the common Go code builds everywhere.
 const errorLibraryNotInitialized uint64 = 0x08f00101
 
+// inFileFlag mirrors KC_IN_FILE from KalkanCrypt.h.
+const inFileFlag = 0x00008000
+
 // OutputBufferFunc performs one capacity-aware native output-buffer attempt.
 type OutputBufferFunc func(capacity int) (BufferResult, error)
 
@@ -49,7 +52,8 @@ type HashDataCall struct {
 	Algorithm string
 	// Flags is the native KalkanCrypt hashing flag mask.
 	Flags int
-	// Data contains the input bytes to hash.
+	// Data contains the input bytes to hash. With KC_IN_FILE it contains the
+	// path to the input file.
 	Data []byte
 	// Capacity is the supplied digest output capacity.
 	Capacity int
@@ -73,7 +77,8 @@ type SignDataCall struct {
 	Alias string
 	// Flags is the native KalkanCrypt signing flag mask.
 	Flags int
-	// Data contains the input bytes to sign.
+	// Data contains the input bytes to sign. With KC_IN_FILE it contains the
+	// path to the primary input file.
 	Data []byte
 	// Signature contains an existing signature when the selected mode appends to it.
 	Signature []byte
@@ -95,7 +100,8 @@ type VerifyXMLCall struct {
 
 // GetCertFromCMSCall contains the raw parameters for KC_GetCertFromCMS.
 type GetCertFromCMSCall struct {
-	// CMS contains the CMS data passed to the native function.
+	// CMS contains the CMS data passed to the native function. With KC_IN_FILE
+	// it contains the path to the CMS file.
 	CMS []byte
 	// SignID selects a signer certificate from multi-signer data.
 	SignID int
@@ -122,6 +128,7 @@ type GetCertFromZipFileCall struct {
 // layer owns retry/growth policy.
 type ValidateCertificateCall struct {
 	// Certificate contains the certificate passed to the native validator.
+	// With KC_IN_FILE it contains the path to the certificate file.
 	Certificate []byte
 	// ValidationType selects the native certificate-validation mode.
 	ValidationType int

@@ -21,10 +21,20 @@ func cString(value string) (*C.char, func(), error) {
 	return ptr, func() { C.free(unsafe.Pointer(ptr)) }, nil
 }
 
-// inputBytes returns a NUL-terminated Go-owned byte buffer and the logical
-// length passed to KalkanCrypt. The extra NUL preserves compatibility with
-// native code that treats a length-delimited parameter as a C string.
+// inputBytes validates a length-delimited native input without copying it.
+// KalkanCrypt consumes the pointer synchronously, and every caller keeps the
+// slice alive until the native call returns.
 func inputBytes(value []byte) ([]byte, C.int, error) {
+	if err := checkNativeBytes(value); err != nil {
+		return nil, 0, err
+	}
+
+	return value, C.int(len(value)), nil
+}
+
+// filePathBytes returns a NUL-terminated copy for native parameters that are
+// interpreted as file paths instead of length-delimited byte sequences.
+func filePathBytes(value []byte) ([]byte, C.int, error) {
 	if err := checkNativeBytes(value); err != nil {
 		return nil, 0, err
 	}
@@ -33,6 +43,14 @@ func inputBytes(value []byte) ([]byte, C.int, error) {
 	copy(buf, value)
 
 	return buf, C.int(len(value)), nil
+}
+
+func inputBytesWithFlags(value []byte, flags int) ([]byte, C.int, error) {
+	if flags&inFileFlag != 0 {
+		return filePathBytes(value)
+	}
+
+	return inputBytes(value)
 }
 
 func charPtr(buf []byte) *C.char {

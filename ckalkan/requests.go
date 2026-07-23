@@ -10,7 +10,8 @@ type ListResult struct {
 
 // ValidateCertificateRequest maps to X509ValidateCertificate parameters.
 type ValidateCertificateRequest struct {
-	// Certificate contains the certificate bytes to validate.
+	// Certificate contains the certificate bytes to validate. With InFile it
+	// contains the path to the certificate file.
 	Certificate []byte
 	// ValidationType selects CRL, OCSP, or no external validation.
 	ValidationType ValidationType

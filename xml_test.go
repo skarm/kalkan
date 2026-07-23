@@ -252,6 +252,9 @@ func TestWrapSOAPBodyPreservesPayloadAndWSUId(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wrapSOAPBody returned error: %v", err)
 	}
+	if len(wrapped) == cap(wrapped) || wrapped[:len(wrapped)+1][len(wrapped)] != 0 {
+		t.Fatal("wrapped SOAP lacks reserved trailing NUL")
+	}
 
 	type body struct {
 		ID      string `xml:"http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd Id,attr"`

@@ -14,11 +14,78 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
+
+func TestEncodeCertificatePEMMatchesStandardLibrary(t *testing.T) {
+	for _, size := range []int{1, 47, 48, 49, 1024, 2048} {
+		der := bytes.Repeat([]byte{0xab}, size)
+		want := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		got := encodeCertificatePEM(der)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("DER size %d encoded PEM differs:\ngot  %q\nwant %q", size, got, want)
+		}
+		if len(got) == cap(got) || got[:len(got)+1][len(got)] != 0 {
+			t.Fatalf("DER size %d PEM lacks reserved trailing NUL", size)
+		}
+	}
+}
+
+func TestCachedPEMForCertificateReusesOnlyMatchingDER(t *testing.T) {
+	client := &Client{}
+	firstDER := bytes.Repeat([]byte{0xab}, 128)
+	if got := client.cachedPEMForCertificate(firstDER); got != nil {
+		t.Fatal("empty cache unexpectedly returned PEM")
+	}
+
+	first := client.encodeAndCacheCertificatePEM(firstDER)
+	again := client.cachedPEMForCertificate(bytes.Clone(firstDER))
+
+	if &first[0] != &again[0] {
+		t.Fatal("matching DER did not reuse the cached PEM")
+	}
+
+	firstDER[0] ^= 0xff
+	if got := client.cachedPEMForCertificate(firstDER); got != nil {
+		t.Fatal("changed DER incorrectly hit the cache")
+	}
+
+	changed := client.encodeAndCacheCertificatePEM(firstDER)
+	want := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: firstDER})
+	if !bytes.Equal(changed, want) {
+		t.Fatal("cached PEM for changed DER differs from the standard library")
+	}
+}
+
+func TestCachedPEMForCertificateConcurrent(t *testing.T) {
+	client := &Client{}
+	const workers = 32
+
+	var wait sync.WaitGroup
+	wait.Add(workers)
+
+	for index := range workers {
+		go func() {
+			defer wait.Done()
+
+			der := bytes.Repeat([]byte{byte(index)}, 128+index)
+			got := client.cachedPEMForCertificate(der)
+			if got == nil {
+				got = client.encodeAndCacheCertificatePEM(der)
+			}
+			want := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+			if !bytes.Equal(got, want) {
+				t.Errorf("worker %d cached PEM differs from standard library", index)
+			}
+		}()
+	}
+
+	wait.Wait()
+}
 
 func TestX509ExportCertificateFromStoreParsesDERCertificate(t *testing.T) {
 	der := testCertificateDER(t, "store-cert")

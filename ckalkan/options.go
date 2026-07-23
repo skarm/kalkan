@@ -15,11 +15,14 @@ const (
 	DefaultMaxOutputBufferSize = 64 << 20
 	maxNativeOutputBufferSize  = 1<<31 - 1
 
-	initialHashOutputBuffer = 128
-	initialInfoOutputBuffer = 4 << 10
-	initialCertOutputBuffer = 8 << 10
-	initialSignatureBuffer  = conservativeOutputBufferSize
-	initialZIPVerifyBuffer  = conservativeOutputBufferSize
+	initialRawHash256Capacity  = 32
+	initialRawHash512Capacity  = 64
+	initialUnknownHashCapacity = 128
+	initialEncodedHashCapacity = 256
+	initialInfoOutputBuffer    = 4 << 10
+	initialCertOutputBuffer    = 8 << 10
+	initialSignatureBuffer     = conservativeOutputBufferSize
+	initialZIPVerifyBuffer     = conservativeOutputBufferSize
 )
 
 type config struct {

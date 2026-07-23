@@ -21,7 +21,7 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	signature, signatureLen, err := inputBytes(call.Signature)
+	signature, signatureLen, err := verifySignatureInput(call.Signature, call.Flags, universal)
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -77,4 +77,13 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 		Cert:    boundedBytes(certBuf, int(certLen)),
 		CertLen: int(certLen),
 	}, nil
+}
+
+func verifySignatureInput(signature []byte, flags int, universal bool) ([]byte, int32, error) {
+	if universal {
+		// Keep UVerifyData input routing consistent across native drivers.
+		return filePathBytes(signature)
+	}
+
+	return inputBytesWithFlags(signature, flags)
 }

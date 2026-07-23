@@ -2,6 +2,7 @@ package kalkan
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
@@ -29,12 +30,13 @@ var (
 	benchmarkVerifyInfo = "Verify - OK"
 	benchmarkZIPCert    = []byte("zip-cert")
 
-	benchmarkDigestSink     *Digest
-	benchmarkCMSSink        *CMS
-	benchmarkSignedXMLSink  *SignedXML
-	benchmarkVerifySink     *Verification
-	benchmarkValidationSink *CertificateValidation
-	benchmarkSourceSink     Source
+	benchmarkDigestSink          *Digest
+	benchmarkCMSSink             *CMS
+	benchmarkSignedXMLSink       *SignedXML
+	benchmarkVerifySink          *Verification
+	benchmarkValidationSink      *CertificateValidation
+	benchmarkCertificateInfoSink *CertificateInfo
+	benchmarkSourceSink          Source
 )
 
 var errBenchmarkNativeStop = errors.New("benchmark native stop")
@@ -297,6 +299,28 @@ func BenchmarkVerifyXMLSOAPBinding(b *testing.B) {
 	}
 }
 
+func BenchmarkX509CertificateGetInfoSubjectCached(b *testing.B) {
+	client := benchmarkClient()
+	cert := &x509.Certificate{Raw: benchmarkPayload(2 << 10)}
+	ctx := context.Background()
+
+	if _, err := client.X509CertificateGetInfoFields(ctx, cert, CertificateInfoSubject); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		info, err := client.X509CertificateGetInfoFields(ctx, cert, CertificateInfoSubject)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		benchmarkCertificateInfoSink = info
+	}
+}
+
 func BenchmarkValidateCertificatePEM(b *testing.B) {
 	client := benchmarkClient()
 	cert := benchmarkPayload(2 << 10)
@@ -476,6 +500,9 @@ func benchmarkClient() *Client {
 			},
 			validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				return ckalkan.ValidateCertificateResult{Info: benchmarkVerifyInfo}, nil
+			},
+			certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
+				return []byte("CN=Benchmark"), nil
 			},
 			zipConVerifyFunc: func(string, ckalkan.Flag) (string, error) {
 				return benchmarkVerifyInfo, nil

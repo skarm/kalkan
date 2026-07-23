@@ -18,7 +18,9 @@ func (c *Client) HashData(algorithm HashAlgorithm, flags Flag, data []byte) ([]b
 		return nil, err
 	}
 
-	return c.callBufferWithCapacityLocked("HashData", c.config.outputInitialCapacity(initialHashOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
+	initial := initialHashOutputCapacity(algorithm, flags)
+
+	return c.callBufferWithCapacityLocked("HashData", c.config.outputInitialCapacity(initial), func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.HashData(kalkancrypt.HashDataCall{
 			Algorithm: string(algorithm),
 			Flags:     nativeFlags,
@@ -26,4 +28,21 @@ func (c *Client) HashData(algorithm HashAlgorithm, flags Flag, data []byte) ([]b
 			Capacity:  capacity,
 		})
 	})
+}
+
+func initialHashOutputCapacity(algorithm HashAlgorithm, flags Flag) int {
+	if flags&(OutBase64|OutPEM) != 0 {
+		return initialEncodedHashCapacity
+	}
+
+	switch algorithm {
+	case SHA256, GOST95, GOST2015_256:
+		return initialRawHash256Capacity
+	case GOST2015_512:
+		return initialRawHash512Capacity
+	default:
+		// HashAlgorithm is extensible. Preserve the historical initial capacity
+		// for algorithms whose digest length is not known by this package.
+		return initialUnknownHashCapacity
+	}
 }

@@ -21,7 +21,20 @@ func narrowString(value string) ([]byte, error) {
 	return buf, nil
 }
 
+// inputBytes validates a length-delimited native input without copying it.
+// KalkanCrypt consumes the pointer synchronously, and every caller keeps the
+// slice alive until the native call returns.
 func inputBytes(value []byte) ([]byte, int32, error) {
+	if err := checkNativeBytes(value); err != nil {
+		return nil, 0, err
+	}
+
+	return value, int32(len(value)), nil
+}
+
+// filePathBytes returns a NUL-terminated copy for native parameters that are
+// interpreted as file paths instead of length-delimited byte sequences.
+func filePathBytes(value []byte) ([]byte, int32, error) {
 	if err := checkNativeBytes(value); err != nil {
 		return nil, 0, err
 	}
@@ -30,6 +43,14 @@ func inputBytes(value []byte) ([]byte, int32, error) {
 	copy(buf, value)
 
 	return buf, int32(len(value)), nil
+}
+
+func inputBytesWithFlags(value []byte, flags int) ([]byte, int32, error) {
+	if flags&inFileFlag != 0 {
+		return filePathBytes(value)
+	}
+
+	return inputBytes(value)
 }
 
 func bytesPtr(buf []byte) uintptr {
