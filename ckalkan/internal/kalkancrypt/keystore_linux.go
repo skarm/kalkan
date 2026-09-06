@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -19,11 +19,13 @@ func (h *linuxDriver) LoadKeyStore(storage int, password, container, alias strin
 		return errorParam
 	}
 	defer freePassword()
+
 	cContainer, freeContainer, err := cString(container)
 	if err != nil {
 		return errorParam
 	}
 	defer freeContainer()
+
 	cAlias, freeAlias, err := cString(alias)
 	if err != nil {
 		return errorParam

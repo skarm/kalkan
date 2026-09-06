@@ -40,7 +40,6 @@ linters:
     - protogetter
     - sqlclosecheck
     - staticcheck
-    - testpackage
     - tparallel
     - unconvert
     - unparam
@@ -78,7 +77,6 @@ linters:
           - gocyclo
           - godot
           - gosec
-          - testpackage
           - wsl_v5
         path: _test\.go
       - linters:
@@ -106,4 +104,3 @@ formatters:
       - third_party$
       - builtin$
       - examples$
-      - _test\.go

@@ -1,6 +1,7 @@
 package kalkan
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -28,6 +29,7 @@ const (
 )
 
 // KeyStore describes a private-key container to load into KalkanCrypt.
+// Type defaults to [PKCS12]; Path must name a container and cannot be empty.
 type KeyStore struct {
 	// Type selects the storage provider.
 	Type KeyStoreType
@@ -40,16 +42,72 @@ type KeyStore struct {
 }
 
 // TrustedCertificate describes a certificate loaded into KalkanCrypt's trust
-// store.
+// store. Set either a nonempty Path or nonempty Data. A zero value is invalid.
 type TrustedCertificate struct {
-	// Data contains certificate bytes when Path is empty.
+	// Data contains certificate bytes when Path is empty. The bytes are borrowed
+	// for the initial load; after success the client retains its own copy for
+	// restoration after LoadKeyStore. Keep Data unchanged until loading returns.
 	Data []byte
-	// Path is loaded directly by KalkanCrypt when set.
+	// Path is loaded directly by KalkanCrypt when set. The file and its contents
+	// must remain available and unchanged for restoration after every successful
+	// LoadKeyStore.
 	Path string
-	// Type selects CA, intermediate, or user certificate role.
+	// Type selects CA, intermediate, or user certificate role for Path.
+	// It is validated for both sources, but the SDK buffer-loading function
+	// receives only Data and Format and has no role parameter.
 	Type CertificateType
 	// Format selects PEM, DER, or base64 bytes for Data.
 	Format CertificateFormat
+}
+
+type loadedTrustedCertificate struct {
+	data     []byte
+	path     string
+	certType ckalkan.CertType
+	format   ckalkan.CertFormat
+}
+
+func (cert loadedTrustedCertificate) load(native certificates) error {
+	if cert.path != "" {
+		return native.X509LoadCertificateFromFile(cert.path, cert.certType)
+	}
+
+	return native.X509LoadCertificateFromBuffer(cert.data, cert.format)
+}
+
+// rememberTrustedCertificate retains only successfully loaded certificates.
+// The caller must hold the native call gate.
+func (c *Client) rememberTrustedCertificate(cert loadedTrustedCertificate) {
+	for _, previous := range c.trusted {
+		if cert.path == previous.path && cert.certType == previous.certType &&
+			cert.format == previous.format && bytes.Equal(cert.data, previous.data) {
+			return
+		}
+	}
+
+	cert.data = bytes.Clone(cert.data)
+	c.trusted = append(c.trusted, cert)
+}
+
+// restoreTrustedCertificates must run inside the successful key-store load's
+// native call gate, including if its context has since been canceled.
+func (c *Client) restoreTrustedCertificates(native keyStore) error {
+	if len(c.trusted) == 0 {
+		return nil
+	}
+
+	loader, ok := native.(certificates)
+	if !ok {
+		return fmt.Errorf("kalkan: key store loaded but restoring trusted certificates failed: %w", unsupportedLibraryCapability("LoadTrustedCertificate"))
+	}
+
+	for index, cert := range c.trusted {
+		if err := cert.load(loader); err != nil {
+			return fmt.Errorf("kalkan: key store loaded but restoring trusted certificate %d failed: %w", index+1, err)
+		}
+	}
+
+	return nil
 }
 
 // CertificateType identifies a certificate role in KalkanCrypt's store.
@@ -103,6 +161,8 @@ const (
 )
 
 // Proxy configures KalkanCrypt's native HTTP proxy.
+// Its zero value disables proxy use; the remaining fields are ignored when
+// Enabled is false.
 type Proxy struct {
 	// Enabled enables or disables proxy use.
 	Enabled bool
@@ -185,6 +245,12 @@ func (p Proxy) native() ckalkan.ProxyRequest {
 }
 
 // LoadKeyStore loads a key container into the native KalkanCrypt session.
+// After a successful native load, it restores all trusted certificates loaded
+// through this client before allowing another operation to run. If restoration
+// fails, the error reports partial success: the key store has already changed,
+// and a later LoadKeyStore retries restoration from the retained certificates.
+// Callers using different key stores must externally synchronize the entire
+// load-and-sign sequence; the client serializes individual calls only.
 func (c *Client) LoadKeyStore(ctx context.Context, store KeyStore) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -215,11 +281,16 @@ func (c *Client) LoadKeyStore(ctx context.Context, store KeyStore) error {
 	}
 
 	return withLockedLibrary(c, ctx, "LoadKeyStore", func(native keyStore) error {
-		return native.LoadKeyStore(storage, store.Password, path, store.Alias)
+		if err := native.LoadKeyStore(storage, store.Password, path, store.Alias); err != nil {
+			return err
+		}
+
+		return c.restoreTrustedCertificates(native)
 	})
 }
 
 // LoadTrustedCertificate loads a certificate into the native KalkanCrypt store.
+// Successful loads are retained for restoration after LoadKeyStore until Close.
 func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertificate) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -246,7 +317,14 @@ func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertifi
 		}
 
 		return withLockedLibrary(c, ctx, "LoadTrustedCertificate", func(native certificates) error {
-			return native.X509LoadCertificateFromFile(validatedPath, certType)
+			loaded := loadedTrustedCertificate{path: validatedPath, certType: certType}
+			if err := loaded.load(native); err != nil {
+				return err
+			}
+
+			c.rememberTrustedCertificate(loaded)
+
+			return nil
 		})
 	}
 
@@ -264,7 +342,16 @@ func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertifi
 	}
 
 	return withLockedLibrary(c, ctx, "LoadTrustedCertificate", func(native certificates) error {
-		return native.X509LoadCertificateFromBuffer(cert.Data, format)
+		// The buffer API has no role parameter, so its restoration identity
+		// consists only of the bytes and format.
+		loaded := loadedTrustedCertificate{data: cert.Data, format: format}
+		if err := loaded.load(native); err != nil {
+			return err
+		}
+
+		c.rememberTrustedCertificate(loaded)
+
+		return nil
 	})
 }
 

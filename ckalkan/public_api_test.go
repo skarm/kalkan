@@ -15,7 +15,7 @@ func TestNewReturnsErrorForMissingLibrary(t *testing.T) {
 	}
 }
 
-func TestConstantsMatchKalkanCryptHeaderValues(t *testing.T) {
+func TestConstantsMatchKnownSDKValues(t *testing.T) {
 	checks := map[string]bool{
 		"StorePKCS12":                ckalkan.StorePKCS12 == 0x00000001,
 		"CertB64":                    ckalkan.CertB64 == 0x00000104,

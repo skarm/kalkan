@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -76,7 +76,7 @@ func (h *linuxDriver) X509ExportCertificateFromStore(alias string, format, capac
 	code := C.bridge_x509_export_certificate_from_store(h.funcs, cAlias, C.int(format), charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (BufferResult, error) {
@@ -84,6 +84,7 @@ func (h *linuxDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (B
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -94,7 +95,7 @@ func (h *linuxDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (B
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) X509ValidateCertificate(call ValidateCertificateCall) (ValidateResult, error) {
@@ -102,6 +103,7 @@ func (h *linuxDriver) X509ValidateCertificate(call ValidateCertificateCall) (Val
 	if err != nil {
 		return ValidateResult{}, err
 	}
+
 	validPath, freeValidPath, err := cString(call.ValidationPath)
 	if err != nil {
 		return ValidateResult{}, err
@@ -112,6 +114,7 @@ func (h *linuxDriver) X509ValidateCertificate(call ValidateCertificateCall) (Val
 	if err != nil {
 		return ValidateResult{}, err
 	}
+
 	ocspBuf, err := outputBuffer(call.OCSPCapacity)
 	if err != nil {
 		return ValidateResult{}, err

@@ -114,6 +114,9 @@ var process processState
 // settings, and last-error text. For that reason ckalkan allows one active
 // Client per process and serializes every public method through a process-wide
 // mutex. If true parallelism is required, use separate OS processes.
+// A Client is safe for concurrent method calls, but callers must synchronize
+// sequences such as loading a key store and signing with it. Create a Client
+// with [New], then call [Client.Init]; the zero value is not initialized.
 type Client struct {
 	ctx      clientContext
 	config   config
@@ -244,6 +247,8 @@ func (c *Client) clearErrorLocked() {
 	}
 }
 
+// contextAsLocked checks the client state and retrieves the required native
+// capability. The caller must hold process.mu throughout its use.
 func contextAsLocked[T any](c *Client, operation string) (T, error) {
 	var zero T
 

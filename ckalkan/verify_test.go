@@ -56,7 +56,7 @@ func TestVerifyDataGrowsAllReportedOutputsAfterBufferTooSmall(t *testing.T) {
 		t.Fatalf("first capacities = data:%d info:%d cert:%d", first.DataCapacity, first.InfoCapacity, first.CertCapacity)
 	}
 	second := calls[1]
-	if second.DataCapacity != wantDataOutput+1 || second.InfoCapacity != wantInfoOutput+2 || second.CertCapacity != wantCertOutput+3 {
+	if second.DataCapacity != wantDataOutput*2 || second.InfoCapacity != wantInfoOutput*2 || second.CertCapacity != wantCertOutput*2 {
 		t.Fatalf("second capacities = data:%d info:%d cert:%d", second.DataCapacity, second.InfoCapacity, second.CertCapacity)
 	}
 }
@@ -105,9 +105,9 @@ func TestVerifyDataGrowsOutputsToLengthsReportedWithOK(t *testing.T) {
 	}
 
 	second := calls[1]
-	if second.DataCapacity != conservativeOutputBufferSize+1 ||
-		second.InfoCapacity != conservativeOutputBufferSize+2 ||
-		second.CertCapacity != conservativeOutputBufferSize+3 {
+	if second.DataCapacity != conservativeOutputBufferSize*2 ||
+		second.InfoCapacity != conservativeOutputBufferSize*2 ||
+		second.CertCapacity != conservativeOutputBufferSize*2 {
 		t.Fatalf("second capacities = data:%d info:%d cert:%d", second.DataCapacity, second.InfoCapacity, second.CertCapacity)
 	}
 }

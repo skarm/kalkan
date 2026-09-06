@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
 )
 
-func TestSingleBufferMethodsRetryWithReportedLength(t *testing.T) {
+func TestSingleBufferMethodsRetryWithGeometricGrowth(t *testing.T) {
 	tests := []struct {
 		name    string
 		install func(*fakeNativeContext, *[]int)
@@ -187,8 +188,8 @@ func TestSingleBufferMethodsRetryWithReportedLength(t *testing.T) {
 			if len(capacities) != 2 {
 				t.Fatalf("capacities = %v, want two attempts", capacities)
 			}
-			if capacities[1] != capacities[0]+11 {
-				t.Fatalf("capacities = %v, want reported second capacity %d", capacities, capacities[0]+11)
+			if capacities[1] != capacities[0]*2 {
+				t.Fatalf("capacities = %v, want doubled second capacity %d", capacities, capacities[0]*2)
 			}
 		})
 	}
@@ -297,7 +298,7 @@ func TestOutputMethodsRejectInvalidNativeLengths(t *testing.T) {
 			},
 		}
 		client := &Client{ctx: ctx, config: defaultConfig()}
-		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{})
+		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{Flags: GetOCSPResponse})
 		if err == nil || !strings.Contains(err.Error(), "negative") {
 			t.Fatalf("error = %v, want negative native length", err)
 		}
@@ -310,7 +311,7 @@ func TestOutputMethodsRejectInvalidNativeLengths(t *testing.T) {
 			},
 		}
 		client := &Client{ctx: ctx, config: defaultConfig()}
-		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{})
+		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{Flags: GetOCSPResponse})
 		if err == nil || !strings.Contains(err.Error(), "does not match") {
 			t.Fatalf("error = %v, want inconsistent native length", err)
 		}
@@ -521,7 +522,7 @@ func TestValidateCertificateGrowsOnlyRequiredOutputBuffer(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("calls = %d, want 2", len(calls))
 	}
-	if calls[1].InfoCapacity != infoCapacity+7 || calls[1].OCSPCapacity != ocspCapacity {
+	if calls[1].InfoCapacity != infoCapacity*2 || calls[1].OCSPCapacity != ocspCapacity {
 		t.Fatalf("second capacities = info:%d ocsp:%d", calls[1].InfoCapacity, calls[1].OCSPCapacity)
 	}
 }
@@ -574,6 +575,7 @@ func TestMultiOutputMethodsGrowAllBuffersWithoutReportedLengths(t *testing.T) {
 		client := &Client{ctx: ctx, config: defaultConfig()}
 
 		_, err := client.X509ValidateCertificate(ValidateCertificateRequest{
+			Flags:          GetOCSPResponse,
 			OutputCapacity: 11,
 			OCSPCapacity:   13,
 		})
@@ -622,9 +624,9 @@ func TestBytesBeforeNULTerminator(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := bytesBeforeNULTerminator(test.input)
+			got := nativebytes.BeforeNUL(test.input)
 			if string(got) != test.want {
-				t.Fatalf("bytesBeforeNULTerminator(%v) = %q, want %q", test.input, got, test.want)
+				t.Fatalf("nativebytes.BeforeNUL(%v) = %q, want %q", test.input, got, test.want)
 			}
 			if len(got) != cap(got) {
 				t.Fatalf("result len/cap = %d/%d, want equal", len(got), cap(got))
@@ -914,7 +916,7 @@ func TestBinaryOutputsPreserveReportedBytes(t *testing.T) {
 				}
 			},
 			call: func(client *Client) ([]byte, error) {
-				value, err := client.X509ValidateCertificate(ValidateCertificateRequest{})
+				value, err := client.X509ValidateCertificate(ValidateCertificateRequest{Flags: GetOCSPResponse})
 				return value.OCSPResponse, err
 			},
 		},

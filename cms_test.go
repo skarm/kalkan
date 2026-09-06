@@ -1,8 +1,10 @@
 package kalkan
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -586,5 +588,112 @@ func TestVerifyCMSValidatesBeforeNativeLock(t *testing.T) {
 	close(releaseHash)
 	if err := <-hashDone; err != nil {
 		t.Fatalf("in-flight Hash returned error: %v", err)
+	}
+}
+
+// Verify the complete source/request encoding precedence independently of the
+// production encoding helpers. Raw CMS and automatic defaults both mean DER.
+func TestVerifyCMSSignatureEncodingPrecedence(t *testing.T) {
+	path := writeTestFile(t, t.TempDir(), "signature.cms", []byte("different file contents"))
+	encodings := []Encoding{EncodingAuto, EncodingRaw, EncodingDER, EncodingBase64, EncodingPEM}
+	cases := []struct {
+		encoding Encoding
+		want     [5]ckalkan.Flag
+	}{
+		{EncodingAuto, [5]ckalkan.Flag{ckalkan.InDER, ckalkan.InDER, ckalkan.InDER, ckalkan.InBase64, ckalkan.InPEM}},
+		{EncodingRaw, [5]ckalkan.Flag{ckalkan.InDER, ckalkan.InDER, ckalkan.InDER, ckalkan.InDER, ckalkan.InDER}},
+		{EncodingDER, [5]ckalkan.Flag{ckalkan.InDER, ckalkan.InDER, ckalkan.InDER, ckalkan.InDER, ckalkan.InDER}},
+		{EncodingBase64, [5]ckalkan.Flag{ckalkan.InBase64, ckalkan.InBase64, ckalkan.InBase64, ckalkan.InBase64, ckalkan.InBase64}},
+		{EncodingPEM, [5]ckalkan.Flag{ckalkan.InPEM, ckalkan.InPEM, ckalkan.InPEM, ckalkan.InPEM, ckalkan.InPEM}},
+	}
+	for _, tc := range cases {
+		for i, fallback := range encodings {
+			for _, source := range []struct {
+				name  string
+				value Source
+				flags ckalkan.Flag
+			}{
+				{"bytes", Bytes([]byte(path)), 0},
+				{"file", File(path), ckalkan.InFile},
+			} {
+				t.Run(fmt.Sprintf("%s/%s/fallback=%s", source.name, encodingName(tc.encoding), encodingName(fallback)), func(t *testing.T) {
+					req := VerifyCMSRequest{Signature: source.value.WithEncoding(tc.encoding), Encoding: fallback, Alias: "alias", SignerID: 1}
+					assertCMSNativeInput(t, req, ckalkan.SignCMS|tc.want[i]|source.flags, []byte(path), nil)
+				})
+			}
+		}
+	}
+}
+
+func TestVerifyCMSMemoryInputFlags(t *testing.T) {
+	path := []byte("/existing/payload")
+	for _, data := range []struct {
+		name   string
+		source Source
+		flags  ckalkan.Flag
+	}{
+		{"attached", Source{}, 0},
+		{"detached auto", Bytes(path).WithEncoding(EncodingAuto), ckalkan.DetachedData},
+		{"detached raw", Bytes(path), ckalkan.DetachedData},
+		{"detached base64", Base64(path), ckalkan.DetachedData | ckalkan.In2Base64},
+	} {
+		for _, check := range []struct {
+			name  string
+			value CertificateTimeCheck
+			flag  ckalkan.Flag
+		}{
+			{"default time check", DefaultCertificateTimeCheck, 0},
+			{"skip time check", SkipCertificateTimeCheck, ckalkan.NoCheckCertTime},
+		} {
+			t.Run(data.name+"/"+check.name, func(t *testing.T) {
+				req := VerifyCMSRequest{Signature: DER(path), Data: data.source, Detached: data.source.isSet(), CertificateTimeCheck: check.value}
+				assertCMSNativeInput(t, req, ckalkan.SignCMS|ckalkan.InDER|data.flags|check.flag, path, data.source.data)
+			})
+		}
+	}
+}
+
+func assertCMSNativeInput(t *testing.T, req VerifyCMSRequest, flags ckalkan.Flag, signature, data []byte) {
+	t.Helper()
+	calls := 0
+	client := &Client{library: &fakeNative{verifyDataFunc: func(got ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+		calls++
+		if got.Flags != flags || got.Alias != req.Alias || got.CertID != req.SignerID {
+			t.Errorf("native flags/alias/signer = %#x/%q/%d, want %#x/%q/%d", got.Flags, got.Alias, got.CertID, flags, req.Alias, req.SignerID)
+		}
+		if !bytes.Equal(got.Signature, signature) || !bytes.Equal(got.Data, data) {
+			t.Error("native verifier did not receive the original input bytes")
+		}
+		return ckalkan.VerifyDataResult{}, nil
+	}}}
+	if _, err := client.VerifyCMS(context.Background(), req); err != nil || calls != 1 {
+		t.Fatalf("VerifyCMS: calls=%d, error=%v", calls, err)
+	}
+}
+
+func TestVerifyCMSRejectsNativeFlagInjection(t *testing.T) {
+	client := &Client{library: &fakeNative{verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+		t.Fatal("invalid public option reached the native verifier")
+		return ckalkan.VerifyDataResult{}, nil
+	}}}
+	for _, value := range []int{-1, 99, int(ckalkan.InFile), int(ckalkan.InFile | ckalkan.In2Base64)} {
+		for _, field := range []string{"signature encoding", "request encoding", "data encoding", "certificate time check"} {
+			t.Run(fmt.Sprintf("%s/%d", field, value), func(t *testing.T) {
+				req := VerifyCMSRequest{Signature: Bytes([]byte("signature.cms")), Data: Bytes([]byte("payload.txt")), Detached: true}
+				switch field {
+				case "signature encoding":
+					req.Signature = req.Signature.WithEncoding(Encoding(value))
+				case "request encoding":
+					req.Encoding = Encoding(value)
+				case "data encoding":
+					req.Data = req.Data.WithEncoding(Encoding(value))
+				case "certificate time check":
+					req.CertificateTimeCheck = CertificateTimeCheck(value)
+				}
+				if _, err := client.VerifyCMS(context.Background(), req); !errors.Is(err, ErrInvalidInput) {
+					t.Fatalf("invalid option error = %v, want ErrInvalidInput", err)
+				}
+			})
+		}
 	}
 }

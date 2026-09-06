@@ -2,29 +2,42 @@
 
 package kalkancrypt
 
-import "runtime"
+import (
+	"runtime"
+	"unsafe"
+)
 
 func (h *windowsDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	cAlias, err := narrowString(call.Alias)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	in, inLen, err := inputBytes(call.XML)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
 	outLen := int32(call.Capacity)
-	code := callWindowsStatus(h.funcs.verifyXML, bytesPtr(cAlias), intArg(call.Flags), bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(
+		h.funcs.verifyXML,
+		uintptr(unsafe.Pointer(bytesPtr(cAlias))),
+		intArg(call.Flags),
+		uintptr(unsafe.Pointer(bytesPtr(in))),
+		uintptr(uint32(inLen)),
+		uintptr(unsafe.Pointer(bytesPtr(buf))),
+		uintptr(unsafe.Pointer(&outLen)),
+	)
 	runtime.KeepAlive(cAlias)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }
 
 func (h *windowsDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferResult, error) {
@@ -32,17 +45,25 @@ func (h *windowsDriver) GetCertFromXML(xml []byte, signID, capacity int) (Buffer
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
 	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.getCertFromXML, bytesPtr(in), uintptr(uint32(inLen)), intArg(signID), bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(
+		h.funcs.getCertFromXML,
+		uintptr(unsafe.Pointer(bytesPtr(in))),
+		uintptr(uint32(inLen)),
+		intArg(signID),
+		uintptr(unsafe.Pointer(bytesPtr(buf))),
+		uintptr(unsafe.Pointer(&outLen)),
+	)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }
 
 func (h *windowsDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, error) {
@@ -50,15 +71,22 @@ func (h *windowsDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
 	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.getSigAlgFromXML, bytesPtr(in), uintptr(uint32(inLen)), bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(
+		h.funcs.getSigAlgFromXML,
+		uintptr(unsafe.Pointer(bytesPtr(in))),
+		uintptr(uint32(inLen)),
+		uintptr(unsafe.Pointer(bytesPtr(buf))),
+		uintptr(unsafe.Pointer(&outLen)),
+	)
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }

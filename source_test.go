@@ -196,3 +196,41 @@ func assertHashReceivesFilePath(t *testing.T, path string) {
 		t.Fatalf("Hash returned error: %v", err)
 	}
 }
+
+func TestSourceDescribePreservesPresenceKindAndEncoding(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		source    Source
+		set, file bool
+		encoding  Encoding
+		path      string
+	}{
+		{"absent", Source{}, false, false, EncodingAuto, ""},
+		{"absent with encoding", Source{}.WithEncoding(EncodingDER), false, false, EncodingDER, ""},
+		{"explicit empty", Bytes(nil), true, false, EncodingRaw, ""},
+		{"empty file", File(""), true, true, EncodingAuto, ""},
+		{"file with encoding", File("document.cms").WithEncoding(EncodingPEM), true, true, EncodingPEM, "document.cms"},
+		{"unknown encoding", DER([]byte("der")).WithEncoding(Encoding(99)), true, false, Encoding(99), ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := test.source.Describe()
+			if got.Set != test.set || got.File != test.file || got.Encoding != test.encoding || got.Path != test.path {
+				t.Fatalf("Describe = %+v, want set=%v file=%v encoding=%d path=%q", got, test.set, test.file, test.encoding, test.path)
+			}
+		})
+	}
+}
+
+func TestSourceDescribeBorrowsDataWithoutChangingSource(t *testing.T) {
+	data := []byte{0, 0xff, 2}
+	source := Bytes(data)
+	described := source.Describe()
+	if !sameByteSliceBacking(described.Data, data) {
+		t.Fatal("Describe copied the borrowed data")
+	}
+	described.Path, described.File, described.Set = "different", true, false
+	got := source.Describe()
+	if got.Path != "" || got.File || !got.Set || !sameByteSliceBacking(got.Data, data) {
+		t.Fatalf("changing descriptor fields changed Source: %+v", got)
+	}
+}

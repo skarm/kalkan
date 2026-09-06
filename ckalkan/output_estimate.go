@@ -22,7 +22,7 @@ func (c config) estimatedOutputInitialCapacity(requested, estimated, fallback in
 	return max(c.outputInitialCapacity(fallback), estimated)
 }
 
-func estimateSignDataOutput(req SignDataRequest) (int, error) {
+func estimateSignDataOutput(req SignDataRequest, maximum int) int {
 	// KC_IN_FILE applies to the primary data input. The existing signature is
 	// still the secondary in-memory input and must never be interpreted as a
 	// file path merely because Data is a file.
@@ -45,15 +45,24 @@ func estimateSignDataOutput(req SignDataRequest) (int, error) {
 	estimated := saturatingEstimateAdd(contentSize, signatureOutputOverhead)
 	estimated = estimateEncodedOutputSize(estimated, req.Flags)
 
-	return checkedOutputEstimate("SignData", estimated)
+	return boundedOutputEstimate(estimated, maximum)
 }
 
-func estimateSignedXMLOutput(xml []byte, operation string) (int, error) {
+func (c config) signedXMLOutputInitialCapacity(requested int, xml []byte) int {
+	estimated := 0
+	if requested <= 0 {
+		estimated = estimateSignedXMLOutput(xml, c.maxBufferSize)
+	}
+
+	return c.estimatedOutputInitialCapacity(requested, estimated, initialSignatureBuffer)
+}
+
+func estimateSignedXMLOutput(xml []byte, maximum int) int {
 	// KalkanCrypt SignXML and SignWSSE parse the input argument itself as
 	// XML even when KC_IN_FILE is set, so only in-memory XML is a supported input.
 	estimated := saturatingEstimateAdd(int64(len(xml)), signatureOutputOverhead)
 
-	return checkedOutputEstimate(operation, estimated)
+	return boundedOutputEstimate(estimated, maximum)
 }
 
 func estimateInputSize(value []byte, file bool) int64 {
@@ -136,10 +145,9 @@ func saturatingEstimateMultiply(value, multiplier int64) int64 {
 	return value * multiplier
 }
 
-func checkedOutputEstimate(operation string, estimated int64) (int, error) {
-	if estimated > int64(maxNativeOutputBufferSize) {
-		return 0, outputBufferLimitError(operation, maxNativeOutputBufferSize, uint64(estimated))
-	}
-
-	return int(estimated), nil
+func boundedOutputEstimate(estimated int64, maximum int) int {
+	// Estimates include conservative overhead and cannot establish the minimum
+	// required output size. Bound them before converting to int, including on
+	// 32-bit builds; native reported lengths determine whether the limit is enough.
+	return int(min(estimated, int64(outputBufferLimit(maximum))))
 }

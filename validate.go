@@ -44,8 +44,8 @@ func (m CertificateValidationMode) native() (ckalkan.ValidationType, error) {
 // ValidateCertificateRequest describes certificate validation input.
 type ValidateCertificateRequest struct {
 	// Certificate is the certificate to validate. File sources are unsupported;
-	// PEM and base64 are decoded to DER, while raw, auto, and DER are passed
-	// unchanged.
+	// Explicit DER, PEM, and base64 sources are normalized to the PEM encoding
+	// expected by the native validator. Raw and auto sources pass through unchanged.
 	Certificate Source
 	// Mode selects the revocation check. The zero value is invalid.
 	Mode CertificateValidationMode
@@ -56,12 +56,14 @@ type ValidateCertificateRequest struct {
 	// default behavior.
 	CheckTime time.Time
 	// ReturnOCSPResponse requests the raw OCSP response from KalkanCrypt.
+	// It is valid only when Mode is CertificateValidationOCSP.
 	ReturnOCSPResponse bool
 	// CertificateTimeCheck controls KalkanCrypt certificate-time validation.
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// CertificateValidation is returned by ValidateCertificate.
+// CertificateValidation contains the native diagnostics and optional OCSP
+// response from a successful [Client.ValidateCertificate] call.
 type CertificateValidation struct {
 	// Info is KalkanCrypt's native validation information string.
 	Info string
@@ -142,7 +144,12 @@ func (c *Client) revocationSource(req ValidateCertificateRequest) (string, error
 		}
 
 		if req.Mode == CertificateValidationOCSP {
-			return normalizeNativeHTTPURL("certificate revocation OCSP URL", path)
+			var policy *EndpointPolicy
+			if c != nil {
+				policy = c.config.endpointPolicy
+			}
+
+			return normalizeNativeHTTPURLWithPolicy("certificate revocation OCSP URL", path, endpointPurposeOCSP, policy)
 		}
 
 		return validateNativePathString("certificate revocation source", path)
@@ -225,7 +232,7 @@ func certificateValidationInput(source Source, maxInputSize int64) ([]byte, erro
 			return nil, fmt.Errorf("%w: certificate PEM input decodes to empty DER", ErrInvalidInput)
 		}
 
-		return block.Bytes, nil
+		cert = block.Bytes
 	case EncodingBase64:
 		der, err := base64.StdEncoding.AppendDecode(nil, bytes.TrimSpace(cert))
 		if err != nil {
@@ -236,10 +243,14 @@ func certificateValidationInput(source Source, maxInputSize int64) ([]byte, erro
 			return nil, fmt.Errorf("%w: certificate base64 input decodes to empty DER", ErrInvalidInput)
 		}
 
-		return der, nil
-	case EncodingAuto, EncodingRaw, EncodingDER:
+		cert = der
+	case EncodingDER:
+		// DER bytes receive a PEM envelope after the switch.
+	case EncodingAuto, EncodingRaw:
 		return cert, nil
 	default:
 		return nil, fmt.Errorf("%w: unknown certificate encoding %d", ErrInvalidInput, source.encoding)
 	}
+
+	return encodeCertificatePEM(cert), nil
 }

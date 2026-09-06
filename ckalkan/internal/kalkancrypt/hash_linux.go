@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -26,6 +26,7 @@ func (h *linuxDriver) HashData(call HashDataCall) (BufferResult, error) {
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -36,5 +37,5 @@ func (h *linuxDriver) HashData(call HashDataCall) (BufferResult, error) {
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -316,68 +317,72 @@ func BenchmarkCallBufferSmallInitialOutput(b *testing.B) {
 	}
 }
 
-func TestAttachedSignatureMethodsEstimateOutputFromInputLength(t *testing.T) {
+func TestSignatureOutputInitialCapacity(t *testing.T) {
 	largeInput := repeatedBytes('x', conservativeOutputBufferSize*3)
-
-	tests := []struct {
+	methods := []struct {
 		name string
-		call func(*Client) ([]byte, error)
+		call func(*Client, int) ([]byte, error)
 	}{
-		{
-			name: "SignData",
-			call: func(cli *Client) ([]byte, error) {
-				return cli.SignData(SignDataRequest{
-					Alias: "alias",
-					Flags: SignCMS,
-					Data:  largeInput,
-				})
-			},
-		},
-		{
-			name: "SignXML",
-			call: func(cli *Client) ([]byte, error) {
-				return cli.SignXML(SignXMLRequest{Alias: "alias", XML: largeInput})
-			},
-		},
-		{
-			name: "SignWSSE",
-			call: func(cli *Client) ([]byte, error) {
-				return cli.SignWSSE(SignWSSERequest{Alias: "alias", XML: largeInput})
-			},
-		},
+		{name: "SignData", call: func(cli *Client, capacity int) ([]byte, error) {
+			return cli.SignData(SignDataRequest{Flags: SignCMS, Data: largeInput, OutputCapacity: capacity})
+		}},
+		{name: "SignXML", call: func(cli *Client, capacity int) ([]byte, error) {
+			return cli.SignXML(SignXMLRequest{XML: largeInput, OutputCapacity: capacity})
+		}},
+		{name: "SignWSSE", call: func(cli *Client, capacity int) ([]byte, error) {
+			return cli.SignWSSE(SignWSSERequest{XML: largeInput, OutputCapacity: capacity})
+		}},
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var firstCapacity int
-			ctx := &fakeNativeContext{}
-			ctx.signDataFunc = func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
-				firstCapacity = call.Capacity
-				return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
-			}
-			ctx.signXMLFunc = func(call kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error) {
-				firstCapacity = call.Capacity
-				return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
-			}
-			ctx.signWSSEFunc = func(call kalkancrypt.SignWSSECall) (kalkancrypt.BufferResult, error) {
-				firstCapacity = call.Capacity
-				return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
-			}
-
-			cli := &Client{ctx: ctx, config: defaultConfig()}
-
-			if _, err := test.call(cli); err != nil {
-				t.Fatalf("%s returned error: %v", test.name, err)
-			}
-			want := len(largeInput) + signatureOutputOverhead
-			if firstCapacity != want {
-				t.Fatalf("%s first capacity = %d, want %d", test.name, firstCapacity, want)
+	for _, method := range methods {
+		t.Run(method.name, func(t *testing.T) {
+			for _, test := range []struct {
+				name      string
+				maximum   int
+				requested int
+				want      int
+			}{
+				{name: "estimated", want: len(largeInput) + signatureOutputOverhead},
+				{name: "estimate above limit can succeed", maximum: 1024, want: 1024},
+				{name: "explicit capacity overrides estimate", requested: 123, want: 123},
+				{name: "explicit capacity respects limit", maximum: 64, requested: 123, want: 64},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					var capacities []int
+					result := func(operation string, capacity int) kalkancrypt.BufferResult {
+						capacities = append(capacities, capacity)
+						return kalkancrypt.BufferResult{Data: []byte(operation), OutLen: len(operation)}
+					}
+					ctx := &fakeNativeContext{
+						signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
+							return result("SignData", call.Capacity), nil
+						},
+						signXMLFunc: func(call kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error) {
+							return result("SignXML", call.Capacity), nil
+						},
+						signWSSEFunc: func(call kalkancrypt.SignWSSECall) (kalkancrypt.BufferResult, error) {
+							return result("SignWSSE", call.Capacity), nil
+						},
+					}
+					cfg := defaultConfig()
+					WithMaxBufferSize(test.maximum)(&cfg)
+					cli := &Client{ctx: ctx, config: cfg}
+					out, err := method.call(cli, test.requested)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if string(out) != method.name {
+						t.Fatalf("output = %q, want result from %s", out, method.name)
+					}
+					if want := []int{test.want}; !slices.Equal(capacities, want) {
+						t.Fatalf("capacities = %v, want %v", capacities, want)
+					}
+				})
 			}
 		})
 	}
 }
 
-func TestBase64OutputEstimateDetectsNativeLimitWithoutIntegerOverflow(t *testing.T) {
+func TestBase64OutputEstimateSaturatesWithoutIntegerOverflow(t *testing.T) {
 	want := int64(maxNativeOutputBufferSize) + 1
 	for _, test := range []struct {
 		name      string
@@ -393,20 +398,70 @@ func TestBase64OutputEstimateDetectsNativeLimitWithoutIntegerOverflow(t *testing
 			}
 		})
 	}
+}
 
-	_, err := checkedOutputEstimate("test", want)
-	if err == nil {
-		t.Fatal("checkedOutputEstimate accepted an output larger than the native limit")
+func TestOutputEstimateIsBoundedBeforeIntConversion(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		estimated int64
+		maximum   int
+		want      int
+	}{
+		{name: "small estimate", estimated: 123, maximum: 1024, want: 123},
+		{name: "configured limit", estimated: 2048, maximum: 1024, want: 1024},
+		{name: "default limit", estimated: int64(maxNativeOutputBufferSize) + 1, want: DefaultMaxOutputBufferSize},
+		{name: "saturated configured limit", estimated: int64(maxNativeOutputBufferSize) + 1, maximum: 1024, want: 1024},
+		{name: "native maximum", estimated: int64(maxNativeOutputBufferSize) + 1, maximum: math.MaxInt, want: maxNativeOutputBufferSize},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := boundedOutputEstimate(test.estimated, test.maximum); got != test.want {
+				t.Fatalf("capacity = %d, want %d", got, test.want)
+			}
+		})
 	}
-	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
-		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
+}
+
+func TestSignDataSaturatedFileEstimateStillCallsNative(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("large sparse-file regression requires Unix sparse-file semantics")
 	}
-	var limitErr *OutputBufferLimitError
-	if !errors.As(err, &limitErr) ||
-		limitErr.Operation != "test" ||
-		limitErr.Requested != uint64(want) ||
-		limitErr.Limit != uint64(maxNativeOutputBufferSize) {
-		t.Fatalf("error = %v, want typed native ABI limit details", err)
+	file, err := os.Create(filepath.Join(t.TempDir(), "payload.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(int64(maxNativeOutputBufferSize) - signatureOutputOverhead + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	const hardLimit = 1024
+	for _, requested := range []int{0, 128} {
+		t.Run(strconv.Itoa(requested), func(t *testing.T) {
+			var capacities []int
+			ctx := &fakeNativeContext{signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
+				capacities = append(capacities, call.Capacity)
+				return kalkancrypt.BufferResult{Data: []byte("ok"), OutLen: 2}, nil
+			}}
+			cfg := defaultConfig()
+			WithMaxBufferSize(hardLimit)(&cfg)
+			cli := &Client{ctx: ctx, config: cfg}
+			out, err := cli.SignData(SignDataRequest{Flags: SignCMS | InFile, Data: []byte(file.Name()), OutputCapacity: requested})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(out) != "ok" {
+				t.Fatalf("output = %q, want ok", out)
+			}
+			want := hardLimit
+			if requested > 0 {
+				want = requested
+			}
+			if !slices.Equal(capacities, []int{want}) {
+				t.Fatalf("capacities = %v, want [%d]", capacities, want)
+			}
+		})
 	}
 }
 
@@ -546,33 +601,12 @@ func TestSignDataHonorsHardLimitBelowEstimatedOutput(t *testing.T) {
 	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
 		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
 	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) || limitErr.Operation != "SignData" || limitErr.Requested != hardLimit+1 || limitErr.Limit != hardLimit {
+		t.Fatalf("error = %v, want typed rejection with active hard limit", err)
+	}
 	if want := []int{hardLimit}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
-	}
-}
-
-func TestSignDataExplicitCapacityOverridesEstimate(t *testing.T) {
-	const requested = 123
-
-	var capacity int
-	ctx := &fakeNativeContext{
-		signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
-			capacity = call.Capacity
-
-			return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
-		},
-	}
-	cli := &Client{ctx: ctx, config: defaultConfig()}
-
-	if _, err := cli.SignData(SignDataRequest{
-		Flags:          SignCMS,
-		Data:           repeatedBytes('x', conservativeOutputBufferSize*2),
-		OutputCapacity: requested,
-	}); err != nil {
-		t.Fatalf("SignData failed: %v", err)
-	}
-	if capacity != requested {
-		t.Fatalf("initial capacity = %d, want explicit %d", capacity, requested)
 	}
 }
 
@@ -592,7 +626,7 @@ func TestLastErrorStringRetriesAfterBufferTooSmall(t *testing.T) {
 	if code != ErrorOK || message != "native message" {
 		t.Fatalf("GetLastErrorString = (%s, %q), want (%s, %q)", code.Hex(), message, ErrorOK.Hex(), "native message")
 	}
-	if want := []int{4 << 10, (4 << 10) + 7}; !slices.Equal(capacities, want) {
+	if want := []int{4 << 10, 8 << 10}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
 	}
 }
@@ -617,7 +651,7 @@ func TestLastErrorStringRetriesOversizedOutput(t *testing.T) {
 	if code != ErrorOK || message != "native message" {
 		t.Fatalf("GetLastErrorString = (%s, %q), want (%s, %q)", code.Hex(), message, ErrorOK.Hex(), "native message")
 	}
-	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize + 7}; !slices.Equal(capacities, want) {
+	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
 	}
 }

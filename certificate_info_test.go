@@ -10,9 +10,13 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"math"
 	"math/big"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -85,6 +89,85 @@ func TestCachedPEMForCertificateConcurrent(t *testing.T) {
 	}
 
 	wait.Wait()
+}
+
+func TestCertificateInfoNilClient(t *testing.T) {
+	var client *Client
+	cert := &x509.Certificate{Raw: []byte{1}}
+	if _, err := client.X509CertificateGetInfo(context.Background(), cert); !errors.Is(err, ErrClosed) {
+		t.Fatalf("X509CertificateGetInfo = %v, want ErrClosed", err)
+	}
+	if _, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject); !errors.Is(err, ErrClosed) {
+		t.Fatalf("X509CertificateGetInfoFields = %v, want ErrClosed", err)
+	}
+}
+
+func TestCertificateInfoRejectsOversizedInputBeforeCaching(t *testing.T) {
+	client := &Client{config: runtimeConfig{maxInputSize: 1024}}
+	client.encodeAndCacheCertificatePEM([]byte{1})
+	previous := client.pemCache.Load()
+	cert := &x509.Certificate{Raw: make([]byte, 8<<20)}
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("oversized input = %v, want ErrInvalidInput", err)
+	}
+	if client.pemCache.Load() != previous {
+		t.Fatal("rejected input replaced the cache")
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 1<<20 {
+		t.Fatalf("rejecting oversized input allocated %d bytes", allocated)
+	}
+}
+
+func TestCertificateInfoChecksExpandedPEMLimit(t *testing.T) {
+	der := testCertificateDER(t, "PEM size boundary")
+	expectedPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	calls := 0
+	native := &fakeNative{certificateGetInfoFunc: func(cert []byte, _ ckalkan.CertProp) ([]byte, error) {
+		calls++
+		if !bytes.Equal(cert, expectedPEM) {
+			t.Fatal("native input differs from standard PEM encoding")
+		}
+		return []byte("subject"), nil
+	}}
+	client := &Client{library: native, config: runtimeConfig{maxInputSize: int64(len(expectedPEM) - 1)}}
+	cert := &x509.Certificate{Raw: der}
+	if _, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("PEM above limit = %v, want ErrInvalidInput", err)
+	}
+	if calls != 0 || client.pemCache.Load() != nil {
+		t.Fatal("rejected PEM reached the native library or cache")
+	}
+	client.config.maxInputSize = int64(len(expectedPEM))
+	if _, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject); err != nil {
+		t.Fatalf("PEM exactly at limit: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("native calls = %d, want 1", calls)
+	}
+}
+
+func TestCertificateInfoInputSizeRejectsNativeOverflow(t *testing.T) {
+	if err := validateCertificateInfoInputSize(math.MaxInt32, 0); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expanded PEM overflow = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestNativeListParsersPreserveDistinctNormalization(t *testing.T) {
+	const input = "values = first ; attr=second, , \n third\rattr= "
+	if got, want := splitNativePropertyValues(input), []string{"first", "attr=second", "third", "attr="}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("property values = %q, want %q", got, want)
+	}
+	if got, want := splitNativeAttributeValues(input), []string{"first", "second", "third"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("attribute values = %q, want %q", got, want)
+	}
+	if splitNativePropertyValues(" \n") != nil || splitNativeAttributeValues(" \n") != nil {
+		t.Fatal("empty property/attribute should produce nil")
+	}
 }
 
 func TestX509ExportCertificateFromStoreParsesDERCertificate(t *testing.T) {
@@ -216,7 +299,7 @@ func TestCollectSignerCertificatesBoundaries(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			calls := 0
-			certs, err := collectSignerCertificates(context.Background(), func(signID int) ([]byte, error) {
+			certs, err := collectSignerCertificates(context.Background(), ckalkan.ErrorCertNotFound, func(signID int) ([]byte, error) {
 				calls++
 				if signID < test.certificateCount {
 					return der, nil
@@ -889,9 +972,9 @@ func TestGetCertFromCMSExtractsAllSignerCertificates(t *testing.T) {
 
 			signIDs = append(signIDs, signID)
 			switch signID {
-			case 0:
-				return []byte(base64.StdEncoding.EncodeToString(firstDER)), nil
 			case 1:
+				return []byte(base64.StdEncoding.EncodeToString(firstDER)), nil
+			case 2:
 				return secondDER, nil
 			default:
 				return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
@@ -904,7 +987,7 @@ func TestGetCertFromCMSExtractsAllSignerCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCertFromCMS returned error: %v", err)
 	}
-	if !reflect.DeepEqual(signIDs, []int{0, 1, 2}) {
+	if !reflect.DeepEqual(signIDs, []int{1, 2, 3}) {
 		t.Fatalf("signIDs = %#v", signIDs)
 	}
 	if len(certs) != 2 {
@@ -912,6 +995,41 @@ func TestGetCertFromCMSExtractsAllSignerCertificates(t *testing.T) {
 	}
 	if certs[0].Subject.CommonName != "cms-signer-0" || certs[1].Subject.CommonName != "cms-signer-1" {
 		t.Fatalf("cert CNs = %q/%q", certs[0].Subject.CommonName, certs[1].Subject.CommonName)
+	}
+}
+
+func TestGetCertFromCMSReadsFileWithinInputLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "signed.cms")
+	if err := os.WriteFile(path, []byte("CMS"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	der := testCertificateDER(t, "file-signer")
+	for _, limit := range []int64{0, 2, 3, math.MaxInt64} {
+		t.Run(strconv.FormatInt(limit, 10), func(t *testing.T) {
+			calls := 0
+			client := &Client{config: runtimeConfig{maxInputSize: limit}, library: &fakeNative{
+				getCertFromCMSFunc: func(cms []byte, signID int, flags ckalkan.Flag) ([]byte, error) {
+					calls++
+					if string(cms) != "CMS" || flags&ckalkan.InFile != 0 {
+						t.Fatalf("CMS input = %q, flags = %#x, want in-memory contents", cms, flags)
+					}
+					if signID == 1 {
+						return der, nil
+					}
+					return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
+				},
+			}}
+			certs, err := client.GetCertFromCMS(context.Background(), File(path))
+			if limit == 2 {
+				if !errors.Is(err, ErrInvalidInput) || calls != 0 {
+					t.Fatalf("oversized file: error = %v, native calls = %d", err, calls)
+				}
+				return
+			}
+			if err != nil || len(certs) != 1 || calls != 2 {
+				t.Fatalf("file extraction: count = %d, calls = %d, error = %v", len(certs), calls, err)
+			}
+		})
 	}
 }
 
@@ -926,11 +1044,11 @@ func TestGetCertFromXMLExtractsAllSignerCertificates(t *testing.T) {
 			}
 
 			signIDs = append(signIDs, signID)
-			if signID == 0 {
+			if signID == 1 {
 				return []byte(base64.StdEncoding.EncodeToString(der)), nil
 			}
 
-			return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
+			return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorIDAttrNotFound}
 		},
 	}
 	client := &Client{library: native}
@@ -939,7 +1057,7 @@ func TestGetCertFromXMLExtractsAllSignerCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCertFromXML returned error: %v", err)
 	}
-	if !reflect.DeepEqual(signIDs, []int{0, 1}) {
+	if !reflect.DeepEqual(signIDs, []int{1, 2}) {
 		t.Fatalf("signIDs = %#v", signIDs)
 	}
 	if len(certs) != 1 || certs[0].Subject.CommonName != "xml-signer" {
@@ -960,8 +1078,8 @@ func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 
 				return &fakeNative{
 					getCertFromCMSFunc: func(_ []byte, signID int, _ ckalkan.Flag) ([]byte, error) {
-						if signID != 0 {
-							t.Fatalf("signID = %d, want 0", signID)
+						if signID != 1 {
+							t.Fatalf("signID = %d, want 1", signID)
 						}
 
 						return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
@@ -980,8 +1098,8 @@ func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 
 				return &fakeNative{
 					getCertFromXMLFunc: func(_ []byte, signID int) ([]byte, error) {
-						if signID != 0 {
-							t.Fatalf("signID = %d, want 0", signID)
+						if signID != 1 {
+							t.Fatalf("signID = %d, want 1", signID)
 						}
 
 						return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
@@ -1001,6 +1119,53 @@ func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 
 			err := tt.call(client)
 			requireKalkanErrorCode(t, err, ckalkan.ErrorCertNotFound)
+		})
+	}
+}
+
+func TestGetCertFromXMLDoesNotSilentlyTruncateCertificates(t *testing.T) {
+	der := testCertificateDER(t, "XML signer")
+	for _, tc := range []struct {
+		name      string
+		count     int
+		endCode   ckalkan.ErrorCode
+		wantCount int
+		wantLimit bool
+	}{
+		{"exact limit", maxExtractedSignerCertificates, ckalkan.ErrorIDAttrNotFound, maxExtractedSignerCertificates, false},
+		{"over limit", maxExtractedSignerCertificates + 1, ckalkan.ErrorIDAttrNotFound, 0, true},
+		{"missing later certificate", 1, ckalkan.ErrorCertNotFound, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := &Client{library: &fakeNative{getCertFromXMLFunc: func(_ []byte, id int) ([]byte, error) {
+				calls++
+				if id != calls {
+					t.Fatalf("native signer ID = %d, want %d", id, calls)
+				}
+				if id <= tc.count {
+					return der, nil
+				}
+				return nil, &ckalkan.KalkanError{Code: tc.endCode}
+			}}}
+			certificates, err := client.GetCertFromXML(context.Background(), Bytes([]byte("<root/>")))
+			switch {
+			case tc.wantLimit:
+				if !errors.Is(err, ErrInvalidInput) {
+					t.Fatalf("overflow error = %v, want ErrInvalidInput", err)
+				}
+			case tc.endCode == ckalkan.ErrorCertNotFound:
+				requireKalkanErrorCode(t, err, tc.endCode)
+			case err != nil:
+				t.Fatalf("GetCertFromXML: %v", err)
+			}
+			if len(certificates) != tc.wantCount {
+				t.Fatalf("certificate count = %d, want %d", len(certificates), tc.wantCount)
+			}
+			wantCalls := min(tc.count+1, maxExtractedSignerCertificates+1)
+			if calls != wantCalls {
+				t.Fatalf("native calls = %d, want %d", calls, wantCalls)
+			}
 		})
 	}
 }

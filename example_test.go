@@ -63,12 +63,17 @@ func ExampleClient_SignCMS() {
 }
 
 func ExampleClient_VerifyCMS() {
+	payload, err := os.ReadFile("/data/document.bin")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ctx := context.Background()
 	client := openExampleClient(ctx)
 
 	verification, err := client.VerifyCMS(ctx, kalkan.VerifyCMSRequest{
 		Signature: kalkan.File("/data/signature.cms").WithEncoding(kalkan.EncodingDER),
-		Data:      kalkan.File("/data/document.bin"),
+		Data:      kalkan.Bytes(payload),
 		Detached:  true,
 	})
 	if err != nil {

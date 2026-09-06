@@ -251,3 +251,22 @@ func signerIDOverflowValue(t *testing.T) int {
 
 	return int(overflow)
 }
+
+const testEventTimeout = 2 * time.Second
+
+func awaitTestEvent[T any](t *testing.T, ch <-chan T, event string) T {
+	t.Helper()
+
+	timer := time.NewTimer(testEventTimeout)
+	defer timer.Stop()
+
+	select {
+	case value := <-ch:
+		return value
+	case <-timer.C:
+		t.Fatalf("timed out waiting for %s", event)
+		var zero T
+
+		return zero
+	}
+}

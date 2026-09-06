@@ -1,6 +1,7 @@
 package kalkancrypt
 
-// Init calls KC_Init.
+// Init initializes the process-global KalkanCrypt runtime and returns its
+// native status code.
 func (c *Context) Init() uint64 {
 	if c.closed() {
 		return errorLibraryNotInitialized
@@ -9,28 +10,31 @@ func (c *Context) Init() uint64 {
 	return c.driver.Init()
 }
 
-// InitDebug calls KC_InitDebug.
+// InitDebug invokes native debug initialization when the context is open.
 func (c *Context) InitDebug() {
 	if !c.closed() {
 		c.driver.InitDebug()
 	}
 }
 
-// Finalize calls KC_Finalize.
+// Finalize releases the native runtime resources without unloading the
+// shared library. It does nothing for a closed context.
 func (c *Context) Finalize() {
 	if !c.closed() {
 		c.driver.Finalize()
 	}
 }
 
-// XMLFinalize calls KC_XMLFinalize.
+// XMLFinalize releases native XML resources without unloading the library.
+// It does nothing for a closed context.
 func (c *Context) XMLFinalize() {
 	if !c.closed() {
 		c.driver.XMLFinalize()
 	}
 }
 
-// LastError calls KC_GetLastError.
+// LastError returns the native process-global error code, or
+// KCR_LIBRARYNOTINITIALIZED when the context is closed.
 func (c *Context) LastError() uint64 {
 	if c.closed() {
 		return errorLibraryNotInitialized
@@ -39,7 +43,8 @@ func (c *Context) LastError() uint64 {
 	return c.driver.LastError()
 }
 
-// LastErrorString calls KC_GetLastErrorString.
+// LastErrorString retrieves the native diagnostic using capacity bytes of
+// output storage and returns its status and reported length.
 func (c *Context) LastErrorString(capacity int) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed

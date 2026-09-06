@@ -2,7 +2,10 @@
 
 package kalkancrypt
 
-import "runtime"
+import (
+	"runtime"
+	"unsafe"
+)
 
 func (h *windowsDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferResult, error) {
 	inZip, err := narrowString(zipFile)
@@ -15,11 +18,17 @@ func (h *windowsDriver) ZipConVerify(zipFile string, flags, capacity int) (Buffe
 	}
 
 	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.zipConVerify, bytesPtr(inZip), intArg(flags), bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(
+		h.funcs.zipConVerify,
+		uintptr(unsafe.Pointer(bytesPtr(inZip))),
+		intArg(flags),
+		uintptr(unsafe.Pointer(bytesPtr(buf))),
+		uintptr(unsafe.Pointer(&outLen)),
+	)
 	runtime.KeepAlive(inZip)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }
 
 func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
@@ -40,7 +49,14 @@ func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
 		return errorParam
 	}
 
-	code := callWindowsStatus(h.funcs.zipConSign, bytesPtr(alias), bytesPtr(filePath), bytesPtr(name), bytesPtr(outDir), intArg(call.Flags))
+	code := callWindowsStatus(
+		h.funcs.zipConSign,
+		uintptr(unsafe.Pointer(bytesPtr(alias))),
+		uintptr(unsafe.Pointer(bytesPtr(filePath))),
+		uintptr(unsafe.Pointer(bytesPtr(name))),
+		uintptr(unsafe.Pointer(bytesPtr(outDir))),
+		intArg(call.Flags),
+	)
 	runtime.KeepAlive(alias)
 	runtime.KeepAlive(filePath)
 	runtime.KeepAlive(name)
@@ -60,9 +76,16 @@ func (h *windowsDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferR
 	}
 
 	outLen := int32(call.Capacity)
-	code := callWindowsStatus(h.funcs.getCertFromZipFile, bytesPtr(inZip), intArg(call.Flags), intArg(call.SignID), bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(
+		h.funcs.getCertFromZipFile,
+		uintptr(unsafe.Pointer(bytesPtr(inZip))),
+		intArg(call.Flags),
+		intArg(call.SignID),
+		uintptr(unsafe.Pointer(bytesPtr(buf))),
+		uintptr(unsafe.Pointer(&outLen)),
+	)
 	runtime.KeepAlive(inZip)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }

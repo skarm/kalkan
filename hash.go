@@ -11,18 +11,8 @@ import (
 type HashAlgorithm int
 
 func (a HashAlgorithm) native() (ckalkan.HashAlgorithm, error) {
-	switch a {
-	case SHA256:
-		return ckalkan.SHA256, nil
-	case GOST95:
-		return ckalkan.GOST95, nil
-	case GOST2015_256:
-		return ckalkan.GOST2015_256, nil
-	case GOST2015_512:
-		return ckalkan.GOST2015_512, nil
-	default:
-		return "", fmt.Errorf("%w: unknown hash algorithm %d", ErrInvalidInput, a)
-	}
+	name, _, err := digestInfo(a)
+	return ckalkan.HashAlgorithm(name), err
 }
 
 const (
@@ -45,7 +35,8 @@ type HashRequest struct {
 	Data Source
 }
 
-// Digest is returned by Hash.
+// Digest contains a raw cryptographic hash and the algorithm that produced
+// it. It is returned by [Client.Hash].
 type Digest struct {
 	// Algorithm is the algorithm used to calculate Data.
 	Algorithm HashAlgorithm
@@ -61,9 +52,11 @@ type SignHashRequest struct {
 	// Digest contains the precomputed raw digest bytes to sign, not the original
 	// payload.
 	Digest []byte
-	// DigestAlgorithm selects the algorithm that produced Digest. The zero value
-	// is SHA256. Set it explicitly when signing GOST or other non-SHA256 digests
-	// so the wrapper can reject length mismatches before native calls.
+	// DigestAlgorithm describes the algorithm that produced Digest. The zero
+	// value is SHA256. The wrapper validates the algorithm and digest length;
+	// this field does not select the native signing algorithm. Digest must match
+	// the algorithm required by the loaded key, which cannot be inferred from
+	// digest length alone.
 	DigestAlgorithm HashAlgorithm
 	// Timestamp requests a TSA timestamp token.
 	Timestamp bool
@@ -78,7 +71,8 @@ type SignHashRequest struct {
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// Hash calculates a digest using KalkanCrypt.
+// Hash returns the raw digest of req.Data using req.Algorithm. An absent
+// source is invalid; Bytes(nil) supplies an explicitly empty input.
 func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -126,7 +120,9 @@ func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 }
 
 // SignHash signs raw digest bytes and returns CMS output bytes. The default
-// output format is raw DER CMS.
+// output format is raw DER CMS. The digest algorithm must match the loaded
+// signing key; DigestAlgorithm only controls wrapper validation. Verify the
+// returned CMS against the original payload to validate the complete signature.
 func (c *Client) SignHash(ctx context.Context, req SignHashRequest) (*CMS, error) {
 	if ctx == nil {
 		ctx = context.Background()

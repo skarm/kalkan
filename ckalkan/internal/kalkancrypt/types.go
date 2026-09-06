@@ -15,6 +15,9 @@ var (
 // instead of importing C constants so that the common Go code builds everywhere.
 const errorLibraryNotInitialized uint64 = 0x08f00101
 
+// inBase64Flag mirrors KC_IN_BASE64 from KalkanCrypt.h.
+const inBase64Flag = 0x00000010
+
 // inFileFlag mirrors KC_IN_FILE from KalkanCrypt.h.
 const inFileFlag = 0x00008000
 

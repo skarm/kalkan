@@ -28,6 +28,14 @@ func TestVerifyXMLSOAPBinding(t *testing.T) {
 		{"normalized xml id collision", validSignedSOAP("#TheBody", `<extra xml:id="&#x20;&#x9;TheBody&#xD;&#xA;"/>`), "TheBody", "exactly one XML ID"},
 		{"Id collision", validSignedSOAP("#TheBody", `<extra Id="TheBody"/>`), "TheBody", "exactly one XML ID"},
 		{"ID collision", validSignedSOAP("#TheBody", `<extra ID="TheBody"/>`), "TheBody", "exactly one XML ID"},
+		{"lowercase id collision", validSignedSOAP("#TheBody", `<extra id="TheBody"/>`), "TheBody", "exactly one XML ID"},
+		{"custom Id collision", validSignedSOAP("#TheBody", `<extra xmlns:x="urn:custom" x:Id="TheBody"/>`), "TheBody", "exactly one XML ID"},
+		{"custom ID collision", validSignedSOAP("#TheBody", `<extra xmlns:x="urn:custom" x:ID="TheBody"/>`), "TheBody", "exactly one XML ID"},
+		{"custom id collision", validSignedSOAP("#TheBody", `<extra xmlns:x="urn:custom" x:id="TheBody"/>`), "TheBody", "exactly one XML ID"},
+		{"namespace declaration is not an ID", validSignedSOAP("#TheBody", `<extra xmlns:Id="TheBody"/>`), "TheBody", ""},
+		{"Body ID leading space", strings.Replace(validSignedSOAP("#TheBody", ""), `wsu:Id="TheBody"`, `wsu:Id=" TheBody"`, 1), "TheBody", "SOAP Body must have wsu:Id"},
+		{"Body ID trailing space", strings.Replace(validSignedSOAP("#TheBody", ""), `wsu:Id="TheBody"`, `wsu:Id="TheBody "`, 1), "TheBody", "SOAP Body must have wsu:Id"},
+		{"Body ID encoded whitespace", strings.Replace(validSignedSOAP("#TheBody", ""), `wsu:Id="TheBody"`, `wsu:Id="&#x9;TheBody&#xD;&#xA;"`, 1), "TheBody", "SOAP Body must have wsu:Id"},
 		{"two SOAP Bodies", validSignedSOAP("#TheBody", `<soap:Body wsu:Id="Other"/>`), "TheBody", "exactly one SOAP Body"},
 		{"two Signatures", strings.Replace(validSignedSOAP("#TheBody", ""), "</soap:Header>", `<ds:Signature/></soap:Header>`, 1), "TheBody", "exactly one ds:Signature"},
 		{"additional signed reference", strings.Replace(validSignedSOAP("#TheBody", ""), "</ds:SignedInfo>", `<ds:Reference URI="#Other"/></ds:SignedInfo>`, 1), "TheBody", ""},
@@ -105,6 +113,58 @@ func TestVerifyXMLSOAPBodyTransformPolicy(t *testing.T) {
 		{
 			name:     "exclusive canonicalization Transform",
 			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"/></ds:Transforms>`),
+		},
+		{
+			name:     "exclusive canonicalization Transform with InclusiveNamespaces",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="soap"/></ds:Transform></ds:Transforms>`),
+		},
+		{
+			name:     "InclusiveNamespaces with empty prefix list",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList=""/></ds:Transform></ds:Transforms>`),
+		},
+		{
+			name:     "InclusiveNamespaces with whitespace-only prefix list",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList=" &#x9;&#xD;&#xA;"/></ds:Transform></ds:Transforms>`),
+		},
+		{
+			name:     "exclusive canonicalization Transform with unsupported child",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ds:XPath>true()</ds:XPath></ds:Transform></ds:Transforms>`),
+			want:     "contains an unsupported child element",
+		},
+		{
+			name:     "InclusiveNamespaces without PrefixList",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transform></ds:Transforms>`),
+			want:     "requires a PrefixList attribute",
+		},
+		{
+			name:     "duplicate InclusiveNamespaces",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="soap"/><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="wsu"/></ds:Transform></ds:Transforms>`),
+			want:     "at most one InclusiveNamespaces",
+		},
+		{
+			name:     "InclusiveNamespaces with nested element",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="soap"><extra/></ec:InclusiveNamespaces></ds:Transform></ds:Transforms>`),
+			want:     "contains an unsupported child element",
+		},
+		{
+			name:     "InclusiveNamespaces with unsupported attribute",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `"><ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="soap" Mode="extra"/></ds:Transform></ds:Transforms>`),
+			want:     "contains unsupported attribute",
+		},
+		{
+			name:     "exclusive canonicalization Transform with text",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `">unexpected</ds:Transform></ds:Transforms>`),
+			want:     "ds:Transform must not contain text content",
+		},
+		{
+			name:     "Transforms with text",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms>unexpected<ds:Transform Algorithm="` + exclusiveCanonicalization + `"/></ds:Transforms>`),
+			want:     "ds:Transforms may contain only direct ds:Transform elements",
+		},
+		{
+			name:     "exclusive canonicalization Transform with extra attribute",
+			document: signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="` + exclusiveCanonicalization + `" Mode="unsafe"/></ds:Transforms>`),
+			want:     "contains unsupported attribute",
 		},
 		{
 			name:     "XPath Transform",

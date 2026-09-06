@@ -58,7 +58,8 @@ const (
 	UseOCSP ValidationType = 0x00000404
 )
 
-// Flag is a bit mask accepted by KalkanCrypt functions (KC_* flags).
+// Flag is a bit mask accepted by KalkanCrypt functions (KC_* flags). Combine
+// compatible flags with bitwise OR. Each operation defines which flags apply.
 type Flag int
 
 const (

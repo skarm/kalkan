@@ -27,12 +27,42 @@ const (
 // when the native function supports KC_IN_FILE. The zero-value Source means
 // "not provided"; constructor-created empty byte sources represent explicit
 // empty input and are validated by each operation's own rules.
+// A source encoding other than EncodingAuto takes precedence over request
+// encoding fields and operation defaults. Byte constructors set an explicit
+// encoding; File starts with EncodingAuto.
 type Source struct {
-	data     []byte
 	path     string
-	file     bool
+	data     []byte
 	encoding Encoding
+	file     bool
 	set      bool
+}
+
+// SourceDescriptor describes an input without changing its presence, encoding,
+// or source kind. Data is borrowed from Source; it is not copied.
+type SourceDescriptor struct {
+	// Path is the native file path when File is true.
+	Path string
+	// Data contains the in-memory input when File is false. It aliases the
+	// source bytes; callers must not modify it while an operation uses them.
+	Data []byte
+	// Encoding describes the input format. EncodingAuto uses the request or
+	// operation default.
+	Encoding Encoding
+	// File reports whether the source refers to Path rather than Data.
+	File bool
+	// Set distinguishes a provided source, including empty data, from an
+	// absent source. Fields other than Set do not establish presence.
+	Set bool
+}
+
+// Describe returns the source's fields for explicit transport or inspection.
+// Its Data aliases the source bytes and must not be changed while an operation
+// uses the source. An absent Source differs from a present empty byte source.
+func (s Source) Describe() SourceDescriptor {
+	return SourceDescriptor{
+		Data: s.data, Path: s.path, File: s.file, Encoding: s.encoding, Set: s.set,
+	}
 }
 
 // Bytes returns an in-memory raw source. Use File for large payloads that
@@ -62,7 +92,8 @@ func File(path string) Source {
 	return Source{path: path, file: true, encoding: EncodingAuto, set: true}
 }
 
-// WithEncoding returns a copy of the source with an explicit encoding.
+// WithEncoding returns a copy of the source with the chosen encoding.
+// EncodingAuto restores the request or operation fallback.
 func (s Source) WithEncoding(encoding Encoding) Source {
 	s.encoding = encoding
 	return s

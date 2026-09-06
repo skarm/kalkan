@@ -5,6 +5,7 @@ package kalkancrypt
 import (
 	"bytes"
 	"errors"
+	"runtime"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -76,6 +77,51 @@ func TestCallWindowsStatusRejectsMissingFunction(t *testing.T) {
 	if got := callWindowsStatus(0); got != errorLibraryNotInitialized {
 		t.Fatalf("callWindowsStatus(0) = %#x, want %#x", got, uint64(errorLibraryNotInitialized))
 	}
+}
+
+func TestWindowsCertificateValidationPreservesNativePointers(t *testing.T) {
+	// Enter Go through a native callback and grow its stack before writing both
+	// output lengths. This exercises the actual syscall wrapper without the SDK.
+	var calls int
+	fn := syscall.NewCallback(func(cert *byte, certLen uintptr, mode uintptr, path *byte, checkTime uintptr,
+		info *byte, infoLen *int32, flags uintptr, ocsp *byte, ocspLen *int32,
+	) uintptr {
+		calls++
+		growWindowsCallbackStack(64)
+		runtime.GC()
+		if cert == nil || *cert != 0x30 || certLen != 2 || mode != 7 || path == nil || *path != 'p' || checkTime != 123 || flags != 9 {
+			t.Error("native callback received incorrect input arguments")
+			return uintptr(errorParam)
+		}
+		if infoLen == nil || ocspLen == nil || *infoLen != 32 || *ocspLen != 16 {
+			t.Error("native callback received incorrect output capacities")
+			return uintptr(errorParam)
+		}
+		copy(unsafe.Slice(info, 3), "ok!")
+		copy(unsafe.Slice(ocsp, 4), []byte{1, 0, 2, 0})
+		*infoLen, *ocspLen = 3, 4
+		return 0
+	})
+	driver := &windowsDriver{funcs: &kcFunctionList{x509ValidateCertificate: fn}}
+	result, err := driver.X509ValidateCertificate(ValidateCertificateCall{
+		Certificate: []byte{0x30, 0}, ValidationType: 7, ValidationPath: "path", CheckTimeUnix: 123,
+		Flags: 9, InfoCapacity: 32, OCSPCapacity: 16,
+	})
+	if err != nil || result.Code != 0 || calls != 1 {
+		t.Fatalf("native call: result=%+v, calls=%d, err=%v", result, calls, err)
+	}
+	if result.InfoLen != 3 || result.OCSPLen != 4 || string(result.Info) != "ok!" || !bytes.Equal(result.OCSP, []byte{1, 0, 2, 0}) {
+		t.Fatalf("native outputs were not preserved: %+v", result)
+	}
+}
+
+//go:noinline
+func growWindowsCallbackStack(depth int) {
+	var padding [8192]byte
+	if depth > 0 {
+		growWindowsCallbackStack(depth - 1)
+	}
+	runtime.KeepAlive(&padding)
 }
 
 func TestNarrowStringUsesUTF8(t *testing.T) {

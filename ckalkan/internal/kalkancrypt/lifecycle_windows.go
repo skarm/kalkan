@@ -2,7 +2,10 @@
 
 package kalkancrypt
 
-import "runtime"
+import (
+	"runtime"
+	"unsafe"
+)
 
 func (h *windowsDriver) Init() uint64 {
 	return callWindowsStatus(h.funcs.init)
@@ -31,8 +34,8 @@ func (h *windowsDriver) LastErrorString(capacity int) (BufferResult, error) {
 	}
 
 	outLen := int32(capacity)
-	code := callWindowsStatus(h.funcs.getLastErrorString, bytesPtr(buf), int32Ptr(&outLen))
+	code := callWindowsStatus(h.funcs.getLastErrorString, uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&outLen)))
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: code, Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(code, buf, int(outLen)), nil
 }

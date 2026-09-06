@@ -28,6 +28,10 @@ func rejectEmbeddedNUL(field, value string) error {
 }
 
 func normalizeNativeHTTPURL(field, value string) (string, error) {
+	return normalizeNativeHTTPURLWithPolicy(field, value, "", nil)
+}
+
+func normalizeNativeHTTPURLWithPolicy(field, value string, purpose endpointPurpose, policy *EndpointPolicy) (string, error) {
 	trimmedURL := strings.TrimSpace(value)
 	if trimmedURL == "" {
 		return "", fmt.Errorf("%w: %s is empty", ErrInvalidInput, field)
@@ -52,6 +56,12 @@ func normalizeNativeHTTPURL(field, value string) (string, error) {
 
 	if parsedURL.Host == "" {
 		return "", fmt.Errorf("%w: %s host is empty", ErrInvalidInput, field)
+	}
+
+	if policy != nil {
+		if err := policy.validateEndpoint(field, purpose, parsedURL); err != nil {
+			return "", err
+		}
 	}
 
 	return trimmedURL, nil

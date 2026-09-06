@@ -1,4 +1,4 @@
-//go:build !(linux && cgo) && !(windows && amd64)
+//go:build !(linux && amd64 && cgo) && !(windows && amd64)
 
 package kalkancrypt
 

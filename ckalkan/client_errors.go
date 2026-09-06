@@ -1,6 +1,10 @@
 package ckalkan
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
 func (c *Client) wrapCodeLocked(code ErrorCode) error {
 	if code == ErrorOK {
@@ -52,6 +56,6 @@ func (c *Client) lastErrorStringLocked() (ErrorCode, string) {
 			}
 		}
 
-		return code, string(bytesBeforeNULTerminator(result.Data))
+		return code, string(nativebytes.BeforeNUL(result.Data))
 	}
 }

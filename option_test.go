@@ -483,9 +483,9 @@ func TestWithLoggerRecordsNativeCallError(t *testing.T) {
 
 	records := handler.Records()
 	if !hasLogRecord(records, slog.LevelError, "kalkan native call failed", map[string]string{
-		"component": "kalkan",
-		"operation": "Hash",
-		"error":     nativeErr.Error(),
+		"component":   "kalkan",
+		"operation":   "Hash",
+		"error_class": "operation_failure",
 	}) {
 		t.Fatalf("log records = %v, want failed Hash native call record", records)
 	}

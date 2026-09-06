@@ -22,8 +22,8 @@ const (
 
 	xmlWhitespaceChars = " \t\r\n"
 
-	// Existing SOAP/WS-Security fixtures use only Exclusive XML Canonicalization
-	// for the Body reference transform. Keep this allowlist intentionally narrow.
+	// SOAP Body references permit only Exclusive XML Canonicalization so their
+	// transforms cannot select a different subset of the referenced body.
 	xmlAlgorithmExclusiveCanonicalization = "http://www.w3.org/2001/10/xml-exc-c14n#"
 
 	soapEnvelopePrefix = `<soap:Envelope xmlns:soap="` + xmlnsSOAP +
@@ -57,7 +57,8 @@ const (
 type SignXMLRequest struct {
 	// Alias selects a loaded key alias.
 	Alias string
-	// XML is the XML document to sign.
+	// XML is a nonempty in-memory document with raw or automatic encoding.
+	// File sources and other source encodings are unsupported.
 	XML Source
 	// SignNodeID is the XML node id passed to KalkanCrypt.
 	SignNodeID string
@@ -75,7 +76,8 @@ type SignXMLRequest struct {
 type VerifyXMLRequest struct {
 	// Alias is forwarded to KalkanCrypt's VerifyXML alias parameter.
 	Alias string
-	// XML is the signed XML document to verify.
+	// XML is a nonempty signed in-memory document with raw or automatic encoding.
+	// File sources and other source encodings are unsupported.
 	XML Source
 	// ExpectedBodyID binds verification to a SOAP Body wsu:Id. It is required for
 	// SOAP 1.1 and SOAP 1.2 and must be empty for non-SOAP XML.
@@ -91,7 +93,8 @@ type SignWSSERequest struct {
 	// Alias selects a loaded key alias.
 	Alias string
 	// XML is either a full SOAP envelope or a payload that should be wrapped when
-	// WrapSOAP is true.
+	// WrapSOAP is true. It must be a nonempty in-memory source with raw or
+	// automatic encoding; file sources are unsupported.
 	XML Source
 	// BodyID is the wsu:Id value of the SOAP Body that KalkanCrypt signs. It
 	// is required whether XML is wrapped by this package or supplied as a full
@@ -105,7 +108,8 @@ type SignWSSERequest struct {
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// SignedXML is returned by SignXML and SignWSSE.
+// SignedXML contains a signed document returned by [Client.SignXML] or
+// [Client.SignWSSE].
 type SignedXML struct {
 	// XML contains the signed XML document.
 	XML []byte
@@ -140,17 +144,10 @@ func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, e
 		return nil, err
 	}
 
-	flags, err := xmlCanonicalizationFlag(req.Canonicalization)
+	flags, err := xmlSignatureFlags(req.Canonicalization, req.CertificateTimeCheck)
 	if err != nil {
 		return nil, err
 	}
-
-	checkFlags, err := certificateTimeCheckFlag(req.CertificateTimeCheck)
-	if err != nil {
-		return nil, err
-	}
-
-	flags |= checkFlags
 
 	out, err := withLockedLibraryResult(c, ctx, "SignXML", func(native xmlSignatures) ([]byte, error) {
 		return native.SignXML(ckalkan.SignXMLRequest{
@@ -169,7 +166,11 @@ func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, e
 	return &SignedXML{XML: out}, nil
 }
 
-// VerifyXML verifies a signed XML document.
+// VerifyXML verifies a signed XML document. A SOAP Body reference may omit
+// Transforms or contain one exclusive canonicalization Transform with at most
+// one InclusiveNamespaces parameter with a PrefixList attribute, which may be
+// empty. Other transform parameters, attributes, and non-whitespace text are
+// rejected before verification.
 func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verification, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -188,17 +189,10 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 		return nil, err
 	}
 
-	flags, err := xmlCanonicalizationFlag(req.Canonicalization)
+	flags, err := xmlSignatureFlags(req.Canonicalization, req.CertificateTimeCheck)
 	if err != nil {
 		return nil, err
 	}
-
-	checkFlags, err := certificateTimeCheckFlag(req.CertificateTimeCheck)
-	if err != nil {
-		return nil, err
-	}
-
-	flags |= checkFlags
 
 	if err := validateXMLVerificationStructure(input, req.ExpectedBodyID); err != nil {
 		return nil, err
@@ -249,17 +243,10 @@ func (c *Client) SignWSSE(ctx context.Context, req SignWSSERequest) (*SignedXML,
 		}
 	}
 
-	flags, err := xmlCanonicalizationFlag(req.Canonicalization)
+	flags, err := xmlSignatureFlags(req.Canonicalization, req.CertificateTimeCheck)
 	if err != nil {
 		return nil, err
 	}
-
-	checkFlags, err := certificateTimeCheckFlag(req.CertificateTimeCheck)
-	if err != nil {
-		return nil, err
-	}
-
-	flags |= checkFlags
 
 	out, err := withLockedLibraryResult(c, ctx, "SignWSSE", func(native xmlSignatures) ([]byte, error) {
 		return native.SignWSSE(ckalkan.SignWSSERequest{
@@ -377,11 +364,11 @@ func validateSingleXMLElement(payload []byte) error {
 
 	for {
 		token, err := decoder.Token()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
 			return fmt.Errorf("%w: SOAP payload must be a well-formed XML element: %w", ErrInvalidInput, err)
 		}
 
@@ -436,12 +423,15 @@ type soapVerificationState struct {
 	expectedReferenceCount int
 }
 
+// soapBodyReferenceTransformState tracks nesting and counts within the
+// expected Body reference. Inactive depth markers must be initialized to -1.
 type soapBodyReferenceTransformState struct {
 	referenceDepth           int
 	transformsDepth          int
+	transformDepth           int
 	transformsContainerCount int
 	transformElementCount    int
-	transformAlgorithm       string
+	inclusiveNamespacesCount int
 }
 
 type xmlDocumentPreamble struct {
@@ -449,6 +439,9 @@ type xmlDocumentPreamble struct {
 	hasNonWhitespaceText bool
 }
 
+// validateXMLVerificationStructure checks SOAP signature binding before
+// native verification. SOAP requires expectedID and a strict structural scan;
+// non-SOAP XML without expectedID is left to the native verifier.
 func validateXMLVerificationStructure(document []byte, expectedID string) error {
 	if expectedID != "" {
 		if err := validateSOAPBodyID(expectedID); err != nil {
@@ -607,6 +600,7 @@ func collectSOAPVerificationState(decoder *xml.Decoder, root xml.StartElement, e
 		transformState = soapBodyReferenceTransformState{
 			referenceDepth:  -1,
 			transformsDepth: -1,
+			transformDepth:  -1,
 		}
 		stack = make([]xml.Name, 0, 16)
 	)
@@ -643,6 +637,10 @@ func collectSOAPVerificationState(decoder *xml.Decoder, root xml.StartElement, e
 				stack = stack[:len(stack)-1]
 			}
 		case xml.CharData:
+			if err := transformState.observeCharData(tok); err != nil {
+				return soapVerificationState{}, err
+			}
+
 			if len(stack) == 0 && len(bytes.TrimSpace(tok)) != 0 {
 				return soapVerificationState{}, fmt.Errorf("%w: signed XML must not contain text outside the document element", ErrInvalidInput)
 			}
@@ -676,12 +674,17 @@ func (state *soapBodyReferenceTransformState) observeStart(start xml.StartElemen
 		if isDirectExpectedSOAPBodyReference(start, expectedID, ancestors) {
 			state.referenceDepth = depth
 			state.transformsDepth = -1
+			state.transformDepth = -1
 			state.transformsContainerCount = 0
 			state.transformElementCount = 0
-			state.transformAlgorithm = ""
+			state.inclusiveNamespacesCount = 0
 		}
 
 		return nil
+	}
+
+	if state.transformDepth >= 0 && depth > state.transformDepth {
+		return state.observeParameter(start, depth)
 	}
 
 	if isDSigReference(start.Name) {
@@ -722,9 +725,23 @@ func (state *soapBodyReferenceTransformState) observeStart(start xml.StartElemen
 		}
 
 		state.transformElementCount++
+
+		algorithm := xmlAlgorithmAttribute(start)
 		if state.transformElementCount == 1 {
-			state.transformAlgorithm = xmlAlgorithmAttribute(start)
+			if algorithm == "" {
+				return fmt.Errorf("%w: SOAP Body ds:Transform Algorithm must not be empty", ErrInvalidInput)
+			}
+
+			if algorithm != xmlAlgorithmExclusiveCanonicalization {
+				return fmt.Errorf("%w: ds:Transform Algorithm is not allowed for the SOAP Body reference; only %q is supported", ErrInvalidInput, xmlAlgorithmExclusiveCanonicalization)
+			}
 		}
+
+		if err := validateSOAPBodyTransformAttributes(start); err != nil {
+			return err
+		}
+
+		state.transformDepth = depth
 
 		return nil
 	}
@@ -736,7 +753,28 @@ func (state *soapBodyReferenceTransformState) observeStart(start xml.StartElemen
 	return nil
 }
 
+func (state *soapBodyReferenceTransformState) observeParameter(start xml.StartElement, depth int) error {
+	if depth != state.transformDepth+1 || !isExclusiveCanonicalizationParameter(start.Name) {
+		return fmt.Errorf("%w: SOAP Body ds:Transform contains an unsupported child element", ErrInvalidInput)
+	}
+
+	state.inclusiveNamespacesCount++
+	if state.inclusiveNamespacesCount > 1 {
+		return fmt.Errorf("%w: SOAP Body exclusive canonicalization Transform must contain at most one InclusiveNamespaces parameter", ErrInvalidInput)
+	}
+
+	if err := validateInclusiveNamespacesAttributes(start); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (state *soapBodyReferenceTransformState) observeEnd(depth int) error {
+	if depth == state.transformDepth {
+		state.transformDepth = -1
+	}
+
 	if depth == state.transformsDepth {
 		state.transformsDepth = -1
 	}
@@ -748,8 +786,22 @@ func (state *soapBodyReferenceTransformState) observeEnd(depth int) error {
 	err := state.validate()
 	state.referenceDepth = -1
 	state.transformsDepth = -1
+	state.transformDepth = -1
+	state.inclusiveNamespacesCount = 0
 
 	return err
+}
+
+func (state *soapBodyReferenceTransformState) observeCharData(data xml.CharData) error {
+	if state.transformsDepth < 0 || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+
+	if state.transformDepth >= 0 {
+		return fmt.Errorf("%w: SOAP Body ds:Transform must not contain text content", ErrInvalidInput)
+	}
+
+	return fmt.Errorf("%w: SOAP Body ds:Transforms may contain only direct ds:Transform elements", ErrInvalidInput)
 }
 
 func (state *soapBodyReferenceTransformState) validate() error {
@@ -759,15 +811,6 @@ func (state *soapBodyReferenceTransformState) validate() error {
 
 	if state.transformElementCount != 1 {
 		return fmt.Errorf("%w: SOAP Body ds:Transforms must contain exactly one direct ds:Transform, got %d", ErrInvalidInput, state.transformElementCount)
-	}
-
-	algorithm := state.transformAlgorithm
-	if algorithm == "" {
-		return fmt.Errorf("%w: SOAP Body ds:Transform Algorithm must not be empty", ErrInvalidInput)
-	}
-
-	if algorithm != xmlAlgorithmExclusiveCanonicalization {
-		return fmt.Errorf("%w: ds:Transform Algorithm is not allowed for the SOAP Body reference; only %q is supported", ErrInvalidInput, xmlAlgorithmExclusiveCanonicalization)
 	}
 
 	// CanonicalizationMethod, DigestMethod, and SignatureMethod remain native
@@ -852,7 +895,7 @@ func isDirectExpectedSOAPBodyReference(start xml.StartElement, expectedID string
 func hasWSUID(start xml.StartElement, id string) bool {
 	for _, attr := range start.Attr {
 		if attr.Name.Space == xmlnsWSU && attr.Name.Local == "Id" &&
-			strings.Trim(attr.Value, xmlWhitespaceChars) == id {
+			attr.Value == id {
 			return true
 		}
 	}
@@ -868,11 +911,15 @@ func matchingXMLIDCount(start xml.StartElement, id string) int {
 	count := 0
 
 	for _, attr := range start.Attr {
-		switch attr.Name {
-		case xml.Name{Space: xmlnsWSU, Local: "Id"},
-			xml.Name{Space: xmlnsXML, Local: "id"},
-			xml.Name{Local: "Id"},
-			xml.Name{Local: "ID"}:
+		if isXMLNamespaceDeclaration(attr.Name) {
+			continue
+		}
+
+		// KalkanCrypt can resolve these local names in arbitrary namespaces.
+		// Count normalized collisions conservatively, while hasWSUID requires
+		// the Body itself to carry the exact ID referenced by the signature.
+		switch attr.Name.Local {
+		case "Id", "ID", "id":
 			if strings.Trim(attr.Value, xmlWhitespaceChars) == id {
 				count++
 			}
@@ -900,6 +947,55 @@ func xmlAlgorithmAttribute(start xml.StartElement) string {
 	}
 
 	return ""
+}
+
+func isExclusiveCanonicalizationParameter(name xml.Name) bool {
+	return name.Space == xmlAlgorithmExclusiveCanonicalization && name.Local == "InclusiveNamespaces"
+}
+
+func validateInclusiveNamespacesAttributes(start xml.StartElement) error {
+	hasPrefixList := false
+
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "PrefixList" {
+			hasPrefixList = true
+			continue
+		}
+
+		if isXMLNamespaceDeclaration(attr.Name) {
+			continue
+		}
+
+		return fmt.Errorf("%w: SOAP Body InclusiveNamespaces contains unsupported attribute %q", ErrInvalidInput, attr.Name.Local)
+	}
+
+	// Exclusive C14N permits an empty list: no additional namespace prefixes
+	// are included. The parameter's presence must not change that behavior.
+	if !hasPrefixList {
+		return fmt.Errorf("%w: SOAP Body InclusiveNamespaces requires a PrefixList attribute", ErrInvalidInput)
+	}
+
+	return nil
+}
+
+func validateSOAPBodyTransformAttributes(start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "Algorithm" {
+			continue
+		}
+
+		if isXMLNamespaceDeclaration(attr.Name) {
+			continue
+		}
+
+		return fmt.Errorf("%w: SOAP Body ds:Transform contains unsupported attribute %q", ErrInvalidInput, attr.Name.Local)
+	}
+
+	return nil
+}
+
+func isXMLNamespaceDeclaration(name xml.Name) bool {
+	return name.Space == "xmlns" || name.Space == "" && name.Local == "xmlns"
 }
 
 func validateUniqueXMLAttributes(start xml.StartElement) error {
@@ -964,6 +1060,20 @@ func xmlInput(source Source, maxInputSize int64) ([]byte, error) {
 	}
 
 	return input, nil
+}
+
+func xmlSignatureFlags(canonicalization XMLCanonicalization, check CertificateTimeCheck) (ckalkan.Flag, error) {
+	flags, err := xmlCanonicalizationFlag(canonicalization)
+	if err != nil {
+		return 0, err
+	}
+
+	checkFlags, err := certificateTimeCheckFlag(check)
+	if err != nil {
+		return 0, err
+	}
+
+	return flags | checkFlags, nil
 }
 
 func xmlCanonicalizationFlag(canonicalization XMLCanonicalization) (ckalkan.Flag, error) {

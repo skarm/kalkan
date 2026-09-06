@@ -1,9 +1,9 @@
 package kalkan
 
 import (
+	"bytes"
 	"context"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -268,13 +268,15 @@ func TestOpenWithTrustedCertificateUsesCallerData(t *testing.T) {
 	}
 }
 
-func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
+func TestOpenRetainsOwnedTrustedCertificatesUntilClose(t *testing.T) {
 	data := []byte("trusted certificate setup data")
-	var loaded bool
+	wantData := string(data)
+	loads := 0
 	native := &fakeNative{
+		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error { return nil },
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
-			loaded = true
-			if string(cert) != string(data) {
+			loads++
+			if string(cert) != wantData {
 				t.Fatalf("trusted certificate data = %q, want setup data", cert)
 			}
 
@@ -301,14 +303,21 @@ func TestOpenDoesNotRetainTrustedCertificatesAfterSetup(t *testing.T) {
 		}
 	}()
 
-	if !loaded {
-		t.Fatal("Open did not load trusted certificate during setup")
+	if loads != 1 {
+		t.Fatalf("Open loaded the trusted certificate %d times, want 1", loads)
 	}
-	if _, ok := reflect.TypeFor[runtimeConfig]().FieldByName("trusted"); ok {
-		t.Fatal("Client runtime config retained trusted certificates after setup")
+	clear(data)
+	if err := client.LoadKeyStore(context.Background(), KeyStore{Path: "/tmp/key.p12"}); err != nil {
+		t.Fatalf("LoadKeyStore returned error: %v", err)
 	}
-	if _, ok := reflect.TypeFor[runtimeConfig]().FieldByName("libraryPath"); ok {
-		t.Fatal("Client runtime config retained setup-only library path after setup")
+	if loads != 2 {
+		t.Fatalf("certificate loads after key-store change = %d, want 2", loads)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if client.trusted != nil {
+		t.Fatal("Close retained trusted certificate buffers")
 	}
 }
 
@@ -599,6 +608,57 @@ func TestConfigValidateRejectsInvalidEnabledProxy(t *testing.T) {
 			err := cfg.validate()
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("config.validate error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestXMLCertificateInputPreservesBytesOutsideSignatureIDs(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{
+			"signature attributes only",
+			`<root xmlns:ds="` + xmlnsDSig + `" Id="root"><ds:Signature Id="2" title="Id='1' >"/><other:Signature xmlns:other="urn:other" Id="1"/><ds:Signature ds:Id="kept" Id='1'/></root>`,
+			`<root xmlns:ds="` + xmlnsDSig + `" Id="root"><ds:Signature  title="Id='1' >"/><other:Signature xmlns:other="urn:other" Id="1"/><ds:Signature ds:Id="kept" /></root>`,
+		},
+		{
+			"default namespace and whitespace",
+			"<Signature xmlns='" + xmlnsDSig + "'\nId\t=\r '5'\t title='>'></Signature>",
+			"<Signature xmlns='" + xmlnsDSig + "'\n\t title='>'></Signature>",
+		},
+		{
+			"DTD and unknown entity stay native input",
+			`<?xml version="1.0"?><!DOCTYPE root [<!ENTITY label "document">]><root>&label;<Signature xmlns="` + xmlnsDSig + `" Id="1"/></root>`,
+			`<?xml version="1.0"?><!DOCTYPE root [<!ENTITY label "document">]><root>&label;<Signature xmlns="` + xmlnsDSig + `" /></root>`,
+		},
+		{
+			"legacy encoding payload preserved",
+			"<?xml version='1.0' encoding='windows-1251'?><root>\xef\xf0\xe8\xe2\xe5\xf2<Signature xmlns='" + xmlnsDSig + "' Id='5'/></root>",
+			"<?xml version='1.0' encoding='windows-1251'?><root>\xef\xf0\xe8\xe2\xe5\xf2<Signature xmlns='" + xmlnsDSig + "' /></root>",
+		},
+		{
+			"no signatures",
+			`<root Id="1"><child title="Id='2' >"/></root>`,
+			`<root Id="1"><child title="Id='2' >"/></root>`,
+		},
+		{
+			"legacy namespace prefixes remain distinct",
+			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe0='" + xmlnsDSig + "' xmlns:\xe1='urn:other'><\xe0:Signature Id='2'/><\xe1:Signature Id='keep'/><\xe0:Signature Id='1'/></scope></root>",
+			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe0='" + xmlnsDSig + "' xmlns:\xe1='urn:other'><\xe0:Signature /><\xe1:Signature Id='keep'/><\xe0:Signature /></scope></root>",
+		},
+		{
+			"legacy other namespace is not modified",
+			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe1='urn:other' xmlns:\xe0='" + xmlnsDSig + "'><\xe1:Signature Id='keep'/><\xe0:Signature title='\xef > Id' Id='2'/></scope></root>",
+			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe1='urn:other' xmlns:\xe0='" + xmlnsDSig + "'><\xe1:Signature Id='keep'/><\xe0:Signature title='\xef > Id' /></scope></root>",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := []byte(tc.input)
+			got := xmlCertificateInput(input)
+			if string(got) != tc.want {
+				t.Fatalf("extraction XML = %q, want %q", got, tc.want)
+			}
+			if !bytes.Equal(input, []byte(tc.input)) {
+				t.Fatal("certificate extraction changed the caller's XML")
 			}
 		})
 	}

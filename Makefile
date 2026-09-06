@@ -31,7 +31,7 @@ docker-lint:
 	docker run --rm \
 		-v "$(CURDIR):/src:ro" \
 		-w /src \
-		golangci/golangci-lint:@latest \
+		golangci/golangci-lint:v2.13.2 \
 		golangci-lint run -v --config .golangci.yml ./...
 
 lint:

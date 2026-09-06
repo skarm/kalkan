@@ -19,6 +19,11 @@ const maxSignerID = int(^uint32(0) >> 1)
 // KalkanCrypt stores process-global state inside the native library. The
 // low-level ckalkan package therefore allows one active native client per
 // process and serializes native calls. Client follows that model.
+// Individual calls are serialized; a LoadKeyStore call followed by signing is
+// not atomic. Callers using different key stores must synchronize the complete
+// load-and-sign sequence or use separate processes.
+// A Client is safe for concurrent method calls, subject to the callback contract
+// of [Observer]. It must be created with [Open]; its zero value is not initialized.
 type Client struct {
 	mu       sync.Mutex
 	pemCache atomic.Pointer[entry]
@@ -27,6 +32,8 @@ type Client struct {
 	library  closer
 	config   runtimeConfig
 	logger   *slog.Logger
+	// trusted is accessed only while the native call gate is held.
+	trusted []loadedTrustedCertificate
 }
 
 type closeState struct {
@@ -87,17 +94,17 @@ type zipContainers interface {
 
 // Open loads and initializes KalkanCrypt.
 //
-// The context is checked before and between Go setup steps and while waiting to
-// enter a native call, including waiting for the native call serialization lock.
-// It cannot interrupt a KalkanCrypt call after control has entered the shared
-// library.
+// The context is checked before and between Go setup steps and while waiting
+// for the Client call gate. It cannot interrupt the low-level process mutex
+// wait, library loading, or an active KalkanCrypt call, including Init. Cleanup
+// after failed or canceled setup also waits without a context.
 func Open(ctx context.Context, options ...Option) (*Client, error) {
 	return openWithLibraryFactory(ctx, options, defaultLibraryFactory)
 }
 
 // Close releases the native KalkanCrypt session. It may be called more than
 // once. Close waits for any in-flight native call to return before closing the
-// native library.
+// native library. Repeated calls return the saved result of closing.
 func (c *Client) Close() error {
 	return c.CloseContext(context.Background())
 }
@@ -107,9 +114,10 @@ func (c *Client) Close() error {
 //
 // The context can stop waiting for a close that is queued behind another native
 // call or already running in another goroutine. It cannot interrupt a
-// KalkanCrypt call after control has entered the shared library. Once
-// CloseContext starts closing a client, new operations are rejected even if the
-// caller stops waiting.
+// KalkanCrypt call after control has entered the shared library.
+// CloseContext always starts closing, even when ctx is already canceled, and
+// rejects new operations. Once closing has completed, repeated calls return its
+// saved result, including when ctx is canceled.
 func (c *Client) CloseContext(ctx context.Context) error {
 	if c == nil {
 		return nil
@@ -117,10 +125,6 @@ func (c *Client) CloseContext(ctx context.Context) error {
 
 	if ctx == nil {
 		ctx = context.Background()
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
 	}
 
 	c.mu.Lock()
@@ -148,7 +152,7 @@ func (c *Client) CloseContext(ctx context.Context) error {
 
 	logCtx := context.Background()
 
-	if c.logger != nil {
+	if c.logger != nil || c.config.observer != nil {
 		start = time.Now()
 		logCtx = context.WithoutCancel(ctx)
 	}
@@ -161,29 +165,41 @@ func (c *Client) CloseContext(ctx context.Context) error {
 func (c *Client) closeLibrary(ctx context.Context, library closer, gate chan struct{}, closing *closeState, start time.Time) {
 	<-gate
 
-	var callLog nativeCallLog
+	var (
+		nativeStart               time.Time
+		queueWait, nativeDuration time.Duration
+	)
+
+	if !start.IsZero() {
+		nativeStart = time.Now()
+		queueWait = nativeStart.Sub(start)
+	}
+
+	var err error
 
 	func() {
-		defer func() { gate <- struct{}{} }()
+		defer releaseLibraryGate(gate)
 
-		err := library.Close()
+		err = library.Close()
+
+		if !start.IsZero() {
+			nativeDuration = time.Since(nativeStart)
+		}
 
 		c.mu.Lock()
 		c.library = nil
+		c.trusted = nil
 		closing.err = err
 		c.mu.Unlock()
-
-		if !start.IsZero() {
-			callLog = newNativeCallLog("Close", start, err)
-		}
 	}()
 
 	c.mu.Lock()
 	close(closing.done)
-	c.closing = nil
 	c.mu.Unlock()
 
-	logNativeCall(c, ctx, callLog)
+	if !start.IsZero() {
+		reportOperation(c, ctx, "Close", start, queueWait, nativeDuration, err)
+	}
 }
 
 func waitCloseContext(ctx context.Context, closing *closeState) error {
@@ -201,6 +217,8 @@ func waitCloseContext(ctx context.Context, closing *closeState) error {
 	}
 }
 
+// lockLibrary acquires the client call gate and rechecks that the session is
+// open. On success the caller must release the returned gate after using library.
 func (c *Client) lockLibrary(ctx context.Context) (closer, chan struct{}, error) {
 	if c == nil {
 		return nil, nil, ErrClosed
@@ -371,12 +389,10 @@ func setupOpenedClient(ctx context.Context, client *Client, cfg config) error {
 		return err
 	}
 
-	if cfg.tsaURL != "" {
-		if err := withLockedLibrary(client, ctx, "SetTSAURL", func(native network) error {
-			return native.SetTSAURL(cfg.tsaURL)
-		}); err != nil {
-			return fmt.Errorf("kalkan: configure TSA URL: %w", err)
-		}
+	if err := withLockedLibrary(client, ctx, "SetTSAURL", func(native network) error {
+		return native.SetTSAURL(cfg.tsaURL)
+	}); err != nil {
+		return fmt.Errorf("kalkan: configure TSA URL: %w", err)
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -401,108 +417,66 @@ func setupOpenedClient(ctx context.Context, client *Client, cfg config) error {
 	return nil
 }
 
-// withLockedLibrary holds the process-global call gate only while call runs.
+// withLockedLibrary holds the client call gate while call runs and reports
+// observations after releasing it. The low-level client serializes native calls
+// through a separate process-global mutex.
 func withLockedLibrary[T any](c *Client, ctx context.Context, operation string, call func(T) error) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	hasLogger := c != nil && c.logger != nil
-
-	var start time.Time
-
-	if hasLogger {
-		start = time.Now()
-	}
-
-	library, gate, err := c.lockLibrary(ctx)
-	if err != nil {
-		if hasLogger {
-			logNativeCall(c, ctx, newNativeCallLog(operation, start, err))
-		}
-
-		return err
-	}
-
-	var callLog nativeCallLog
-
-	func() {
-		defer releaseLibraryGate(gate)
-
-		capability, ok := any(library).(T)
-		if !ok {
-			err = unsupportedLibraryCapability(operation)
-			if hasLogger {
-				callLog = newNativeCallLog(operation, start, err)
-			}
-
-			return
-		}
-
-		err = call(capability)
-		if hasLogger {
-			callLog = newNativeCallLog(operation, start, err)
-		}
-	}()
-
-	if hasLogger {
-		logNativeCall(c, ctx, callLog)
-	}
+	_, err := withLockedLibraryResult(c, ctx, operation, func(native T) (struct{}, error) {
+		return struct{}{}, call(native)
+	})
 
 	return err
 }
 
-// withLockedLibraryResult holds the process-global call gate only while call runs.
-func withLockedLibraryResult[T, N any](c *Client, ctx context.Context, operation string, call func(N) (T, error)) (T, error) {
+// withLockedLibraryResult runs call under the client call gate and reports
+// observations after releasing it. expectedCodes classify accepted native
+// statuses for diagnostics without changing the returned result or error.
+func withLockedLibraryResult[T, N any](c *Client, ctx context.Context, operation string, call func(N) (T, error), expectedCodes ...ckalkan.ErrorCode) (T, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	hasLogger := c != nil && c.logger != nil
+	diagnostics := c != nil && (c.logger != nil || c.config.observer != nil)
 
 	var start time.Time
-
-	if hasLogger {
+	if diagnostics {
 		start = time.Now()
 	}
 
 	library, gate, err := c.lockLibrary(ctx)
-	if err != nil {
-		if hasLogger {
-			logNativeCall(c, ctx, newNativeCallLog(operation, start, err))
-		}
 
-		var zero T
-
-		return zero, err
+	var queueWait, nativeDuration time.Duration
+	if diagnostics {
+		queueWait = time.Since(start)
 	}
 
-	var (
-		result  T
-		callLog nativeCallLog
-	)
+	var result T
 
-	func() {
-		defer releaseLibraryGate(gate)
+	if err == nil {
+		func() {
+			defer releaseLibraryGate(gate)
 
-		capability, ok := any(library).(N)
-		if !ok {
-			err = unsupportedLibraryCapability(operation)
-			if hasLogger {
-				callLog = newNativeCallLog(operation, start, err)
+			capability, ok := any(library).(N)
+			if !ok {
+				err = unsupportedLibraryCapability(operation)
+				return
 			}
 
-			return
-		}
+			var nativeStart time.Time
+			if diagnostics {
+				nativeStart = time.Now()
+			}
 
-		result, err = call(capability)
-		if hasLogger {
-			callLog = newNativeCallLog(operation, start, err)
-		}
-	}()
+			result, err = call(capability)
 
-	if hasLogger {
-		logNativeCall(c, ctx, callLog)
+			if diagnostics {
+				nativeDuration = time.Since(nativeStart)
+			}
+		}()
+	}
+
+	if diagnostics {
+		reportOperation(c, ctx, operation, start, queueWait, nativeDuration, err, expectedCodes...)
 	}
 
 	return result, err
@@ -510,62 +484,6 @@ func withLockedLibraryResult[T, N any](c *Client, ctx context.Context, operation
 
 func unsupportedLibraryCapability(operation string) error {
 	return fmt.Errorf("kalkan: library does not support %s", operation)
-}
-
-type nativeCallLog struct {
-	operation string
-	duration  time.Duration
-	err       error
-}
-
-func newNativeCallLog(operation string, start time.Time, err error) nativeCallLog {
-	return nativeCallLog{
-		operation: operation,
-		duration:  time.Since(start),
-		err:       err,
-	}
-}
-
-func logNativeCall(c *Client, ctx context.Context, call nativeCallLog) {
-	if c == nil || c.logger == nil {
-		return
-	}
-
-	level := slog.LevelDebug
-	message := "kalkan native call completed"
-
-	if call.err != nil {
-		level = slog.LevelError
-		message = "kalkan native call failed"
-	}
-
-	if !c.logger.Enabled(ctx, level) {
-		return
-	}
-
-	operationAttr := slog.String("operation", call.operation)
-	durationAttr := slog.Duration("duration", call.duration)
-
-	if call.err != nil {
-		c.logger.LogAttrs(
-			ctx,
-			level,
-			message,
-			operationAttr,
-			durationAttr,
-			slog.Any("error", call.err),
-		)
-
-		return
-	}
-
-	c.logger.LogAttrs(
-		ctx,
-		level,
-		message,
-		operationAttr,
-		durationAttr,
-	)
 }
 
 func validateSignerID(field string, value int) error {

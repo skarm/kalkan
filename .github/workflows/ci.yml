@@ -118,7 +118,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
           args: --config .golangci.yml ./...
 
   vulncheck:

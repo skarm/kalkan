@@ -1,9 +1,12 @@
 package ckalkan
 
-import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+import (
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
-// ZipConVerify calls ZipConVerify and returns the native verification info for a
-// KalkanCrypt ZIP container.
+// ZipConVerify verifies the KalkanCrypt container at zipFile and returns
+// native diagnostic text. A nonzero native status returns an error.
 func (c *Client) ZipConVerify(zipFile string, flags Flag) (string, error) {
 	nativeFlags, err := flagsToNativeInt(flags)
 	if err != nil {
@@ -30,10 +33,12 @@ func (c *Client) ZipConVerify(zipFile string, flags Flag) (string, error) {
 		return "", err
 	}
 
-	return string(bytesBeforeNULTerminator(out)), nil
+	return string(nativebytes.BeforeNUL(out)), nil
 }
 
-// ZipConSign calls ZipConSign and signs files into a KalkanCrypt ZIP container.
+// ZipConSign signs req.FilePath into a KalkanCrypt ZIP container named by
+// req.Name in req.OutDir. Output creation and naming follow the native API;
+// this method does not stage or atomically publish the file.
 func (c *Client) ZipConSign(req ZipConSignRequest) error {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {
@@ -59,8 +64,8 @@ func (c *Client) ZipConSign(req ZipConSignRequest) error {
 	})))
 }
 
-// GetCertFromZipFile calls KC_getCertFromZipFile and extracts a signer
-// certificate from a KalkanCrypt ZIP container.
+// GetCertFromZipFile returns the native certificate bytes for signID from
+// the KalkanCrypt container at zipFile. The selector must fit a non-negative C int.
 func (c *Client) GetCertFromZipFile(zipFile string, flags Flag, signID int) ([]byte, error) {
 	if err := validateNativeSignerID("signID", signID); err != nil {
 		return nil, err

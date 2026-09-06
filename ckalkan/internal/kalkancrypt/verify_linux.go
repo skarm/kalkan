@@ -1,20 +1,17 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
 /*
 #include "KalkanCrypt.h"
 
-static unsigned long bridge_verify_data(void *funcsPtr, char *alias, int flags, char *inData, int inDataLength, unsigned char *inoutSign, int inoutSignLength, char *outData, int *outDataLen, char *outVerifyInfo, int *outVerifyInfoLen, int inCertID, char *outCert, int *outCertLength) {
+static unsigned long bridge_verify_data(void *funcsPtr, int universal, char *alias, int flags, char *inData, int inDataLength, unsigned char *inoutSign, int inoutSignLength, char *outData, int *outDataLen, char *outVerifyInfo, int *outVerifyInfoLen, int inCertID, char *outCert, int *outCertLength) {
     stKCFunctionsType *funcs = (stKCFunctionsType*)funcsPtr;
-    if (funcs == NULL || funcs->VerifyData == NULL) return KCR_LIBRARYNOTINITIALIZED;
-    return funcs->VerifyData(alias, flags, inData, inDataLength, inoutSign, inoutSignLength, outData, outDataLen, outVerifyInfo, outVerifyInfoLen, inCertID, outCert, outCertLength);
-}
-
-static unsigned long bridge_uverify_data(void *funcsPtr, char *alias, int flags, char *inData, int inDataLength, unsigned char *inOutSign, int inOutSignLength, char *outData, int *outDataLen, char *outVerifyInfo, int *outVerifyInfoLen, int inCertID, char *outCert, int *outCertLength) {
-    stKCFunctionsType *funcs = (stKCFunctionsType*)funcsPtr;
-    if (funcs == NULL || funcs->UVerifyData == NULL) return KCR_LIBRARYNOTINITIALIZED;
-    return funcs->UVerifyData(alias, flags, inData, inDataLength, inOutSign, inOutSignLength, outData, outDataLen, outVerifyInfo, outVerifyInfoLen, inCertID, outCert, outCertLength);
+    if (funcs == NULL) return KCR_LIBRARYNOTINITIALIZED;
+    unsigned long (*verify)(char *, int, char *, int, unsigned char *, int, char *, int *, char *, int *, int, char *, int *) =
+        universal ? funcs->UVerifyData : funcs->VerifyData;
+    if (verify == NULL) return KCR_LIBRARYNOTINITIALIZED;
+    return verify(alias, flags, inData, inDataLength, inoutSign, inoutSignLength, outData, outDataLen, outVerifyInfo, outVerifyInfoLen, inCertID, outCert, outCertLength);
 }
 */
 import "C"
@@ -35,10 +32,12 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 		return VerifyResult{}, err
 	}
 	defer freeAlias()
+
 	data, dataLen, err := inputBytes(call.Data)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	signature, signatureLen, err := verifySignatureInput(call.Signature, call.Flags, universal)
 	if err != nil {
 		return VerifyResult{}, err
@@ -48,10 +47,12 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	infoBuf, err := outputBuffer(call.InfoCapacity)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	certBuf, err := outputBuffer(call.CertCapacity)
 	if err != nil {
 		return VerifyResult{}, err
@@ -61,42 +62,29 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 	infoLen := C.int(call.InfoCapacity)
 	certLen := C.int(call.CertCapacity)
 
-	var code C.ulong
+	var universalFlag C.int
 	if universal {
-		code = C.bridge_uverify_data(
-			h.funcs,
-			alias,
-			C.int(call.Flags),
-			charPtr(data),
-			dataLen,
-			ucharPtr(signature),
-			signatureLen,
-			charPtr(dataBuf),
-			&dataOutLen,
-			charPtr(infoBuf),
-			&infoLen,
-			C.int(call.CertID),
-			charPtr(certBuf),
-			&certLen,
-		)
-	} else {
-		code = C.bridge_verify_data(
-			h.funcs,
-			alias,
-			C.int(call.Flags),
-			charPtr(data),
-			dataLen,
-			ucharPtr(signature),
-			signatureLen,
-			charPtr(dataBuf),
-			&dataOutLen,
-			charPtr(infoBuf),
-			&infoLen,
-			C.int(call.CertID),
-			charPtr(certBuf),
-			&certLen,
-		)
+		universalFlag = 1
 	}
+
+	code := C.bridge_verify_data(
+		h.funcs,
+		universalFlag,
+		alias,
+		C.int(call.Flags),
+		charPtr(data),
+		dataLen,
+		ucharPtr(signature),
+		signatureLen,
+		charPtr(dataBuf),
+		&dataOutLen,
+		charPtr(infoBuf),
+		&infoLen,
+		C.int(call.CertID),
+		charPtr(certBuf),
+		&certLen,
+	)
+
 	runtime.KeepAlive(data)
 	runtime.KeepAlive(signature)
 	runtime.KeepAlive(dataBuf)
@@ -112,14 +100,4 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 		Cert:    boundedBytes(certBuf, int(certLen)),
 		CertLen: int(certLen),
 	}, nil
-}
-
-func verifySignatureInput(signature []byte, flags int, universal bool) ([]byte, C.int, error) {
-	if universal {
-		// UVerifyData in the verified Linux SDK always interprets Signature as
-		// the path to a signature or container file, independently of flags.
-		return filePathBytes(signature)
-	}
-
-	return inputBytesWithFlags(signature, flags)
 }

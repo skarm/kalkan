@@ -1,8 +1,12 @@
 package ckalkan
 
-import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+import (
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
-// SignWSSE calls SignWSSE and returns the WS-Security signature envelope/body.
+// SignWSSE returns in-memory XML with a native WS-Security signature for
+// req.SignNodeID. The returned bytes exclude the native NUL terminator.
 func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 	flags, err := flagsToNativeUnsignedLong(req.Flags)
 	if err != nil {
@@ -17,12 +21,7 @@ func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 		return nil, err
 	}
 
-	estimated, err := estimateSignedXMLOutput(req.XML, "SignWSSE")
-	if err != nil {
-		return nil, err
-	}
-
-	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
+	initial := c.config.signedXMLOutputInitialCapacity(req.OutputCapacity, req.XML)
 
 	out, err := c.callBufferWithCapacityLocked("SignWSSE", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignWSSE(kalkancrypt.SignWSSECall{
@@ -37,5 +36,5 @@ func (c *Client) SignWSSE(req SignWSSERequest) ([]byte, error) {
 		return nil, err
 	}
 
-	return bytesBeforeNULTerminator(out), nil
+	return nativebytes.BeforeNUL(out), nil
 }

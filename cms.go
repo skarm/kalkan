@@ -8,8 +8,9 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// CertificateTimeCheck controls certificate-time checks performed by KalkanCrypt
-// while verifying signatures or certificate chains.
+// CertificateTimeCheck controls native certificate-time validation during
+// signing, signature verification, and certificate validation. Its zero value
+// uses KalkanCrypt's default checks.
 type CertificateTimeCheck int
 
 const (
@@ -78,9 +79,10 @@ type VerifyCMSRequest struct {
 	Data Source
 	// Detached verifies a detached CMS signature.
 	Detached bool
-	// Encoding describes the signature encoding when Signature does not specify
-	// one explicitly. It is most important for File sources because Go does not
-	// inspect file contents.
+	// Encoding supplies the fallback when Signature uses EncodingAuto. File
+	// starts with EncodingAuto; Bytes, Base64, PEM, and DER set an explicit
+	// encoding that takes precedence over this field. Go does not inspect file
+	// contents to infer their encoding.
 	Encoding Encoding
 	// SignerID selects a signer certificate from multi-signer data.
 	SignerID int
@@ -88,7 +90,8 @@ type VerifyCMSRequest struct {
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// CMS is a CMS signature returned by SignCMS.
+// CMS contains a signature returned by [Client.SignCMS] or [Client.SignHash].
+// Its representation is selected by the signing request's OutputFormat.
 type CMS struct {
 	// Data contains CMS output bytes. By default this is raw DER CMS; when a
 	// signing request sets OutputFormat, Data contains native base64 or PEM
@@ -96,7 +99,9 @@ type CMS struct {
 	Data []byte
 }
 
-// Verification is returned by CMS, XML, and ZIP verification operations.
+// Verification contains diagnostics and optional extracted data from
+// [Client.VerifyCMS], [Client.VerifyXML], or [Client.VerifyZIP]. It accompanies
+// a successful verification; failures are returned as errors.
 type Verification struct {
 	// Info is KalkanCrypt's native verification information string.
 	Info string
@@ -244,7 +249,8 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 
 	flags |= checkFlags
 
-	if req.Signature.file || req.Data.file {
+	// Detached data file sources have already been rejected above.
+	if req.Signature.file {
 		flags |= ckalkan.InFile
 	}
 
