@@ -636,6 +636,21 @@ func TestXMLCertificateInputPreservesBytesOutsideSignatureIDs(t *testing.T) {
 			"<?xml version='1.0' encoding='windows-1251'?><root>\xef\xf0\xe8\xe2\xe5\xf2<Signature xmlns='" + xmlnsDSig + "' /></root>",
 		},
 		{
+			"BOM and UTF-8 payload preserved",
+			"\xef\xbb\xbf<?xml version='1.0' encoding='UTF-8'?><root>Привет<Signature xmlns='" + xmlnsDSig + "' title='日本語 😀' Id='2'/></root>",
+			"\xef\xbb\xbf<?xml version='1.0' encoding='UTF-8'?><root>Привет<Signature xmlns='" + xmlnsDSig + "' title='日本語 😀' /></root>",
+		},
+		{
+			"BOM and invalid UTF-8 around multiple signatures",
+			"\xef\xbb\xbf<root>\xff\xc0\xaf<Signature xmlns='" + xmlnsDSig + "' title='\x80 >' Id='2'/>\xed\xa0\x80<Signature xmlns='" + xmlnsDSig + "' Id='1'/>\xfe</root>",
+			"\xef\xbb\xbf<root>\xff\xc0\xaf<Signature xmlns='" + xmlnsDSig + "' title='\x80 >' />\xed\xa0\x80<Signature xmlns='" + xmlnsDSig + "' />\xfe</root>",
+		},
+		{
+			"scanner error after signature preserves original input",
+			"<root><Signature xmlns='" + xmlnsDSig + "' Id='2'/>\x00</root>",
+			"<root><Signature xmlns='" + xmlnsDSig + "' Id='2'/>\x00</root>",
+		},
+		{
 			"no signatures",
 			`<root Id="1"><child title="Id='2' >"/></root>`,
 			`<root Id="1"><child title="Id='2' >"/></root>`,

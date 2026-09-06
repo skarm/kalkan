@@ -53,20 +53,44 @@ func TestEndpointPolicyRejectsUnsafeEndpointShapes(t *testing.T) {
 	}
 }
 
-func TestEndpointPolicyCanExplicitlyAllowIPAddress(t *testing.T) {
-	policy := EndpointPolicy{
-		AllowedHosts:     []string{"127.0.0.1"},
-		AllowedPorts:     []string{"8443"},
-		RequireHTTPS:     true,
-		AllowIPAddresses: true,
-	}
-
-	got, err := normalizeNativeHTTPURLWithPolicy("TSA URL", "https://127.0.0.1:8443/path", endpointPurposeTSA, &policy)
-	if err != nil {
-		t.Fatalf("validation returned error: %v", err)
-	}
-	if got != "https://127.0.0.1:8443/path" {
-		t.Fatalf("normalized URL = %q", got)
+func TestEndpointPolicyAddressForms(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		host       string
+		value      string
+		allowIP    bool
+		wantURL    string
+		wantReason string
+	}{
+		{name: "IPv4", host: "127.0.0.1", value: "https://127.0.0.1:8443/path", allowIP: true, wantURL: "https://127.0.0.1:8443/path"},
+		{name: "IPv6", host: "2001:db8::1", value: "https://[2001:db8::1]:8443/path", allowIP: true, wantURL: "https://[2001:db8::1]:8443/path"},
+		{name: "IPv6 without permission", host: "2001:db8::1", value: "https://[2001:db8::1]:8443/path", wantReason: "IP address destinations are not allowed"},
+		{name: "unlisted IPv6", host: "2001:db8::1", value: "https://[2001:db8::2]:8443/path", allowIP: true, wantReason: "not in the endpoint allowlist"},
+		{name: "IPv6 zone", host: "2001:db8::1", value: "https://[2001:db8::1%25eth0]:8443/path", allowIP: true, wantReason: "IPv6 zone identifiers are not allowed"},
+		{name: "Punycode", host: "xn--bcher-kva.example", value: " https://XN--BCHER-KVA.example:8443/path ", wantURL: "https://XN--BCHER-KVA.example:8443/path"},
+		{name: "Unicode URL host", host: "xn--bcher-kva.example", value: "https://bücher.example:8443/path", wantReason: "must use an ASCII DNS form"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := EndpointPolicy{
+				AllowedHosts:     []string{test.host},
+				AllowedPorts:     []string{"8443"},
+				RequireHTTPS:     true,
+				AllowIPAddresses: test.allowIP,
+			}
+			got, err := normalizeNativeHTTPURLWithPolicy("TSA URL", test.value, endpointPurposeTSA, &policy)
+			if test.wantReason != "" {
+				if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), test.wantReason) {
+					t.Fatalf("validation error = %v, want ErrInvalidInput containing %q", err, test.wantReason)
+				}
+				return
+			}
+			if err != nil || got != test.wantURL {
+				t.Fatalf("normalized URL = %q, error = %v, want %q", got, err, test.wantURL)
+			}
+			if err := policy.validate(); err != nil {
+				t.Fatalf("policy configuration rejected an accepted address form: %v", err)
+			}
+		})
 	}
 }
 
@@ -132,14 +156,18 @@ func TestEndpointPolicyRejectsInvalidConfigurationBeforeNative(t *testing.T) {
 		policy  EndpointPolicy
 		tsaURL  string
 		ocspURL string
+		want    string
 	}{
-		{name: "no hosts"},
-		{name: "empty host", policy: EndpointPolicy{AllowedHosts: []string{""}}},
-		{name: "URL as host", policy: EndpointPolicy{AllowedHosts: []string{"https://example.com"}}},
-		{name: "IP not enabled", policy: EndpointPolicy{AllowedHosts: []string{"127.0.0.1"}}},
-		{name: "invalid port", policy: EndpointPolicy{AllowedHosts: []string{"example.com"}, AllowedPorts: []string{"65536"}}},
-		{name: "TSA override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, tsaURL: "https://outside.example"},
-		{name: "OCSP override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, ocspURL: "https://outside.example"},
+		{name: "no hosts", want: "requires at least one allowed host"},
+		{name: "empty host", policy: EndpointPolicy{AllowedHosts: []string{""}}, want: "host is empty"},
+		{name: "URL as host", policy: EndpointPolicy{AllowedHosts: []string{"https://example.com"}}, want: "must not include URL syntax"},
+		{name: "IP not enabled", policy: EndpointPolicy{AllowedHosts: []string{"127.0.0.1"}}, want: "AllowIPAddresses is false"},
+		{name: "IPv6 not enabled", policy: EndpointPolicy{AllowedHosts: []string{"2001:db8::1"}}, want: "AllowIPAddresses is false"},
+		{name: "bracketed IPv6 host", policy: EndpointPolicy{AllowedHosts: []string{"[2001:db8::1]"}, AllowIPAddresses: true}, want: "must not include URL syntax"},
+		{name: "Unicode host", policy: EndpointPolicy{AllowedHosts: []string{"bücher.example"}}, want: "must use an ASCII DNS form"},
+		{name: "invalid port", policy: EndpointPolicy{AllowedHosts: []string{"example.com"}, AllowedPorts: []string{"65536"}}, want: "must be in range 1..65535"},
+		{name: "TSA override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, tsaURL: "https://outside.example", want: "not in the endpoint allowlist"},
+		{name: "OCSP override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, ocspURL: "https://outside.example", want: "not in the endpoint allowlist"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			options := []Option{WithLibraryPath(testLibraryPath()), WithEndpointPolicy(test.policy)}
@@ -154,8 +182,8 @@ func TestEndpointPolicyRejectsInvalidConfigurationBeforeNative(t *testing.T) {
 			if client != nil {
 				defer client.Close()
 			}
-			if !errors.Is(err, ErrInvalidInput) || called {
-				t.Fatalf("Open error = %v, factory called = %t", err, called)
+			if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), test.want) || called {
+				t.Fatalf("Open error = %v, factory called = %t, want ErrInvalidInput containing %q before native", err, called, test.want)
 			}
 		})
 	}

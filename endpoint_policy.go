@@ -34,6 +34,11 @@ const (
 type EndpointPolicy struct {
 	// AllowedHosts is the exact allowlist of DNS names. IP literals are rejected
 	// unless AllowIPAddresses is true and the literal is explicitly listed.
+	// DNS names here and in endpoint URLs must use ASCII; use Punycode for
+	// internationalized names. Unicode names are rejected without IDNA conversion.
+	// List IPv6 literals without brackets, for example "2001:db8::1"; endpoint
+	// URLs use brackets, for example "https://[2001:db8::1]/". IPv6 zone
+	// identifiers are not supported.
 	AllowedHosts []string
 	// AllowedPorts contains allowed effective ports. When empty, only the
 	// scheme-default port is accepted (80 for HTTP and 443 for HTTPS).

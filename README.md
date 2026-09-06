@@ -243,6 +243,8 @@ Certificate input supports DER, PEM, and base64; `kalkan.File` is rejected. PEM 
 
 `WithEndpointPolicy(EndpointPolicy{AllowedHosts: []string{"tsa.example", "ocsp.example"}, RequireHTTPS: true})` optionally restricts both configured endpoints and per-request OCSP URLs. Set `WithTSAURL` and `WithOCSPURL` to addresses accepted by the policy. Hosts match exactly, ignoring case and a trailing DNS dot; `AllowedPorts` limits ports (empty means scheme-default ports), and IP literals require both `AllowIPAddresses` and an allowlist entry. Rejections return `ErrInvalidInput`. KalkanCrypt performs DNS resolution and redirects itself; the policy does not replace network egress controls.
 
+With this policy, DNS names in both `AllowedHosts` and endpoint URLs must use ASCII. Use Punycode for internationalized names, for example `xn--bcher-kva.example`; Unicode names are rejected without automatic IDNA conversion. List IPv6 literals without brackets in `AllowedHosts`, for example `2001:db8::1`, and use brackets in URLs, for example `https://[2001:db8::1]/`. IPv6 zone identifiers are not supported.
+
 Use `X509CertificateGetInfoFields` on metadata hot paths. `CertificateInfo` exposes IIN, BIN, subject type, and recognized NCA roles when the corresponding fields are requested.
 
 ## ZIP containers
