@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -11,6 +11,11 @@ import (
 	"unsafe"
 )
 
+// nativeInt matches the length type accepted by the Linux C ABI.
+type nativeInt = C.int
+
+// cString allocates a validated NUL-terminated C string. On success, the caller
+// must invoke the returned cleanup function exactly once.
 func cString(value string) (*C.char, func(), error) {
 	if err := checkNativeString(value); err != nil {
 		return nil, nil, err
@@ -19,38 +24,6 @@ func cString(value string) (*C.char, func(), error) {
 	ptr := C.CString(value)
 
 	return ptr, func() { C.free(unsafe.Pointer(ptr)) }, nil
-}
-
-// inputBytes validates a length-delimited native input without copying it.
-// KalkanCrypt consumes the pointer synchronously, and every caller keeps the
-// slice alive until the native call returns.
-func inputBytes(value []byte) ([]byte, C.int, error) {
-	if err := checkNativeBytes(value); err != nil {
-		return nil, 0, err
-	}
-
-	return value, C.int(len(value)), nil
-}
-
-// filePathBytes returns a NUL-terminated copy for native parameters that are
-// interpreted as file paths instead of length-delimited byte sequences.
-func filePathBytes(value []byte) ([]byte, C.int, error) {
-	if err := checkNativeBytes(value); err != nil {
-		return nil, 0, err
-	}
-
-	buf := make([]byte, len(value)+1)
-	copy(buf, value)
-
-	return buf, C.int(len(value)), nil
-}
-
-func inputBytesWithFlags(value []byte, flags int) ([]byte, C.int, error) {
-	if flags&inFileFlag != 0 {
-		return filePathBytes(value)
-	}
-
-	return inputBytes(value)
 }
 
 func charPtr(buf []byte) *C.char {

@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package ckalkan_test
 
@@ -107,6 +107,7 @@ func assertStubValidateCertificateOutputBufferBoundaries(t *testing.T, ctx *kalk
 		t.Helper()
 		result, err := ctx.X509ValidateCertificate(kalkancrypt.ValidateCertificateCall{
 			Certificate:  []byte("cert"),
+			Flags:        int(ckalkan.GetOCSPResponse),
 			InfoCapacity: infoCapacity,
 			OCSPCapacity: ocspCapacity,
 		})
@@ -272,7 +273,7 @@ func TestMethodsAgainstStubLibrary(t *testing.T) {
 		return cli.GetCertFromZipFile("/tmp/a.zip", ckalkan.InFile, 0)
 	})
 
-	validate, err := cli.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{Certificate: []byte("cert"), ValidationType: ckalkan.UseOCSP, ValidationPath: "http://ocsp"})
+	validate, err := cli.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{Certificate: []byte("cert"), ValidationType: ckalkan.UseOCSP, ValidationPath: "http://ocsp", Flags: ckalkan.GetOCSPResponse})
 	if err != nil {
 		t.Fatalf("X509ValidateCertificate failed: %v", err)
 	}

@@ -1,6 +1,6 @@
 package ckalkan
 
-// ListResult is returned by KC_GetTokens and KC_GetCertificatesList.
+// ListResult contains a native token or certificate list and its item count.
 type ListResult struct {
 	// Data is the raw list string returned by KalkanCrypt.
 	Data string
@@ -8,7 +8,8 @@ type ListResult struct {
 	Count uint64
 }
 
-// ValidateCertificateRequest maps to X509ValidateCertificate parameters.
+// ValidateCertificateRequest specifies the certificate, revocation source,
+// validation time, and output capacities for [Client.X509ValidateCertificate].
 type ValidateCertificateRequest struct {
 	// Certificate contains the certificate bytes to validate. With InFile it
 	// contains the path to the certificate file.
@@ -29,15 +30,18 @@ type ValidateCertificateRequest struct {
 	OCSPCapacity int
 }
 
-// ValidateCertificateResult is returned by X509ValidateCertificate.
+// ValidateCertificateResult contains native validation diagnostics and an
+// optional OCSP response from [Client.X509ValidateCertificate].
 type ValidateCertificateResult struct {
 	// Info is the native validation information string.
 	Info string
-	// OCSPResponse is the optional raw OCSP response returned by KalkanCrypt.
+	// OCSPResponse is the raw OCSP response returned by KalkanCrypt when
+	// GetOCSPResponse is set. Otherwise it is nil.
 	OCSPResponse []byte
 }
 
-// SignDataRequest maps to SignData parameters.
+// SignDataRequest specifies the primary data, optional existing signature,
+// and native flags for [Client.SignData].
 type SignDataRequest struct {
 	// Alias identifies the loaded key alias used for signing.
 	Alias string
@@ -53,7 +57,8 @@ type SignDataRequest struct {
 	OutputCapacity int
 }
 
-// SignXMLRequest maps to SignXML parameters.
+// SignXMLRequest specifies the document, signature placement, and output
+// capacity for [Client.SignXML].
 type SignXMLRequest struct {
 	// Alias identifies the loaded key alias used for signing.
 	Alias string
@@ -71,7 +76,8 @@ type SignXMLRequest struct {
 	OutputCapacity int
 }
 
-// VerifyDataRequest maps to VerifyData parameters.
+// VerifyDataRequest specifies signature verification inputs and capacities
+// for the decoded data, diagnostic, and certificate outputs of [Client.VerifyData].
 type VerifyDataRequest struct {
 	// Alias is the key/certificate alias parameter accepted by KalkanCrypt.
 	Alias string
@@ -95,7 +101,8 @@ type VerifyDataRequest struct {
 	CertCapacity int
 }
 
-// VerifyDataResult is returned by VerifyData.
+// VerifyDataResult contains the native outputs of [Client.VerifyData]:
+// decoded content when available, verification diagnostics, and a signer certificate.
 type VerifyDataResult struct {
 	// Data contains decoded data returned by KalkanCrypt.
 	Data []byte
@@ -105,7 +112,8 @@ type VerifyDataResult struct {
 	Cert []byte
 }
 
-// SignWSSERequest maps to SignWSSE parameters.
+// SignWSSERequest specifies the XML document and node to sign with
+// [Client.SignWSSE].
 type SignWSSERequest struct {
 	// Alias identifies the loaded key alias used for signing.
 	Alias string
@@ -119,7 +127,8 @@ type SignWSSERequest struct {
 	OutputCapacity int
 }
 
-// ProxyRequest maps to KC_SetProxy parameters.
+// ProxyRequest specifies the native proxy mode and connection parameters for
+// [Client.SetProxy].
 type ProxyRequest struct {
 	// Flags contains proxy-related KalkanCrypt flags such as ProxyOn or ProxyAuth.
 	Flags Flag
@@ -133,7 +142,8 @@ type ProxyRequest struct {
 	Password string
 }
 
-// ZipConSignRequest maps to ZipConSign parameters.
+// ZipConSignRequest specifies the file, container name, output directory, and
+// signing flags for [Client.ZipConSign].
 type ZipConSignRequest struct {
 	// Alias identifies the loaded key alias used for signing.
 	Alias string

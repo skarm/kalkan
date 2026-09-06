@@ -1,6 +1,7 @@
 package ckalkan
 
-// Init calls KC_Init.
+// Init initializes the loaded KalkanCrypt runtime. Call it after [New] and
+// before cryptographic operations. A nonzero native status becomes a [KalkanError].
 func (c *Client) Init() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -15,7 +16,8 @@ func (c *Client) Init() error {
 	return c.wrapCodeLocked(ErrorCode(ctx.Init()))
 }
 
-// InitDebug calls KC_InitDebug.
+// InitDebug invokes KalkanCrypt debug initialization. The native function
+// returns no status; the method reports only client or capability errors.
 func (c *Client) InitDebug() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -31,7 +33,8 @@ func (c *Client) InitDebug() error {
 	return nil
 }
 
-// Finalize calls KC_Finalize.
+// Finalize releases native runtime resources while keeping the library
+// loaded. [Client.Close] also finalizes the runtime and unloads the library.
 func (c *Client) Finalize() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -47,7 +50,8 @@ func (c *Client) Finalize() error {
 	return nil
 }
 
-// XMLFinalize calls KC_XMLFinalize.
+// XMLFinalize releases the native XML subsystem resources while keeping
+// the library loaded. [Client.Close] performs this cleanup automatically.
 func (c *Client) XMLFinalize() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -63,7 +67,9 @@ func (c *Client) XMLFinalize() error {
 	return nil
 }
 
-// GetLastError calls KC_GetLastError.
+// GetLastError returns the process-global native error code. It returns
+// [ErrorLibraryNotInitialized] when the client or lifecycle capability is unavailable.
+// Another goroutine's native call may change this diagnostic state.
 func (c *Client) GetLastError() ErrorCode {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -76,7 +82,9 @@ func (c *Client) GetLastError() ErrorCode {
 	return ErrorCode(ctx.LastError())
 }
 
-// GetLastErrorString calls KC_GetLastErrorString.
+// GetLastErrorString returns the native diagnostic retrieval status and text,
+// using bounded output retries. It reports [ErrorLibraryNotInitialized] for an
+// unavailable client. Other native calls can change the diagnostic state.
 func (c *Client) GetLastErrorString() (ErrorCode, string) {
 	process.mu.Lock()
 	defer process.mu.Unlock()

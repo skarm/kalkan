@@ -6,7 +6,11 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-// GetCertFromCMS calls KC_GetCertFromCMS and extracts a signer certificate from CMS.
+// GetCertFromCMS returns a signer certificate extracted from in-memory CMS.
+// Linux SDK 2.0.13 numbers certificates from 1; 0 returns an empty result.
+// This differs from the signer index used by GetTimeFromSig.
+// The CMS argument must contain the container bytes; KC_IN_FILE is ignored by
+// that SDK operation, so callers must read file contents themselves.
 func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, error) {
 	if err := validateNativeSignerID("signID", signID); err != nil {
 		return nil, err
@@ -35,7 +39,8 @@ func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, err
 	})
 }
 
-// GetTimeFromSig calls KC_GetTimeFromSig and returns the timestamp embedded in a signature.
+// GetTimeFromSig returns the timestamp embedded for CMS signer sigID.
+// The index is zero-based; a native failure returns the zero time and an error.
 func (c *Client) GetTimeFromSig(data []byte, flags Flag, sigID int) (time.Time, error) {
 	if err := validateNativeSignerID("sigID", sigID); err != nil {
 		return time.Time{}, err

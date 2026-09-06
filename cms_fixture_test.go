@@ -2,7 +2,7 @@ package kalkan
 
 import (
 	"bytes"
-	"context"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
@@ -14,8 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/skarm/kalkan/ckalkan"
 )
 
 func TestCMSFixturesContainExpectedSigningTimes(t *testing.T) {
@@ -104,49 +102,6 @@ func containsTime(times []time.Time, want time.Time) bool {
 	return false
 }
 
-func TestVerifyCMSFixtures(t *testing.T) {
-	ctx := context.Background()
-	assets := loadFixtureAssets(t)
-	client := openFixtureClient(t, assets)
-
-	t.Run("attached timestamped CMS", func(t *testing.T) {
-		cms := readFixtureExample(t, assets, "test_CMS_GOST")
-		verification, err := client.VerifyCMS(ctx, VerifyCMSRequest{
-			Signature:            PEM(cms),
-			CertificateTimeCheck: SkipCertificateTimeCheck,
-		})
-		if err != nil {
-			t.Fatalf("VerifyCMS(test_CMS_GOST) failed: %v", err)
-		}
-		requireContains(t, "test_CMS_GOST verification", verification.Info, "Verify - OK")
-		requireContains(t, "test_CMS_GOST verification", verification.Info, "CAdES-T")
-		if len(verification.Data) == 0 {
-			t.Fatal("VerifyCMS(test_CMS_GOST) returned empty attached data")
-		}
-
-		if _, err := client.GetTimeFromSig(ctx, PEM(cms)); err == nil {
-			t.Fatal("GetTimeFromSig(test_CMS_GOST) unexpectedly succeeded for expired CMS fixture fixture")
-		} else {
-			requireKalkanError(t, "GetTimeFromSig(test_CMS_GOST)", err)
-		}
-	})
-
-	t.Run("detached CMS without data", func(t *testing.T) {
-		cms := readFixtureExample(t, assets, "CMS_for_double_sign")
-		if _, err := client.GetTimeFromSig(ctx, PEM(cms)); !isKalkanErrorCode(err, ckalkan.ErrorNoTSAToken) {
-			t.Fatalf("GetTimeFromSig(CMS_for_double_sign) error = %v, want ErrorNoTSAToken", err)
-		}
-		if _, err := client.VerifyCMS(ctx, VerifyCMSRequest{
-			Signature:            PEM(cms),
-			CertificateTimeCheck: SkipCertificateTimeCheck,
-		}); err == nil {
-			t.Fatal("VerifyCMS(CMS_for_double_sign without detached data) unexpectedly succeeded")
-		} else {
-			requireKalkanError(t, "VerifyCMS(CMS_for_double_sign without detached data)", err)
-		}
-	})
-}
-
 type documentCMSFixture struct {
 	name string
 }
@@ -207,69 +162,6 @@ func TestDocumentCMSFixtureSignerCertificates(t *testing.T) {
 					}
 					if signerID.serial.Cmp(certificateID.serial) != 0 {
 						t.Fatalf("CMS signer serial = %X, want %X", signerID.serial, certificateID.serial)
-					}
-				})
-			}
-		})
-	}
-}
-
-func TestVerifyDocumentCMSFixtures(t *testing.T) {
-	ctx := context.Background()
-	assets := loadFixtureAssets(t)
-	client := openFixtureClient(t, assets)
-
-	for _, fixture := range documentCMSFixtures {
-		t.Run(fixture.name, func(t *testing.T) {
-			document := readDocumentCMSFixture(t, fixture, "document.txt")
-			detachedSignature := readDocumentCMSFixture(t, fixture, "detached.der")
-			attachedSignature := readDocumentCMSFixture(t, fixture, "attached.der")
-			for _, input := range []struct {
-				name        string
-				signature   Source
-				data        Source
-				detached    bool
-				wantPayload bool
-			}{
-				{
-					name:      "detached DER",
-					signature: DER(detachedSignature),
-					data:      Bytes(document),
-					detached:  true,
-				},
-				{
-					name:      "detached Base64",
-					signature: Base64([]byte(base64.StdEncoding.EncodeToString(detachedSignature))),
-					data:      Bytes(document),
-					detached:  true,
-				},
-				{
-					name:        "attached DER",
-					signature:   DER(attachedSignature),
-					wantPayload: true,
-				},
-				{
-					name:        "attached Base64",
-					signature:   Base64([]byte(base64.StdEncoding.EncodeToString(attachedSignature))),
-					wantPayload: true,
-				},
-			} {
-				t.Run(input.name, func(t *testing.T) {
-					// These fixtures exercise CMS encoding and attachment variants. Their
-					// certificates are time-bounded test assets, so certificate-time policy
-					// is covered separately by deterministic unit tests.
-					verification, err := client.VerifyCMS(ctx, VerifyCMSRequest{
-						Signature:            input.signature,
-						Data:                 input.data,
-						Detached:             input.detached,
-						CertificateTimeCheck: SkipCertificateTimeCheck,
-					})
-					if err != nil {
-						t.Fatalf("VerifyCMS failed: %v", err)
-					}
-					requireContains(t, "verification", verification.Info, "Verify - OK")
-					if input.wantPayload && !bytes.Equal(verification.Data, document) {
-						t.Fatalf("VerifyCMS data = %q, want attached document", verification.Data)
 					}
 				})
 			}
@@ -612,4 +504,88 @@ func cmsEncapsulatedContent(raw asn1.RawValue) ([]byte, error) {
 	}
 
 	return content, nil
+}
+
+type signHashCMSEnvelope struct {
+	ContentType asn1.ObjectIdentifier
+	Content     signHashCMSSignedData `asn1:"explicit,tag:0"`
+}
+
+type signHashCMSSignedData struct {
+	Version          int
+	DigestAlgorithms []pkix.AlgorithmIdentifier `asn1:"set"`
+	ContentInfo      asn1.RawValue
+	Certificates     asn1.RawValue           `asn1:"optional,tag:0"`
+	CRLs             asn1.RawValue           `asn1:"optional,tag:1"`
+	SignerInfos      []signHashCMSSignerInfo `asn1:"set"`
+}
+
+type signHashCMSSignerInfo struct {
+	Version            int
+	Identifier         asn1.RawValue
+	DigestAlgorithm    pkix.AlgorithmIdentifier
+	SignedAttributes   []signHashCMSAttribute `asn1:"optional,tag:0,set"`
+	SignatureAlgorithm pkix.AlgorithmIdentifier
+	Signature          []byte
+	UnsignedAttributes []signHashCMSAttribute `asn1:"optional,tag:1,set"`
+}
+
+type signHashCMSAttribute struct {
+	Type   asn1.ObjectIdentifier
+	Values []asn1.RawValue `asn1:"set"`
+}
+
+func assertSignHashCMSStructure(t *testing.T, der, digest []byte) {
+	t.Helper()
+
+	var envelope signHashCMSEnvelope
+	if rest, err := asn1.Unmarshal(der, &envelope); err != nil || len(rest) != 0 {
+		t.Fatalf("decode SignHash CMS: error=%v, trailing bytes=%d", err, len(rest))
+	}
+	if !envelope.ContentType.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}) {
+		t.Fatalf("SignHash ContentInfo type = %s, want signedData", envelope.ContentType)
+	}
+	content, certificates, err := cmsContentAndCertificates(der)
+	if err != nil || content != nil || len(certificates) == 0 {
+		t.Fatalf("SignHash CMS: content=%x, certificates=%d, error=%v; want detached CMS with signer certificate", content, len(certificates), err)
+	}
+
+	// SDK 2.0.13's OBJ_id_GostR3411_2015_512 is OBJ_pkigovkz,3,3.
+	// The bundled fixture key selects this Kazakhstan GOST 512-bit digest OID.
+	wantDigestOID := asn1.ObjectIdentifier{1, 2, 398, 3, 10, 1, 3, 3}
+	algorithms := envelope.Content.DigestAlgorithms
+	if len(algorithms) != 1 || !algorithms[0].Algorithm.Equal(wantDigestOID) {
+		t.Fatalf("SignHash SignedData digest algorithms = %v, want only %s", algorithms, wantDigestOID)
+	}
+	if len(envelope.Content.SignerInfos) != 1 {
+		t.Fatalf("SignHash signer count = %d, want 1", len(envelope.Content.SignerInfos))
+	}
+	signer := envelope.Content.SignerInfos[0]
+	if !signer.DigestAlgorithm.Algorithm.Equal(wantDigestOID) {
+		t.Fatalf("SignHash SignerInfo digest algorithm = %s, want %s", signer.DigestAlgorithm.Algorithm, wantDigestOID)
+	}
+	if len(signer.Signature) == 0 {
+		t.Fatal("SignHash SignerInfo contains an empty signature")
+	}
+
+	messageDigestCount := 0
+	for _, attribute := range signer.SignedAttributes {
+		if !attribute.Type.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 4}) {
+			continue
+		}
+		messageDigestCount++
+		if len(attribute.Values) != 1 {
+			t.Fatalf("SignHash messageDigest value count = %d, want 1", len(attribute.Values))
+		}
+		var embeddedDigest []byte
+		if rest, err := asn1.Unmarshal(attribute.Values[0].FullBytes, &embeddedDigest); err != nil || len(rest) != 0 {
+			t.Fatalf("decode SignHash messageDigest: error=%v, trailing bytes=%d", err, len(rest))
+		}
+		if !bytes.Equal(embeddedDigest, digest) {
+			t.Fatalf("SignHash messageDigest = %x, want supplied digest %x", embeddedDigest, digest)
+		}
+	}
+	if messageDigestCount != 1 {
+		t.Fatalf("SignHash messageDigest attribute count = %d, want 1", messageDigestCount)
+	}
 }

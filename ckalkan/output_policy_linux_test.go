@@ -133,7 +133,7 @@ func TestVerifyDataGrowsOnlyUsedBuffers(t *testing.T) {
 
 	second := calls[1]
 	if second.DataCapacity != 1 ||
-		second.InfoCapacity != initialInfoCapacity+7 ||
+		second.InfoCapacity != initialInfoCapacity*2 ||
 		second.CertCapacity != initialCertCapacity {
 		t.Fatalf("second capacities = data:%d info:%d cert:%d", second.DataCapacity, second.InfoCapacity, second.CertCapacity)
 	}

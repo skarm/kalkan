@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -48,7 +48,7 @@ func (h *linuxDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferResult, error) {
@@ -66,7 +66,7 @@ func (h *linuxDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferRe
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, error) {
@@ -74,6 +74,7 @@ func (h *linuxDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, 
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -84,5 +85,5 @@ func (h *linuxDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, 
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

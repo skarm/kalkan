@@ -3,7 +3,8 @@ package kalkan
 import "errors"
 
 var (
-	// ErrInvalidInput is wrapped by validation errors raised before native calls.
+	// ErrInvalidInput is wrapped by input-validation errors and errors parsing
+	// or validating data returned by the native library.
 	ErrInvalidInput = errors.New("kalkan: invalid input")
 
 	// ErrClosed is returned when a Client method is called after Close.

@@ -24,6 +24,7 @@ func (f *fakeDriver) XMLFinalize() {}
 func (f *fakeDriver) LastError() uint64 {
 	return 0
 }
+
 func (f *fakeDriver) LastErrorString(capacity int) (BufferResult, error) {
 	return BufferResult{Data: []byte("ok"), OutLen: len("ok")}, nil
 }
@@ -37,12 +38,15 @@ func (f *fakeDriver) X509LoadCertificateFromBuffer([]byte, int) uint64 { return 
 func (f *fakeDriver) X509ExportCertificateFromStore(string, int, int) (BufferResult, error) {
 	return BufferResult{}, nil
 }
+
 func (f *fakeDriver) X509CertificateGetInfo([]byte, int, int) (BufferResult, error) {
 	return BufferResult{}, nil
 }
+
 func (f *fakeDriver) X509ValidateCertificate(ValidateCertificateCall) (ValidateResult, error) {
 	return ValidateResult{}, nil
 }
+
 func (f *fakeDriver) HashData(call HashDataCall) (BufferResult, error) {
 	f.hashCalls++
 
@@ -64,28 +68,37 @@ func (f *fakeDriver) HashData(call HashDataCall) (BufferResult, error) {
 
 	return BufferResult{Data: data, OutLen: len(data)}, nil
 }
+
 func (f *fakeDriver) SignHash(call SignHashCall) (BufferResult, error) {
 	f.signHashCall = call
 
 	return BufferResult{}, nil
 }
+
 func (f *fakeDriver) SignData(call SignDataCall) (BufferResult, error) {
 	f.signDataCall = call
 
 	return BufferResult{}, nil
 }
-func (f *fakeDriver) SignXML(SignXMLCall) (BufferResult, error)        { return BufferResult{}, nil }
-func (f *fakeDriver) SignWSSE(SignWSSECall) (BufferResult, error)      { return BufferResult{}, nil }
-func (f *fakeDriver) VerifyData(VerifyDataCall) (VerifyResult, error)  { return VerifyResult{}, nil }
+
+func (f *fakeDriver) SignXML(SignXMLCall) (BufferResult, error) { return BufferResult{}, nil }
+
+func (f *fakeDriver) SignWSSE(SignWSSECall) (BufferResult, error) { return BufferResult{}, nil }
+
+func (f *fakeDriver) VerifyData(VerifyDataCall) (VerifyResult, error) { return VerifyResult{}, nil }
+
 func (f *fakeDriver) UVerifyData(VerifyDataCall) (VerifyResult, error) { return VerifyResult{}, nil }
+
 func (f *fakeDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	f.verifyXMLCall = call
 
 	return BufferResult{}, nil
 }
+
 func (f *fakeDriver) GetCertFromXML([]byte, int, int) (BufferResult, error) {
 	return BufferResult{}, nil
 }
+
 func (f *fakeDriver) GetSigAlgFromXML([]byte, int) (BufferResult, error) {
 	return BufferResult{}, nil
 }

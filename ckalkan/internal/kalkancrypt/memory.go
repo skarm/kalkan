@@ -1,7 +1,6 @@
 package kalkancrypt
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -66,13 +65,8 @@ func boundedBytes(buf []byte, length int) []byte {
 	return buf[:length:length]
 }
 
-// bytesBeforeNULTerminator is used only by native APIs that return a C string
-// without a byte length. Bytes at and after the first NUL are not part of that
-// string.
-func bytesBeforeNULTerminator(value []byte) []byte {
-	if i := bytes.IndexByte(value, 0); i >= 0 {
-		return value[:i:i]
-	}
-
-	return value[:len(value):len(value)]
+// bufferResult bounds the exposed data while preserving the native status and
+// reported length, including lengths that require a retry by the caller.
+func bufferResult(code uint64, buf []byte, length int) BufferResult {
+	return BufferResult{Code: code, Data: boundedBytes(buf, length), OutLen: length}
 }

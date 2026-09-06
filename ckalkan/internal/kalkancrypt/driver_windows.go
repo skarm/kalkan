@@ -82,6 +82,7 @@ func openDriverWithLoader(path string, load func(string, uintptr) (*syscall.DLL,
 	}
 
 	var funcs *kcFunctionList
+
 	rc, _, callErr := getList.Call(uintptr(unsafe.Pointer(&funcs)))
 	if rc != 0 {
 		_ = dll.Release()
@@ -92,6 +93,7 @@ func openDriverWithLoader(path string, load func(string, uintptr) (*syscall.DLL,
 
 		return nil, fmt.Errorf("KC_GetFunctionList failed with code %d", int32(rc))
 	}
+
 	if funcs == nil {
 		_ = dll.Release()
 
@@ -147,6 +149,11 @@ func (h *windowsDriver) ClearError() {
 	callWindowsVoid(h.clearError)
 }
 
+// Pointer-to-uintptr conversions must appear directly in callers' argument
+// lists. The directive makes their pointees escape to stable heap storage and
+// keeps them alive across this wrapper, stack growth, and the native syscall.
+//
+//go:uintptrescapes
 func callWindowsStatus(fn uintptr, args ...uintptr) uint64 {
 	if fn == 0 {
 		return errorLibraryNotInitialized
@@ -157,6 +164,9 @@ func callWindowsStatus(fn uintptr, args ...uintptr) uint64 {
 	return uint64(uint32(code))
 }
 
+// callWindowsVoid follows the same pointer contract as callWindowsStatus.
+//
+//go:uintptrescapes
 func callWindowsVoid(fn uintptr, args ...uintptr) {
 	if fn != 0 {
 		_, _, _ = syscall.SyscallN(fn, args...)

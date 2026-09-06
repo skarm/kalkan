@@ -2,7 +2,7 @@ package ckalkan
 
 import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
-// GetTokens calls KC_GetTokens and returns the raw token list plus native count.
+// GetTokens returns the raw token list and native item count for storage.
 //
 // The native ABI does not receive the output-buffer capacity.
 func (c *Client) GetTokens(storage Store) (ListResult, error) {
@@ -24,8 +24,7 @@ func (c *Client) GetTokens(storage Store) (ListResult, error) {
 	})
 }
 
-// GetCertificatesList calls KC_GetCertificatesList and returns the raw alias list
-// plus native count.
+// GetCertificatesList returns the raw certificate alias list and native count.
 //
 // The native ABI does not receive the output-buffer capacity.
 func (c *Client) GetCertificatesList() (ListResult, error) {
@@ -42,8 +41,8 @@ func (c *Client) GetCertificatesList() (ListResult, error) {
 	})
 }
 
-// LoadKeyStore calls KC_LoadKeyStore. For PKCS#12 storage, container is normally
-// a path to the .p12 file and password is the container password.
+// LoadKeyStore loads the key container selected by storage and alias. For
+// PKCS#12 storage, container is the file path and password unlocks the container.
 func (c *Client) LoadKeyStore(storage Store, password, container, alias string) error {
 	nativeStorage, err := storeToNativeInt(storage)
 	if err != nil {

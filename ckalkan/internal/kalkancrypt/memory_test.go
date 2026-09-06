@@ -147,23 +147,3 @@ func TestBoundedBytesPreservesBinaryZeroBytes(t *testing.T) {
 		t.Fatalf("binary output len/cap = %d/%d, want equal", len(got), cap(got))
 	}
 }
-
-func TestBytesBeforeNULTerminatorKeepsCStringPrefix(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []byte
-		want  string
-	}{
-		{name: "plain bytes", input: []byte("plain"), want: "plain"},
-		{name: "terminated string", input: []byte{'v', 'a', 'l', 'u', 'e', 0, 'g', 'a', 'r', 'b', 'a', 'g', 'e'}, want: "value"},
-		{name: "empty c string", input: []byte{0, 'x'}, want: ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := bytesBeforeNULTerminator(tc.input); string(got) != tc.want {
-				t.Fatalf("bytesBeforeNULTerminator(%v) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}

@@ -1,7 +1,9 @@
 package kalkan
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"os"
@@ -403,6 +405,16 @@ func TestValidateCertificateRejectsInvalidPEM(t *testing.T) {
 			pem:  append(append([]byte{}, validCert...), validCert...),
 			want: "multiple PEM blocks",
 		},
+		{
+			name: "malformed first PEM block",
+			pem:  append([]byte("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n"), validCert...),
+			want: "invalid PEM",
+		},
+		{
+			name: "unterminated first PEM block",
+			pem:  append([]byte("-----BEGIN CERTIFICATE-----\nY2VydA==\n"), validCert...),
+			want: "invalid PEM",
+		},
 	}
 
 	for _, test := range tests {
@@ -593,5 +605,44 @@ func TestValidationErrorsWrapErrInvalidInput(t *testing.T) {
 				t.Fatalf("error = %v, want ErrInvalidInput", err)
 			}
 		})
+	}
+}
+
+func TestValidateCertificateNormalizesExplicitEncodingsToPEM(t *testing.T) {
+	der := testCertificateDER(t, "certificate-validation")
+	encoded := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	for _, tc := range []struct {
+		name   string
+		source Source
+	}{
+		{"DER", DER(der)},
+		{"PEM", PEM(encoded)},
+		{"base64", Base64([]byte(base64.StdEncoding.EncodeToString(der)))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := &Client{config: runtimeConfig{maxInputSize: int64(len(tc.source.data))}, library: &fakeNative{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+				calls++
+				block, rest := pem.Decode(req.Certificate)
+				if block == nil || block.Type != "CERTIFICATE" || len(rest) != 0 || !bytes.Equal(block.Bytes, der) {
+					t.Fatalf("native certificate = %q, want one PEM block containing original DER", req.Certificate)
+				}
+				return ckalkan.ValidateCertificateResult{Info: "certificate valid"}, nil
+			}}}
+			result, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{Certificate: tc.source, Mode: CertificateValidationNone})
+			if err != nil || result == nil || result.Info != "certificate valid" || calls != 1 {
+				t.Fatalf("ValidateCertificate = %#v, %v, calls=%d", result, err, calls)
+			}
+		})
+	}
+}
+
+func TestCertificateValidationRawAndAutoRemainUnchanged(t *testing.T) {
+	value := []byte("native certificate representation")
+	for _, encoding := range []Encoding{EncodingRaw, EncodingAuto} {
+		result, err := certificateValidationInput(Bytes(value).WithEncoding(encoding), int64(len(value)))
+		if err != nil || !sameByteSliceBacking(result, value) {
+			t.Fatalf("encoding %v: result=%q, error=%v, want borrowed input", encoding, result, err)
+		}
 	}
 }

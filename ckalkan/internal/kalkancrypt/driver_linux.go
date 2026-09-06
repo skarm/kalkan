@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -63,6 +63,7 @@ func openDriver(path string) (driver, error) {
 		C.dlclose(handle)
 		return nil, fmt.Errorf("KC_GetFunctionList failed with code %d", int(rc))
 	}
+
 	if funcs == nil {
 		C.dlclose(handle)
 		return nil, errors.New("KC_GetFunctionList returned a nil function table")
@@ -103,9 +104,11 @@ func dlsym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 
 	C.dlerror()
 	symbol := C.dlsym(handle, cName)
+
 	if errMsg := C.dlerror(); errMsg != nil {
 		return nil, fmt.Errorf("dlsym %s failed: %s", name, C.GoString(errMsg))
 	}
+
 	if symbol == nil {
 		return nil, fmt.Errorf("dlsym %s returned nil", name)
 	}

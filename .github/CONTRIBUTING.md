@@ -79,6 +79,9 @@ same pull request.
 
 ## Test fixtures
 
+See [Test architecture](TESTING.md) for package boundaries, naming conventions,
+and the distinction between fixture checks and SDK integration tests.
+
 Keep fixtures synthetic and safe to publish. Do not add production certificates,
 private keys, passwords, tokens, or proprietary SDK binaries.
 

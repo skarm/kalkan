@@ -87,6 +87,13 @@ type driverZIP interface {
 // driver return ErrUnavailable from Open, so callers normally never receive a
 // Context value. A closed Context reports ErrClosed for methods that can return
 // errors and KCR_LIBRARYNOTINITIALIZED for status-code-only methods.
+// The zero value behaves as a closed context.
+//
+// Context does not synchronize calls. Callers must serialize access to the
+// process-global native state, including Close, even across different contexts.
+// Buffer methods perform one attempt: native status codes and reported lengths
+// are returned in the result, while Go argument and allocation checks return
+// errors. Callers are responsible for status handling and bounded retries.
 type Context struct {
 	driver driver
 }
@@ -124,8 +131,8 @@ func (c *Context) Close() error {
 }
 
 // ClearError clears KalkanCrypt's process-global last-error state when the
-// loaded library exports KC_InternalClearError. Older libraries may not provide
-// that optional symbol.
+// loaded library exports KC_InternalClearError. It does nothing if that optional
+// symbol is absent or the context is closed.
 func (c *Context) ClearError() {
 	if c.closed() {
 		return

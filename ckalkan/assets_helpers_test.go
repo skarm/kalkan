@@ -1,16 +1,15 @@
 package ckalkan_test
 
 import (
-	"archive/zip"
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
-	ckalkan "github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/internal/testfixture"
 )
 
 const (
@@ -100,79 +99,41 @@ func defaultAssetRoots() []string {
 
 func collectFixtureAssets(t *testing.T, roots []string) fixtureAssets {
 	t.Helper()
+
 	assets := fixtureAssets{Examples: make(map[string]string)}
-	if len(roots) == 1 {
+	if len(roots) > 0 {
 		assets.Root = roots[0]
 	}
-	for _, root := range roots {
-		if assets.Root == "" {
-			assets.Root = root
+	testfixture.WalkFiles(t, roots, func(path string) {
+		ext := strings.ToLower(filepath.Ext(path))
+		base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		switch ext {
+		case ".p12", ".pfx":
+			assets.P12 = append(assets.P12, path)
+		case ".cer", ".crt", ".pem", ".der":
+			lowerPath := strings.ToLower(filepath.ToSlash(path))
+			lowerBase := strings.ToLower(base)
+			if strings.Contains(lowerPath, "/cert") ||
+				strings.Contains(lowerPath, "keys and certs") ||
+				strings.Contains(lowerBase, "cert") ||
+				strings.Contains(lowerBase, "root_") ||
+				strings.Contains(lowerBase, "nca_") {
+				assets.Certs = append(assets.Certs, path)
+			}
+			testfixture.RegisterExample(assets.Examples, base, path)
+		case ".txt", ".xml":
+			testfixture.RegisterExample(assets.Examples, base, path)
+		case ".zip":
+			if strings.HasPrefix(base, "zip_") || base == "sign" {
+				assets.ZIPs = append(assets.ZIPs, path)
+			}
 		}
-		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if entry.IsDir() {
-				name := entry.Name()
-				if name == "__MACOSX" || name == ".git" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if strings.HasPrefix(entry.Name(), "._") {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(path))
-			base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			switch ext {
-			case ".p12", ".pfx":
-				assets.P12 = append(assets.P12, path)
-			case ".cer", ".crt", ".pem", ".der":
-				lowerPath := strings.ToLower(filepath.ToSlash(path))
-				lowerBase := strings.ToLower(base)
-				if strings.Contains(lowerPath, "/cert") ||
-					strings.Contains(lowerPath, "keys and certs") ||
-					strings.Contains(lowerBase, "cert") ||
-					strings.Contains(lowerBase, "root_") ||
-					strings.Contains(lowerBase, "nca_") {
-					assets.Certs = append(assets.Certs, path)
-				}
-				registerExample(assets.Examples, base, path)
-			case ".txt", ".xml":
-				registerExample(assets.Examples, base, path)
-			case ".zip":
-				if strings.HasPrefix(base, "zip_") || base == "sign" {
-					assets.ZIPs = append(assets.ZIPs, path)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("scan fixture assets in %s: %v", root, err)
-		}
-	}
+	})
 	sort.Strings(assets.P12)
 	sort.Strings(assets.Certs)
 	sort.Strings(assets.ZIPs)
-	return assets
-}
 
-func registerExample(examples map[string]string, base, path string) {
-	key := strings.TrimSpace(base)
-	switch key {
-	case "test_xml":
-		examples["test_xml"] = path
-	case "test_wsse", "wsse":
-		examples["test_wsse"] = path
-	case "test_CMS_GOST":
-		examples["test_CMS_GOST"] = path
-	case "CMS_for_double_sign":
-		examples["CMS_for_double_sign"] = path
-	case "test_CERT_GOST":
-		examples["test_CERT_GOST"] = path
-	case "text":
-		examples["text"] = path
-	}
+	return assets
 }
 
 func chooseStore(t *testing.T, stores []string) string {
@@ -193,6 +154,11 @@ func chooseStore(t *testing.T, stores []string) string {
 
 func loadCertificates(t *testing.T, client *ckalkan.Client, assets fixtureAssets) {
 	t.Helper()
+	if len(assets.Certs) == 0 {
+		t.Fatal("certificate fixtures are required for native test setup")
+	}
+	// The selected certificates form the test's trust setup. A rejected input
+	// is a setup failure; negative certificate fixtures belong in explicit tests.
 	for _, certPath := range assets.Certs {
 		data, err := os.ReadFile(certPath)
 		if err != nil {
@@ -209,14 +175,14 @@ func loadCertificates(t *testing.T, client *ckalkan.Client, assets fixtureAssets
 			continue
 		}
 		if err := client.X509LoadCertificateFromFile(certPath, certType); err != nil {
-			t.Logf("X509LoadCertificateFromFile(%s) returned %v", certPath, err)
+			t.Fatalf("load certificate fixture from file %s: %v", certPath, err)
 		}
 		format := ckalkan.CertDER
 		if bytes.Contains(data, []byte("-----BEGIN CERTIFICATE-----")) {
 			format = ckalkan.CertPEM
 		}
 		if err := client.X509LoadCertificateFromBuffer(data, format); err != nil {
-			t.Logf("X509LoadCertificateFromBuffer(%s) returned %v", certPath, err)
+			t.Fatalf("load certificate fixture from buffer %s: %v", certPath, err)
 		}
 	}
 }
@@ -232,22 +198,6 @@ func readExample(t *testing.T, assets fixtureAssets, name string) []byte {
 		t.Fatalf("read fixture example %s: %v", path, err)
 	}
 	return data
-}
-
-func copyZIPFixture(t *testing.T, srcPath string) string {
-	t.Helper()
-
-	content, err := os.ReadFile(srcPath)
-	if err != nil {
-		t.Fatalf("read source ZIP fixture %s: %v", srcPath, err)
-	}
-
-	dstPath := filepath.Join(t.TempDir(), filepath.Base(srcPath))
-	if err := os.WriteFile(dstPath, content, 0o644); err != nil {
-		t.Fatalf("write isolated ZIP fixture %s: %v", dstPath, err)
-	}
-
-	return dstPath
 }
 
 func materializeAssetRoots(t *testing.T, paths []string) []string {
@@ -267,50 +217,10 @@ func materializeAssetRoots(t *testing.T, paths []string) []string {
 			continue
 		}
 		if strings.EqualFold(filepath.Ext(path), ".zip") {
-			roots = append(roots, extractZipForTest(t, path))
+			roots = append(roots, testfixture.ExtractZIP(t, path, testfixture.OverwriteDuplicates))
 			continue
 		}
 		roots = append(roots, filepath.Dir(path))
 	}
 	return roots
-}
-
-func extractZipForTest(t *testing.T, zipPath string) string {
-	t.Helper()
-	reader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		t.Fatalf("open zip %s: %v", zipPath, err)
-	}
-	defer reader.Close()
-
-	root := t.TempDir()
-	for _, file := range reader.File {
-		name := filepath.Clean(file.Name)
-		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) || strings.Contains(name, string(filepath.Separator)+".."+string(filepath.Separator)) {
-			t.Fatalf("unsafe path %q in %s", file.Name, zipPath)
-		}
-		if file.FileInfo().IsDir() {
-			continue
-		}
-		outPath := filepath.Join(root, name)
-		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-			t.Fatalf("mkdir for %s: %v", outPath, err)
-		}
-		in, err := file.Open()
-		if err != nil {
-			t.Fatalf("open %s inside %s: %v", file.Name, zipPath, err)
-		}
-		out, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
-		if err != nil {
-			in.Close()
-			t.Fatalf("create %s: %v", outPath, err)
-		}
-		_, copyErr := io.Copy(out, in)
-		closeInErr := in.Close()
-		closeOutErr := out.Close()
-		if copyErr != nil || closeInErr != nil || closeOutErr != nil {
-			t.Fatalf("extract %s: copy=%v closeIn=%v closeOut=%v", file.Name, copyErr, closeInErr, closeOutErr)
-		}
-	}
-	return root
 }

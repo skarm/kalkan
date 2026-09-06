@@ -6,18 +6,31 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
+	"io"
+	"math"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/internal/nativebytes"
 )
 
 const maxExtractedSignerCertificates = 64
 
+const (
+	certificatePEMHeader    = "-----BEGIN CERTIFICATE-----\n"
+	certificatePEMFooter    = "-----END CERTIFICATE-----\n"
+	certificatePEMLineWidth = 64
+)
+
 // CertificateInfo contains selected KalkanCrypt certificate properties.
+// Fields that were not requested retain their zero values. Optional properties
+// absent from the certificate may also be empty. Parsed fields and inferred
+// subject details depend on the properties selected by
+// [Client.X509CertificateGetInfoFields].
 type CertificateInfo struct {
 	// Subject is the native subject distinguished name string.
 	Subject string
@@ -122,7 +135,8 @@ const (
 )
 
 // CertificateInfoField selects certificate properties requested from
-// KalkanCrypt. Use X509CertificateGetInfo for the full legacy set.
+// KalkanCrypt. Combine fields with bitwise OR. [Client.X509CertificateGetInfo]
+// requests [CertificateInfoAllFields].
 type CertificateInfoField uint64
 
 const (
@@ -242,14 +256,16 @@ func (c *Client) X509ExportCertificateFromStore(ctx context.Context) (*x509.Cert
 	return cert, nil
 }
 
-// X509CertificateGetInfo collects commonly used certificate properties through
-// KalkanCrypt's native X509CertificateGetInfo calls.
+// X509CertificateGetInfo returns the properties selected by
+// [CertificateInfoAllFields]. It uses the same certificate requirements as
+// [Client.X509CertificateGetInfoFields].
 func (c *Client) X509CertificateGetInfo(ctx context.Context, cert *x509.Certificate) (*CertificateInfo, error) {
 	return c.X509CertificateGetInfoFields(ctx, cert, CertificateInfoAllFields)
 }
 
-// X509CertificateGetInfoFields collects selected certificate properties through
-// KalkanCrypt's native X509CertificateGetInfo calls.
+// X509CertificateGetInfoFields retrieves properties selected by the bitmask
+// fields. The mask must be nonzero and contain only [CertificateInfoAllFields]
+// bits. cert must be non-nil with nonempty Raw DER; other cert fields are unused.
 func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Certificate, fields CertificateInfoField) (*CertificateInfo, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -257,6 +273,10 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+
+	if c == nil {
+		return nil, ErrClosed
 	}
 
 	if cert == nil {
@@ -275,14 +295,11 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 		return nil, fmt.Errorf("%w: unknown certificate info fields %#x", ErrInvalidInput, uint64(unknown))
 	}
 
-	certPEM := c.cachedPEMForCertificate(cert.Raw)
-	if certPEM == nil {
-		certPEM = c.encodeAndCacheCertificatePEM(cert.Raw)
-	}
-
-	if err := validateBytesSize(certPEM, "certificate", c.configuredMaxInputSize()); err != nil {
+	if err := validateCertificateInfoInputSize(len(cert.Raw), c.configuredMaxInputSize()); err != nil {
 		return nil, err
 	}
+
+	certPEM := c.cachedPEMForCertificate(cert.Raw)
 
 	info := &CertificateInfo{}
 
@@ -291,9 +308,23 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			continue
 		}
 
+		var expectedCode ckalkan.ErrorCode
+		if item.optional {
+			expectedCode = ckalkan.ErrorGetCertProp
+		}
+
 		value, err := withLockedLibraryResult(c, ctx, "X509CertificateGetInfo", func(native certificates) ([]byte, error) {
+			if certPEM == nil {
+				// Populate only while the open client's gate is held, so Close
+				// cannot finish before a queued call publishes a new cache entry.
+				certPEM = c.cachedPEMForCertificate(cert.Raw)
+				if certPEM == nil {
+					certPEM = c.encodeAndCacheCertificatePEM(cert.Raw)
+				}
+			}
+
 			return native.X509CertificateGetInfo(certPEM, item.prop)
-		})
+		}, expectedCode)
 		if err != nil {
 			if item.optional && isKalkanErrorCode(err, ckalkan.ErrorGetCertProp) {
 				continue
@@ -302,7 +333,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			return nil, fmt.Errorf("kalkan: get certificate property %v: %w", item.prop, err)
 		}
 
-		if err := applyCertificateInfoProperty(info, item.field, string(bytesBeforeNULTerminator(value))); err != nil {
+		if err := applyCertificateInfoProperty(info, item.field, string(nativebytes.BeforeNUL(value))); err != nil {
 			return nil, err
 		}
 	}
@@ -315,6 +346,30 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 type entry struct {
 	der []byte
 	pem []byte
+}
+
+// Check both raw and expanded input before encoding or retaining a cache entry.
+// The native C int bound also keeps the size arithmetic safe on 32-bit builds.
+func validateCertificateInfoInputSize(derSize int, maxSize int64) error {
+	limit := int64(math.MaxInt32)
+	if maxSize > 0 {
+		limit = min(limit, maxSize)
+	}
+
+	if err := validateInputSize(int64(derSize), "certificate", limit); err != nil {
+		return err
+	}
+
+	return validateInputSize(certificatePEMSize(derSize), "certificate", limit)
+}
+
+// certificatePEMSize excludes the reserved NUL terminator. Use int64 arithmetic
+// so inputs in the native C int range remain safe on 32-bit Go builds.
+func certificatePEMSize(derSize int) int64 {
+	encoded := (int64(derSize) + 2) / 3 * 4
+	lines := (encoded + certificatePEMLineWidth - 1) / certificatePEMLineWidth
+
+	return int64(len(certificatePEMHeader)+len(certificatePEMFooter)) + encoded + lines
 }
 
 func (c *Client) cachedPEMForCertificate(der []byte) []byte {
@@ -335,19 +390,14 @@ func (c *Client) encodeAndCacheCertificatePEM(der []byte) []byte {
 	return encoded
 }
 
+// encodeCertificatePEM returns PEM with 64-column Base64 lines and a trailing
+// NUL byte outside the logical slice for native C-string consumers.
 func encodeCertificatePEM(der []byte) []byte {
-	const (
-		header       = "-----BEGIN CERTIFICATE-----\n"
-		footer       = "-----END CERTIFICATE-----\n"
-		pemLineWidth = 64
-		rawChunkSize = pemLineWidth / 4 * 3
-	)
+	const rawChunkSize = certificatePEMLineWidth / 4 * 3
 
-	encodedLen := base64.StdEncoding.EncodedLen(len(der))
-	lineCount := (encodedLen + pemLineWidth - 1) / pemLineWidth
-	logicalLen := len(header) + encodedLen + lineCount + len(footer)
+	logicalLen := certificatePEMSize(len(der))
 	out := make([]byte, logicalLen+1)
-	offset := copy(out, header)
+	offset := copy(out, certificatePEMHeader)
 
 	for len(der) > 0 {
 		chunkLen := min(len(der), rawChunkSize)
@@ -359,7 +409,7 @@ func encodeCertificatePEM(der []byte) []byte {
 		der = der[chunkLen:]
 	}
 
-	copy(out[offset:], footer)
+	copy(out[offset:], certificatePEMFooter)
 
 	// Keep a trailing zero outside the logical slice. The Linux native adapter
 	// can pass this internal buffer directly to KalkanCrypt without another
@@ -426,6 +476,7 @@ func applyCertificateInfoProperty(info *CertificateInfo, field CertificateInfoFi
 }
 
 // GetCertFromCMS extracts signer certificates embedded in a CMS container.
+// File sources are read into memory by Go and obey WithMaxInputSize.
 func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -441,18 +492,72 @@ func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certif
 	}
 
 	flags |= ckalkan.SignCMS | ckalkan.OutBase64
+
 	if cms.file {
-		flags |= ckalkan.InFile
+		// KC_GetCertFromCMS expects CMS contents even when KC_IN_FILE is set.
+		// Read a file once so every signer lookup sees the same container.
+		value, err = readCMSCertificateFile(string(value), c.configuredMaxInputSize())
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return collectSignerCertificates(ctx, func(signID int) ([]byte, error) {
+	return collectSignerCertificates(ctx, ckalkan.ErrorCertNotFound, func(signID int) ([]byte, error) {
+		var expectedCode ckalkan.ErrorCode
+		if signID > 0 {
+			expectedCode = ckalkan.ErrorCertNotFound
+		}
+
 		return withLockedLibraryResult(c, ctx, "GetCertFromCMS", func(native cmsSignatures) ([]byte, error) {
-			return native.GetCertFromCMS(value, signID, flags)
-		})
+			// KC_GetCertFromCMS numbers certificates from 1. Keep the
+			// collection count zero-based so its limit still counts results.
+			return native.GetCertFromCMS(value, signID+1, flags)
+		}, expectedCode)
 	})
 }
 
-// GetTimeFromSig returns the timestamp embedded in a CMS signature.
+func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
+	if maxSize <= 0 || maxSize == math.MaxInt64 {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
+		}
+
+		return data, nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("kalkan: open CMS file: %w", err)
+	}
+	defer file.Close()
+
+	var buffer bytes.Buffer
+
+	if info, statErr := file.Stat(); statErr == nil && info.Mode().IsRegular() && info.Size() >= 0 {
+		initial := min(info.Size(), maxSize+1)
+		if initial <= int64(math.MaxInt)-bytes.MinRead {
+			// ReadFrom needs spare capacity for the final EOF probe. Stat is
+			// only an allocation hint; LimitReader also bounds a growing file.
+			buffer.Grow(int(initial) + bytes.MinRead)
+		}
+	}
+
+	if _, err := buffer.ReadFrom(io.LimitReader(file, maxSize+1)); err != nil {
+		return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
+	}
+
+	data := buffer.Bytes()
+	if err := validateBytesSize(data, "CMS input", maxSize); err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+// GetTimeFromSig returns the timestamp embedded for CMS signer 0 (the first
+// signer). The low-level ckalkan.Client.GetTimeFromSig method accepts a signer
+// index.
 func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Time, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -476,7 +581,8 @@ func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Tim
 	})
 }
 
-// GetCertFromXML extracts signer certificates embedded in signed XML.
+// GetCertFromXML extracts one embedded certificate per XML signature in document
+// order. It does not verify signatures or establish trust in the certificates.
 func (c *Client) GetCertFromXML(ctx context.Context, source Source) ([]*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -491,10 +597,17 @@ func (c *Client) GetCertFromXML(ctx context.Context, source Source) ([]*x509.Cer
 		return nil, err
 	}
 
-	return collectSignerCertificates(ctx, func(signID int) ([]byte, error) {
+	value = xmlCertificateInput(value)
+
+	return collectSignerCertificates(ctx, ckalkan.ErrorIDAttrNotFound, func(signID int) ([]byte, error) {
+		var expectedCode ckalkan.ErrorCode
+		if signID > 0 {
+			expectedCode = ckalkan.ErrorIDAttrNotFound
+		}
+
 		return withLockedLibraryResult(c, ctx, "GetCertFromXML", func(native xmlSignatures) ([]byte, error) {
-			return native.GetCertFromXML(value, signID)
-		})
+			return native.GetCertFromXML(value, signID+1)
+		}, expectedCode)
 	})
 }
 
@@ -518,7 +631,7 @@ func (c *Client) GetSigAlgFromXML(ctx context.Context, source Source) (string, e
 	})
 }
 
-func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]byte, error)) ([]*x509.Certificate, error) {
+func collectSignerCertificates(ctx context.Context, endCode ckalkan.ErrorCode, fetch func(signID int) ([]byte, error)) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 
 	for signID := 0; ; signID++ {
@@ -528,7 +641,7 @@ func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]by
 
 		out, err := fetch(signID)
 		if err != nil {
-			if isKalkanErrorCode(err, ckalkan.ErrorCertNotFound) {
+			if isKalkanErrorCode(err, endCode) {
 				if len(certs) == 0 {
 					return nil, err
 				}
@@ -562,6 +675,9 @@ func collectSignerCertificates(ctx context.Context, fetch func(signID int) ([]by
 	}
 }
 
+// parseNativeCertificate accepts DER, a single CERTIFICATE PEM block, or
+// Base64 DER from a native result. It permits NUL padding without truncating
+// embedded zero bytes in binary DER.
 func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
 	if isEmptyNativeCertificate(data) {
 		return nil, fmt.Errorf("%w: certificate output is empty", ErrInvalidInput)
@@ -580,22 +696,14 @@ func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
 		}
 	}
 
-	text := bytes.TrimSpace(bytesBeforeNULTerminator(data))
+	text := bytes.TrimSpace(nativebytes.BeforeNUL(data))
 	if bytes.HasPrefix(text, []byte("-----BEGIN ")) {
-		block, rest := pem.Decode(text)
-		if block == nil {
-			return nil, fmt.Errorf("%w: certificate output contains invalid PEM", ErrInvalidInput)
+		der, err := parseCertificatePEM(text)
+		if err != nil {
+			return nil, err
 		}
 
-		if len(bytes.TrimSpace(rest)) != 0 {
-			return nil, fmt.Errorf("%w: certificate PEM contains trailing data", ErrInvalidInput)
-		}
-
-		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("%w: certificate PEM block type must be CERTIFICATE, got %q", ErrInvalidInput, block.Type)
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
+		cert, err := x509.ParseCertificate(der)
 		if err != nil {
 			return nil, fmt.Errorf("%w: certificate PEM contains invalid DER: %w", ErrInvalidInput, err)
 		}
@@ -620,18 +728,7 @@ func isEmptyNativeCertificate(data []byte) bool {
 	// DER certificates always start with an ASN.1 SEQUENCE. Other supported
 	// representations are textual, so bytes beyond their first C terminator do
 	// not make an otherwise empty native result non-empty.
-	return data[0] != 0x30 && len(bytes.TrimSpace(bytesBeforeNULTerminator(data))) == 0
-}
-
-// bytesBeforeNULTerminator returns the meaningful prefix of a native textual
-// result. Bytes after a C-string terminator are unspecified by that contract.
-func bytesBeforeNULTerminator(value []byte) []byte {
-	index := bytes.IndexByte(value, 0)
-	if index >= 0 {
-		return value[:index:index]
-	}
-
-	return value[:len(value):len(value)]
+	return data[0] != 0x30 && len(bytes.TrimSpace(nativebytes.BeforeNUL(data))) == 0
 }
 
 func (info *CertificateInfo) applyKazakhstanSubjectDetails() {
@@ -729,27 +826,14 @@ func parseNativeCertificateTime(field, value string) (time.Time, error) {
 }
 
 func splitNativePropertyValues(value string) []string {
-	value = nativePropertyValue(value)
-	if value == "" {
-		return nil
-	}
-
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == '\r'
-	})
-
-	values := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			values = append(values, part)
-		}
-	}
-
-	return values
+	return splitNativeValues(value, strings.TrimSpace)
 }
 
 func splitNativeAttributeValues(value string) []string {
+	return splitNativeValues(value, nativePropertyValue)
+}
+
+func splitNativeValues(value string, normalize func(string) string) []string {
 	value = nativePropertyValue(value)
 	if value == "" {
 		return nil
@@ -761,7 +845,7 @@ func splitNativeAttributeValues(value string) []string {
 
 	values := make([]string, 0, len(parts))
 	for _, part := range parts {
-		part = nativePropertyValue(part)
+		part = normalize(part)
 		if part != "" {
 			values = append(values, part)
 		}

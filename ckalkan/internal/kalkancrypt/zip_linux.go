@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -53,11 +53,7 @@ func (h *linuxDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferR
 	code := C.bridge_zip_con_verify(h.funcs, inZip, C.int(flags), charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{
-		Code:   uint64(code),
-		Data:   boundedBytes(buf[:capacity:capacity], int(outLen)),
-		OutLen: int(outLen),
-	}, nil
+	return bufferResult(uint64(code), buf[:capacity:capacity], int(outLen)), nil
 }
 
 func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
@@ -66,16 +62,19 @@ func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
 		return errorParam
 	}
 	defer freeAlias()
+
 	filePath, freeFilePath, err := cString(call.FilePath)
 	if err != nil {
 		return errorParam
 	}
 	defer freeFilePath()
+
 	name, freeName, err := cString(call.Name)
 	if err != nil {
 		return errorParam
 	}
 	defer freeName()
+
 	outDir, freeOutDir, err := cString(call.OutDir)
 	if err != nil {
 		return errorParam
@@ -101,5 +100,5 @@ func (h *linuxDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferRes
 	code := C.bridge_get_cert_from_zip_file(h.funcs, inZip, C.int(call.Flags), C.int(call.SignID), charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

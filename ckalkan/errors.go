@@ -42,7 +42,10 @@ func (c ErrorCode) Hex() string {
 
 // KalkanError is returned when a KalkanCrypt function returns a non-zero code.
 type KalkanError struct {
-	Code    ErrorCode
+	// Code is the non-zero status returned by KalkanCrypt.
+	Code ErrorCode
+	// Message is optional diagnostic text returned by the native library or
+	// supplied by the wrapper.
 	Message string
 }
 
@@ -77,7 +80,7 @@ func (e *OutputBufferLimitError) Error() string {
 	}).Error()
 }
 
-// Unwrap preserves KalkanError and ErrorCodeOf compatibility.
+// Unwrap returns a [KalkanError] with code [ErrorBufferTooSmall].
 func (e *OutputBufferLimitError) Unwrap() error {
 	return &KalkanError{Code: ErrorBufferTooSmall}
 }
@@ -101,14 +104,15 @@ func (e *KalkanError) Format(language ErrorLanguage) string {
 	return "kalkancrypt: " + e.Code.Label(language) + " (" + e.Code.Hex() + "): " + e.Message
 }
 
-// Is reports whether target is a KalkanError with the same code.
+// Is reports whether target itself is a KalkanError with the same code.
 func (e *KalkanError) Is(target error) bool {
-	t, ok := errors.AsType[*KalkanError](target)
+	t, ok := target.(*KalkanError)
 
 	return ok && e != nil && t != nil && e.Code == t.Code
 }
 
-// ErrorCodeOf extracts a KalkanCrypt code from an error.
+// ErrorCodeOf returns the first [KalkanError] code in err's error tree.
+// It returns zero and false if no KalkanError matches or the first match is nil.
 func ErrorCodeOf(err error) (ErrorCode, bool) {
 	if ke, ok := errors.AsType[*KalkanError](err); ok && ke != nil {
 		return ke.Code, true

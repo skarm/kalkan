@@ -2,7 +2,9 @@ package kalkan
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -11,8 +13,6 @@ import (
 
 	"github.com/skarm/kalkan/ckalkan"
 )
-
-const loggingTestTimeout = 2 * time.Second
 
 func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
 	handlerEntered := make(chan struct{})
@@ -57,17 +57,17 @@ func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- call() }()
-	awaitLoggingTest(t, handlerEntered, "first logger invocation")
+	awaitTestEvent(t, handlerEntered, "first logger invocation")
 
 	secondDone := make(chan error, 1)
 	go func() { secondDone <- call() }()
-	awaitLoggingTest(t, secondNativeCall, "second native call while the first logger is blocked")
-	if err := awaitLoggingTest(t, secondDone, "second helper result"); err != nil {
+	awaitTestEvent(t, secondNativeCall, "second native call while the first logger is blocked")
+	if err := awaitTestEvent(t, secondDone, "second helper result"); err != nil {
 		t.Fatalf("second helper call returned error: %v", err)
 	}
 
 	releaseOnce.Do(func() { close(releaseHandler) })
-	if err := awaitLoggingTest(t, firstDone, "first helper result"); err != nil {
+	if err := awaitTestEvent(t, firstDone, "first helper result"); err != nil {
 		t.Fatalf("first helper call returned error: %v", err)
 	}
 }
@@ -119,16 +119,16 @@ func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 		result, err := call()
 		firstDone <- bytesResult{result: result, err: err}
 	}()
-	awaitLoggingTest(t, handlerEntered, "first result logger invocation")
+	awaitTestEvent(t, handlerEntered, "first result logger invocation")
 
 	secondDone := make(chan bytesResult, 1)
 	go func() {
 		result, err := call()
 		secondDone <- bytesResult{result: result, err: err}
 	}()
-	awaitLoggingTest(t, secondNativeCall, "second result-returning native call while the first logger is blocked")
+	awaitTestEvent(t, secondNativeCall, "second result-returning native call while the first logger is blocked")
 
-	second := awaitLoggingTest(t, secondDone, "second result-returning helper result")
+	second := awaitTestEvent(t, secondDone, "second result-returning helper result")
 	if second.err != nil {
 		t.Fatalf("second helper call returned error: %v", second.err)
 	}
@@ -137,7 +137,7 @@ func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 	}
 
 	releaseOnce.Do(func() { close(releaseHandler) })
-	first := awaitLoggingTest(t, firstDone, "first result-returning helper result")
+	first := awaitTestEvent(t, firstDone, "first result-returning helper result")
 	if first.err != nil {
 		t.Fatalf("first helper call returned error: %v", first.err)
 	}
@@ -180,10 +180,10 @@ func TestReentrantLoggerCanCallClientMethod(t *testing.T) {
 		outerDone <- err
 	}()
 
-	if err := awaitLoggingTest(t, reentrantDone, "reentrant client call"); err != nil {
+	if err := awaitTestEvent(t, reentrantDone, "reentrant client call"); err != nil {
 		t.Fatalf("reentrant Hash returned error: %v", err)
 	}
-	if err := awaitLoggingTest(t, outerDone, "outer client call"); err != nil {
+	if err := awaitTestEvent(t, outerDone, "outer client call"); err != nil {
 		t.Fatalf("outer Hash returned error: %v", err)
 	}
 	if got := nativeCalls.Load(); got != 2 {
@@ -213,8 +213,10 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 				switch attr.Key {
 				case "operation":
 					logged.operation = attr.Value.String()
+				case "error_class":
+					logged.errorClass = attr.Value.String()
 				case "error":
-					logged.err, _ = attr.Value.Any().(error)
+					t.Error("logger received raw error data")
 				}
 
 				return true
@@ -248,12 +250,12 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 		firstDone <- err
 	}()
 
-	logged := awaitLoggingTest(t, handlerEntered, "native error log")
+	logged := awaitTestEvent(t, handlerEntered, "native error log")
 	if logged.level != slog.LevelError || logged.message != "kalkan native call failed" || logged.operation != "Hash" {
 		t.Fatalf("logged native call = %+v", logged)
 	}
-	if !errors.Is(logged.err, nativeErr) {
-		t.Fatalf("logged error = %v, want %v", logged.err, nativeErr)
+	if logged.errorClass != "operation_failure" {
+		t.Fatalf("logged error class = %q, want operation_failure", logged.errorClass)
 	}
 
 	secondDone := make(chan error, 1)
@@ -261,13 +263,13 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 		_, err := client.Hash(context.Background(), HashRequest{Data: Bytes([]byte("second"))})
 		secondDone <- err
 	}()
-	awaitLoggingTest(t, secondNativeCall, "native call after logged error")
-	if err := awaitLoggingTest(t, secondDone, "operation after logged error"); err != nil {
+	awaitTestEvent(t, secondNativeCall, "native call after logged error")
+	if err := awaitTestEvent(t, secondDone, "operation after logged error"); err != nil {
 		t.Fatalf("second Hash returned error: %v", err)
 	}
 
 	releaseOnce.Do(func() { close(releaseHandler) })
-	if err := awaitLoggingTest(t, firstDone, "failed operation result"); !errors.Is(err, nativeErr) {
+	if err := awaitTestEvent(t, firstDone, "failed operation result"); !errors.Is(err, nativeErr) {
 		t.Fatalf("first Hash error = %v, want %v", err, nativeErr)
 	}
 }
@@ -349,16 +351,16 @@ func TestCloseContextCompletesBeforeSlowLogger(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- client.CloseContext(context.Background()) }()
-	awaitLoggingTest(t, handlerEntered, "Close logger invocation")
+	awaitTestEvent(t, handlerEntered, "Close logger invocation")
 
-	if err := awaitLoggingTest(t, closeDone, "CloseContext lifecycle completion"); err != nil {
+	if err := awaitTestEvent(t, closeDone, "CloseContext lifecycle completion"); err != nil {
 		t.Fatalf("CloseContext returned error: %v", err)
 	}
 
 	select {
 	case <-client.gate:
 		client.gate <- struct{}{}
-	case <-time.After(loggingTestTimeout):
+	case <-time.After(testEventTimeout):
 		t.Fatal("native gate remained held while Close logger was blocked")
 	}
 
@@ -366,15 +368,20 @@ func TestCloseContextCompletesBeforeSlowLogger(t *testing.T) {
 	library := client.library
 	closing := client.closing
 	client.mu.Unlock()
-	if library != nil || closing != nil {
+	if library != nil || closing == nil {
 		t.Fatalf("client lifecycle after CloseContext = library %v, closing %v; want fully closed", library, closing)
+	}
+	select {
+	case <-closing.done:
+	default:
+		t.Fatal("close result is not ready while logger is blocked")
 	}
 	if err := client.CloseContext(context.Background()); err != nil {
 		t.Fatalf("repeated CloseContext returned error: %v", err)
 	}
 
 	releaseOnce.Do(func() { close(releaseHandler) })
-	awaitLoggingTest(t, handlerExited, "Close logger completion")
+	awaitTestEvent(t, handlerExited, "Close logger completion")
 }
 
 type bytesResult struct {
@@ -383,10 +390,10 @@ type bytesResult struct {
 }
 
 type loggedNativeCall struct {
-	level     slog.Level
-	message   string
-	operation string
-	err       error
+	level      slog.Level
+	message    string
+	operation  string
+	errorClass string
 }
 
 type callbackSlogHandler struct {
@@ -409,19 +416,93 @@ func (h *callbackSlogHandler) WithGroup(string) slog.Handler {
 	return h
 }
 
-func awaitLoggingTest[T any](t *testing.T, ch <-chan T, event string) T {
-	t.Helper()
+func TestSignerCertificateLoggingClassifiesEndOfList(t *testing.T) {
+	der := testCertificateDER(t, "signer")
+	for _, operation := range []string{"CMS", "XML"} {
+		endCode := ckalkan.ErrorCertNotFound
+		if operation == "XML" {
+			endCode = ckalkan.ErrorIDAttrNotFound
+		}
+		for _, tc := range []struct {
+			name         string
+			firstMissing bool
+			code         ckalkan.ErrorCode
+			wantLevel    slog.Level
+		}{
+			{"end of list", false, endCode, slog.LevelDebug},
+			{"first certificate missing", true, endCode, slog.LevelError},
+			{"later native failure", false, ckalkan.ErrorSignInvalid, slog.LevelError},
+		} {
+			t.Run(operation+"/"+tc.name, func(t *testing.T) {
+				var levels []slog.Level
+				fetch := func(id int) ([]byte, error) {
+					firstID := 1
+					if id == firstID && !tc.firstMissing {
+						return der, nil
+					}
+					return nil, &ckalkan.KalkanError{Code: tc.code}
+				}
+				client := &Client{
+					library: &fakeNative{
+						getCertFromCMSFunc: func(_ []byte, id int, _ ckalkan.Flag) ([]byte, error) { return fetch(id) },
+						getCertFromXMLFunc: func(_ []byte, id int) ([]byte, error) { return fetch(id) },
+					},
+					logger: slog.New(&callbackSlogHandler{handle: func(_ context.Context, record slog.Record) error {
+						levels = append(levels, record.Level)
+						return nil
+					}}),
+				}
+				var err error
+				if operation == "CMS" {
+					_, err = client.GetCertFromCMS(context.Background(), Bytes([]byte("cms")))
+				} else {
+					_, err = client.GetCertFromXML(context.Background(), Bytes([]byte("<signed/>")))
+				}
+				if tc.wantLevel == slog.LevelDebug {
+					if err != nil {
+						t.Fatalf("end of list returned error: %v", err)
+					}
+				} else {
+					requireKalkanErrorCode(t, err, tc.code)
+				}
+				wantCount := 2
+				if tc.firstMissing {
+					wantCount = 1
+				}
+				if len(levels) != wantCount || levels[len(levels)-1] != tc.wantLevel {
+					t.Fatalf("levels = %v, want %d records ending in %v", levels, wantCount, tc.wantLevel)
+				}
+			})
+		}
+	}
+}
 
-	timer := time.NewTimer(loggingTestTimeout)
-	defer timer.Stop()
-
-	select {
-	case value := <-ch:
-		return value
-	case <-timer.C:
-		t.Fatalf("timed out waiting for %s", event)
-		var zero T
-
-		return zero
+func TestCertificatePropertyLoggingClassifiesOptionalAbsence(t *testing.T) {
+	for _, item := range certificateInfoProperties {
+		t.Run(fmt.Sprint(item.prop), func(t *testing.T) {
+			var level slog.Level
+			client := &Client{
+				library: &fakeNative{certificateGetInfoFunc: func(_ []byte, _ ckalkan.CertProp) ([]byte, error) {
+					return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
+				}},
+				logger: slog.New(&callbackSlogHandler{handle: func(_ context.Context, record slog.Record) error {
+					level = record.Level
+					return nil
+				}}),
+			}
+			_, err := client.X509CertificateGetInfoFields(context.Background(), &x509.Certificate{Raw: []byte("DER")}, item.field)
+			want := slog.LevelError
+			if item.optional {
+				want = slog.LevelDebug
+				if err != nil {
+					t.Fatalf("optional property returned error: %v", err)
+				}
+			} else {
+				requireKalkanErrorCode(t, err, ckalkan.ErrorGetCertProp)
+			}
+			if level != want {
+				t.Fatalf("level = %v, want %v", level, want)
+			}
+		})
 	}
 }

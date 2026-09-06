@@ -2,7 +2,12 @@
 
 package kalkancrypt
 
-import "runtime"
+import (
+	"runtime"
+	"unsafe"
+
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
 func (h *windowsDriver) GetTokens(storage uint64, bufferSize int) (ListResult, error) {
 	// KC_GetTokens has no capacity parameter in KalkanCrypt.h; bufferSize only
@@ -13,10 +18,10 @@ func (h *windowsDriver) GetTokens(storage uint64, bufferSize int) (ListResult, e
 	}
 
 	var count uint32
-	code := callWindowsStatus(h.funcs.getTokens, ulongArg(storage), bytesPtr(buf), uint32Ptr(&count))
+	code := callWindowsStatus(h.funcs.getTokens, ulongArg(storage), uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&count)))
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: code, Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: code, Data: string(nativebytes.BeforeNUL(buf)), Count: uint64(count)}, nil
 }
 
 func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
@@ -28,8 +33,8 @@ func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) 
 	}
 
 	var count uint32
-	code := callWindowsStatus(h.funcs.getCertificatesList, bytesPtr(buf), uint32Ptr(&count))
+	code := callWindowsStatus(h.funcs.getCertificatesList, uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&count)))
 	runtime.KeepAlive(buf)
 
-	return ListResult{Code: code, Data: string(bytesBeforeNULTerminator(buf)), Count: uint64(count)}, nil
+	return ListResult{Code: code, Data: string(nativebytes.BeforeNUL(buf)), Count: uint64(count)}, nil
 }

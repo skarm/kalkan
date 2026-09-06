@@ -185,8 +185,12 @@ const (
 	// ErrorVerifyIssuerSerialV2 reports an IssuerSerialV2 verification failure.
 	ErrorVerifyIssuerSerialV2 ErrorCode = 0x08f0005b
 	// ErrorOCSPCheckCertFromResp reports a certificate-check failure in an OCSP response.
+	// The value comes from the Linux SDK 2.0.13 binary; the vendored
+	// KalkanCrypt.h does not define it.
 	ErrorOCSPCheckCertFromResp ErrorCode = 0x08f0005c
 	// ErrorCRLExpired reports an expired certificate revocation list.
+	// The value comes from the Linux SDK 2.0.13 binary; the vendored
+	// KalkanCrypt.h does not define it.
 	ErrorCRLExpired ErrorCode = 0x08f0005d
 	// ErrorLibraryNotInitialized reports that the native library is not initialized.
 	ErrorLibraryNotInitialized ErrorCode = 0x08f00101

@@ -2,8 +2,8 @@ package ckalkan
 
 import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
-// HashData calls HashData and returns the native digest. The algorithm value is
-// passed as KalkanCrypt expects it, for example SHA256.
+// HashData returns a digest of data using algorithm. Flags select the native
+// input and output representations; algorithm uses a KalkanCrypt name such as SHA256.
 func (c *Client) HashData(algorithm HashAlgorithm, flags Flag, data []byte) ([]byte, error) {
 	nativeFlags, err := flagsToNativeInt(flags)
 	if err != nil {
@@ -41,8 +41,8 @@ func initialHashOutputCapacity(algorithm HashAlgorithm, flags Flag) int {
 	case GOST2015_512:
 		return initialRawHash512Capacity
 	default:
-		// HashAlgorithm is extensible. Preserve the historical initial capacity
-		// for algorithms whose digest length is not known by this package.
+		// Unknown algorithms use a fallback capacity because the wrapper cannot
+		// estimate their digest length; native output lengths drive retries.
 		return initialUnknownHashCapacity
 	}
 }

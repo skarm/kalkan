@@ -1,6 +1,7 @@
 package kalkan
 
 import (
+	"encoding/pem"
 	"errors"
 	"net/url"
 	"path/filepath"
@@ -136,8 +137,12 @@ func FuzzCertificateValidationInput(f *testing.F) {
 		if len(result) == 0 {
 			t.Fatal("certificate preprocessing accepted empty output")
 		}
-		if int64(len(result)) > maxSize {
-			t.Fatalf("certificate preprocessing returned %d bytes, limit is %d", len(result), maxSize)
+		block, rest := pem.Decode(result)
+		if block == nil || block.Type != "CERTIFICATE" || len(block.Bytes) == 0 || len(rest) != 0 {
+			t.Fatal("certificate preprocessing did not return one nonempty PEM certificate")
+		}
+		if int64(len(data)) > maxSize || len(block.Bytes) > len(data) {
+			t.Fatal("certificate preprocessing exceeded the source input limit")
 		}
 	})
 }

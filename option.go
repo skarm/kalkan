@@ -20,8 +20,11 @@ const (
 )
 
 type runtimeConfig struct {
-	ocspURL      string
-	maxInputSize int64
+	ocspURL         string
+	maxInputSize    int64
+	atomicZIPOutput bool
+	endpointPolicy  *EndpointPolicy
+	observer        Observer
 }
 
 type config struct {
@@ -33,6 +36,9 @@ type config struct {
 	maxInputSize        int64
 	maxOutputBufferSize int
 	logger              *slog.Logger
+	atomicZIPOutput     bool
+	endpointPolicy      *EndpointPolicy
+	observer            Observer
 }
 
 // Option configures Open.
@@ -60,7 +66,21 @@ func WithOCSPURL(url string) Option {
 	}
 }
 
+// WithEndpointPolicy restricts TSA and OCSP URLs before passing them to
+// KalkanCrypt, including per-request OCSP overrides. By default destinations
+// are unrestricted. Native DNS resolution and redirects require external
+// egress controls when callers can influence endpoints.
+func WithEndpointPolicy(policy EndpointPolicy) Option {
+	owned := policy.clone()
+
+	return func(c *config) {
+		c.endpointPolicy = owned.clone()
+	}
+}
+
 // WithTrustedCertificate loads a trusted certificate during Open.
+// Successful loads are retained until Close and restored after LoadKeyStore.
+// See TrustedCertificate for byte ownership and file lifetime requirements.
 func WithTrustedCertificate(cert TrustedCertificate) Option {
 	return func(c *config) {
 		c.trusted = append(c.trusted, cert)
@@ -68,8 +88,9 @@ func WithTrustedCertificate(cert TrustedCertificate) Option {
 }
 
 // WithMaxInputSize sets a byte limit for high-level in-memory byte inputs
-// before native calls. Values less than or equal to zero make memory inputs
-// unlimited.
+// before native calls. It also bounds CMS files read by GetCertFromCMS, whose
+// native operation requires in-memory contents. Values less than or equal to
+// zero disable this limit.
 func WithMaxInputSize(size int64) Option {
 	return func(c *config) {
 		c.maxInputSize = max(size, 0)
@@ -93,12 +114,32 @@ func WithProxy(proxy Proxy) Option {
 	}
 }
 
+// WithAtomicZIPOutput makes SignZIP create its output in a private temporary
+// directory next to OutputPath, then publish the completed file atomically
+// without replacing an existing destination. It requires a filesystem that
+// supports hard links and an output directory controlled by the application.
+// By default SignZIP lets KalkanCrypt create OutputPath directly.
+func WithAtomicZIPOutput() Option {
+	return func(c *config) {
+		c.atomicZIPOutput = true
+	}
+}
+
 // WithLogger enables diagnostic structured logging for Client operations.
 // Passing nil leaves logging disabled. The logger receives a component=kalkan
 // attribute and is never installed as slog's process-global default logger.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) {
 		c.logger = logger
+	}
+}
+
+// WithObserver installs an optional callback for native-call timings and safe
+// outcome metadata. It runs after the native gate is released; see Observer
+// for concurrency and Close behavior. Passing nil disables observations.
+func WithObserver(observer Observer) Option {
+	return func(c *config) {
+		c.observer = observer
 	}
 }
 
@@ -112,6 +153,12 @@ func defaultOpenConfig() config {
 func (c *config) validate() error {
 	if c.maxOutputBufferSize < 0 {
 		return fmt.Errorf("%w: maximum output buffer size must be non-negative", ErrInvalidInput)
+	}
+
+	if c.endpointPolicy != nil {
+		if err := c.endpointPolicy.validate(); err != nil {
+			return err
+		}
 	}
 
 	libraryPath, err := validateNativePathString("library path", c.libraryPath)
@@ -129,14 +176,14 @@ func (c *config) validate() error {
 
 	c.libraryPath = libraryPath
 
-	tsaURL, err := normalizeNativeHTTPURL("TSA URL", c.tsaURL)
+	tsaURL, err := normalizeNativeHTTPURLWithPolicy("TSA URL", c.tsaURL, endpointPurposeTSA, c.endpointPolicy)
 	if err != nil {
 		return err
 	}
 
 	c.tsaURL = tsaURL
 
-	ocspURL, err := normalizeNativeHTTPURL("OCSP URL", c.ocspURL)
+	ocspURL, err := normalizeNativeHTTPURLWithPolicy("OCSP URL", c.ocspURL, endpointPurposeOCSP, c.endpointPolicy)
 	if err != nil {
 		return err
 	}
@@ -154,9 +201,20 @@ func (c *config) validate() error {
 
 func (c config) runtime() runtimeConfig {
 	return runtimeConfig{
-		ocspURL:      c.ocspURL,
-		maxInputSize: c.maxInputSize,
+		ocspURL:         c.ocspURL,
+		maxInputSize:    c.maxInputSize,
+		atomicZIPOutput: c.atomicZIPOutput,
+		endpointPolicy:  cloneEndpointPolicy(c.endpointPolicy),
+		observer:        c.observer,
 	}
+}
+
+func cloneEndpointPolicy(policy *EndpointPolicy) *EndpointPolicy {
+	if policy == nil {
+		return nil
+	}
+
+	return policy.clone()
 }
 
 func (c config) runtimeLogger() *slog.Logger {

@@ -1,6 +1,9 @@
 package ckalkan
 
-import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+import (
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
 // VerifyData calls VerifyData and returns decoded embedded data when the native
 // verification mode produces it, verification info, and optionally the signer
@@ -112,7 +115,7 @@ func (c *Client) VerifyData(req VerifyDataRequest) (VerifyDataResult, error) {
 
 		return VerifyDataResult{
 			Data:       capacityLimitedBytes(data),
-			VerifyInfo: string(bytesBeforeNULTerminator(result.Info)),
+			VerifyInfo: string(nativebytes.BeforeNUL(result.Info)),
 			Cert:       capacityLimitedBytes(result.Cert),
 		}, nil
 	}

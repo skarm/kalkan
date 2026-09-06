@@ -2,7 +2,10 @@
 
 package kalkancrypt
 
-import "runtime"
+import (
+	"runtime"
+	"unsafe"
+)
 
 func (h *windowsDriver) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, false)
@@ -17,22 +20,27 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	data, dataLen, err := inputBytes(call.Data)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	signature, signatureLen, err := verifySignatureInput(call.Signature, call.Flags, universal)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	dataBuf, err := outputBuffer(call.DataCapacity)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	infoBuf, err := outputBuffer(call.InfoCapacity)
 	if err != nil {
 		return VerifyResult{}, err
 	}
+
 	certBuf, err := outputBuffer(call.CertCapacity)
 	if err != nil {
 		return VerifyResult{}, err
@@ -47,19 +55,19 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 	}
 	code := callWindowsStatus(
 		fn,
-		bytesPtr(alias),
+		uintptr(unsafe.Pointer(bytesPtr(alias))),
 		intArg(call.Flags),
-		bytesPtr(data),
+		uintptr(unsafe.Pointer(bytesPtr(data))),
 		uintptr(uint32(dataLen)),
-		bytesPtr(signature),
+		uintptr(unsafe.Pointer(bytesPtr(signature))),
 		uintptr(uint32(signatureLen)),
-		bytesPtr(dataBuf),
-		int32Ptr(&dataOutLen),
-		bytesPtr(infoBuf),
-		int32Ptr(&infoLen),
+		uintptr(unsafe.Pointer(bytesPtr(dataBuf))),
+		uintptr(unsafe.Pointer(&dataOutLen)),
+		uintptr(unsafe.Pointer(bytesPtr(infoBuf))),
+		uintptr(unsafe.Pointer(&infoLen)),
 		intArg(call.CertID),
-		bytesPtr(certBuf),
-		int32Ptr(&certLen),
+		uintptr(unsafe.Pointer(bytesPtr(certBuf))),
+		uintptr(unsafe.Pointer(&certLen)),
 	)
 	runtime.KeepAlive(alias)
 	runtime.KeepAlive(data)
@@ -77,13 +85,4 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 		Cert:    boundedBytes(certBuf, int(certLen)),
 		CertLen: int(certLen),
 	}, nil
-}
-
-func verifySignatureInput(signature []byte, flags int, universal bool) ([]byte, int32, error) {
-	if universal {
-		// Keep UVerifyData input routing consistent across native drivers.
-		return filePathBytes(signature)
-	}
-
-	return inputBytesWithFlags(signature, flags)
 }

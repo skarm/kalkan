@@ -1,6 +1,7 @@
 package kalkancrypt
 
-// HashData calls HashData.
+// HashData computes a digest using call.Algorithm and call.Flags, with one
+// native attempt using call.Capacity bytes of output storage.
 func (c *Context) HashData(call HashDataCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -9,7 +10,8 @@ func (c *Context) HashData(call HashDataCall) (BufferResult, error) {
 	return c.driver.HashData(call)
 }
 
-// SignHash calls SignHash.
+// SignHash signs the precomputed digest with the loaded key selected by
+// call.Alias and returns the native signature output.
 func (c *Context) SignHash(call SignHashCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -18,7 +20,8 @@ func (c *Context) SignHash(call SignHashCall) (BufferResult, error) {
 	return c.driver.SignHash(call)
 }
 
-// SignData calls SignData.
+// SignData signs data or extends an existing signature according to call.Flags.
+// It returns the output from one native attempt.
 func (c *Context) SignData(call SignDataCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -27,7 +30,8 @@ func (c *Context) SignData(call SignDataCall) (BufferResult, error) {
 	return c.driver.SignData(call)
 }
 
-// SignXML calls SignXML.
+// SignXML signs in-memory XML using the requested node selectors and flags.
+// It returns the signed document from one native attempt.
 func (c *Context) SignXML(call SignXMLCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -36,7 +40,8 @@ func (c *Context) SignXML(call SignXMLCall) (BufferResult, error) {
 	return c.driver.SignXML(call)
 }
 
-// SignWSSE calls SignWSSE.
+// SignWSSE creates a WS-Security signature for the selected XML node and
+// returns the signed document from one native attempt.
 func (c *Context) SignWSSE(call SignWSSECall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -45,7 +50,8 @@ func (c *Context) SignWSSE(call SignWSSECall) (BufferResult, error) {
 	return c.driver.SignWSSE(call)
 }
 
-// VerifyData calls VerifyData.
+// VerifyData verifies a signature and returns the native status, decoded
+// data, verification diagnostics, and selected signer certificate.
 func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {
 		return VerifyResult{}, ErrClosed
@@ -54,10 +60,9 @@ func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return c.driver.VerifyData(call)
 }
 
-// UVerifyData calls the universal file verifier found in the verified Linux SDK.
-// Signature in the call is a file path; the native function reads it and
-// auto-detects XML, ZIP, draft, or CMS input. This low-level method is retained
-// for ABI coverage.
+// UVerifyData invokes the native universal file verifier. In Linux SDK
+// 2.0.13, call.Signature is a file path and the SDK detects XML, ZIP, draft, or
+// CMS input. Outputs retain their native status and reported lengths.
 func (c *Context) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {
 		return VerifyResult{}, ErrClosed

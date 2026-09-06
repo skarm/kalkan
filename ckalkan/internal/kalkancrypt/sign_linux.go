@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -44,6 +44,7 @@ func (h *linuxDriver) SignHash(call SignHashCall) (BufferResult, error) {
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -54,7 +55,7 @@ func (h *linuxDriver) SignHash(call SignHashCall) (BufferResult, error) {
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
@@ -64,14 +65,16 @@ func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
 	}
 	defer freeAlias()
 
-	inData, inDataLen, err := inputBytesWithFlags(call.Data, call.Flags)
+	inData, inDataLen, err := cmsInputBytes(call.Data, call.Flags)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	inSig, inSigLen, err := inputBytes(call.Signature)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -83,7 +86,7 @@ func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
 	runtime.KeepAlive(inSig)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) SignXML(call SignXMLCall) (BufferResult, error) {
@@ -92,20 +95,24 @@ func (h *linuxDriver) SignXML(call SignXMLCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 	defer freeAlias()
+
 	xml, xmlLen, err := inputBytes(call.XML)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	signNodeID, freeSignNodeID, err := cString(call.SignNodeID)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeSignNodeID()
+
 	parentSignNode, freeParentSignNode, err := cString(call.ParentSignNode)
 	if err != nil {
 		return BufferResult{}, err
 	}
 	defer freeParentSignNode()
+
 	parentNamespace, freeParentNamespace, err := cString(call.ParentNamespace)
 	if err != nil {
 		return BufferResult{}, err
@@ -133,7 +140,7 @@ func (h *linuxDriver) SignXML(call SignXMLCall) (BufferResult, error) {
 	runtime.KeepAlive(xml)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
 func (h *linuxDriver) SignWSSE(call SignWSSECall) (BufferResult, error) {
@@ -142,10 +149,12 @@ func (h *linuxDriver) SignWSSE(call SignWSSECall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 	defer freeAlias()
+
 	xml, xmlLen, err := inputBytes(call.XML)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	signNodeID, freeSignNodeID, err := cString(call.SignNodeID)
 	if err != nil {
 		return BufferResult{}, err
@@ -162,5 +171,5 @@ func (h *linuxDriver) SignWSSE(call SignWSSECall) (BufferResult, error) {
 	runtime.KeepAlive(xml)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

@@ -97,3 +97,36 @@ func statCreatedZIPPath(plan zipPlan) (string, os.FileInfo, error) {
 
 	return plan.desiredPath, nil, os.ErrNotExist
 }
+
+func stagedZIPOutputPlan(plan zipPlan) (zipPlan, func(), error) {
+	stageDir, err := os.MkdirTemp(plan.outDir, ".kalkan-zip-*")
+	if err != nil {
+		return zipPlan{}, nil, err
+	}
+
+	cleanup := func() { _ = os.RemoveAll(stageDir) }
+
+	staged, err := zipOutputPlan(filepath.Join(stageDir, filepath.Base(plan.desiredPath)))
+	if err != nil {
+		cleanup()
+		return zipPlan{}, nil, err
+	}
+
+	return staged, cleanup, nil
+}
+
+func publishStagedZIP(stagedPath string, plan zipPlan) (string, error) {
+	if err := ensureZIPOutputAbsent(plan); err != nil {
+		return "", err
+	}
+
+	if err := os.Link(stagedPath, plan.desiredPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("%w: ZIP output already exists: %s", ErrInvalidInput, plan.desiredPath)
+		}
+
+		return "", fmt.Errorf("kalkan: atomically publish ZIP output: %w", err)
+	}
+
+	return plan.desiredPath, nil
+}

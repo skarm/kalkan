@@ -20,14 +20,15 @@ type SignZIPRequest struct {
 	// non-lowercase extensions are accepted but SignedZIP.Path reports the
 	// actual lowercase path.
 	// The path must not exist. KalkanCrypt creates it without an atomic
-	// create-if-absent guarantee.
+	// create-if-absent guarantee unless WithAtomicZIPOutput is enabled.
 	OutputPath string
 	// CertificateTimeCheck controls KalkanCrypt certificate-time validation while
 	// building the ZIP signature.
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// SignedZIP is returned by SignZIP.
+// SignedZIP identifies the container created by [Client.SignZIP]. Path records
+// the actual output path, including the extension chosen by the native signer.
 type SignedZIP struct {
 	// Path is the ZIP container path created by KalkanCrypt.
 	Path string
@@ -87,25 +88,45 @@ func (c *Client) SignZIP(ctx context.Context, req SignZIPRequest) (*SignedZIP, e
 		return nil, err
 	}
 
+	activePlan := plan
+	atomicOutput := c != nil && c.config.atomicZIPOutput
+
+	if atomicOutput {
+		var cleanup func()
+
+		activePlan, cleanup, err = stagedZIPOutputPlan(plan)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	}
+
 	if err := withLockedLibrary(c, ctx, "SignZIP", func(native zipContainers) error {
-		if err := ensureZIPOutputAbsent(plan); err != nil {
+		if err := ensureZIPOutputAbsent(activePlan); err != nil {
 			return err
 		}
 
 		return native.ZipConSign(ckalkan.ZipConSignRequest{
 			Alias:    req.Alias,
 			FilePath: inputPath,
-			Name:     plan.nativeName,
-			OutDir:   plan.outDir,
+			Name:     activePlan.nativeName,
+			OutDir:   activePlan.outDir,
 			Flags:    checkFlags,
 		})
 	}); err != nil {
 		return nil, err
 	}
 
-	path, err := createdZIPPath(plan)
+	path, err := createdZIPPath(activePlan)
 	if err != nil {
 		return nil, err
+	}
+
+	if atomicOutput {
+		path, err = publishStagedZIP(path, plan)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &SignedZIP{Path: path}, nil

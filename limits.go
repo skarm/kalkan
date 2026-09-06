@@ -19,11 +19,15 @@ func validateMemorySourceSize(source Source, field string, maxSize int64) error 
 }
 
 func validateBytesSize(data []byte, field string, maxSize int64) error {
+	return validateInputSize(int64(len(data)), field, maxSize)
+}
+
+func validateInputSize(size int64, field string, maxSize int64) error {
 	if maxSize <= 0 {
 		return nil
 	}
 
-	if int64(len(data)) > maxSize {
+	if size > maxSize {
 		return fmt.Errorf("%w: %s exceeds maximum input size of %d bytes", ErrInvalidInput, field, maxSize)
 	}
 

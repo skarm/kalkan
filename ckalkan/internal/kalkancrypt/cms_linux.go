@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -23,10 +23,11 @@ import "C"
 import "runtime"
 
 func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
-	in, inLen, err := inputBytesWithFlags(data, flags)
+	in, inLen, err := cmsInputBytes(data, flags)
 	if err != nil {
 		return errorParam, 0
 	}
+
 	var out C.time_t
 	code := C.bridge_get_time_from_sig(h.funcs, charPtr(in), inLen, C.int(flags), C.int(sigID), &out)
 	runtime.KeepAlive(in)
@@ -35,10 +36,13 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 }
 
 func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	in, inLen, err := inputBytesWithFlags(call.CMS, call.Flags)
+	// SDK 2.0.13 ignores KC_IN_FILE here and always consumes in-memory CMS.
+	// Binary CMS may contain NUL bytes, so do not validate it as a file path.
+	in, inLen, err := cmsInputBytes(call.CMS, call.Flags&^inFileFlag)
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
@@ -49,5 +53,5 @@ func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, err
 	runtime.KeepAlive(in)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

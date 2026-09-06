@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -36,16 +36,19 @@ func (h *linuxDriver) SetProxy(call ProxyCall) uint64 {
 		return errorParam
 	}
 	defer freeAddr()
+
 	port, freePort, err := cString(call.Port)
 	if err != nil {
 		return errorParam
 	}
 	defer freePort()
+
 	user, freeUser, err := cString(call.User)
 	if err != nil {
 		return errorParam
 	}
 	defer freeUser()
+
 	pass, freePass, err := cString(call.Password)
 	if err != nil {
 		return errorParam

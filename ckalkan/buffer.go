@@ -1,12 +1,14 @@
 package ckalkan
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
+// callListLocked retries native list calls with geometric buffer growth.
+// The caller must hold process.mu. List APIs do not receive a capacity, so
+// limiting the Go allocation cannot bound their native writes.
 func (c *Client) callListLocked(operation string, call kalkancrypt.ListBufferFunc) (ListResult, error) {
 	size := normalizeConfiguredBufferSize(c.config.listBufferSize, defaultListBufferSize)
 	if size > outputBufferLimit(c.config.maxBufferSize) {
@@ -46,6 +48,8 @@ func (c *Client) callListLocked(operation string, call kalkancrypt.ListBufferFun
 	}
 }
 
+// callBufferWithCapacityLocked retries one length-aware output under the hard
+// limit and validates the final reported length. The caller must hold process.mu.
 func (c *Client) callBufferWithCapacityLocked(operation string, initial int, call kalkancrypt.OutputBufferFunc) ([]byte, error) {
 	size := boundedOutputCapacity(initial, c.config.maxBufferSize)
 
@@ -115,6 +119,9 @@ type outputBufferState struct {
 	growthHint     int
 }
 
+// nextOutputBufferCapacities selects which active outputs to grow and returns
+// their next capacities under hardMaximum. Negative lengths, requests above the
+// limit, and retries that cannot grow any buffer return an error.
 func nextOutputBufferCapacities(operation string, code ErrorCode, hardMaximum int, outputs ...outputBufferState) ([]int, error) {
 	grow := make([]bool, len(outputs))
 	hasGrowthCandidate := false
@@ -273,9 +280,7 @@ func growCapacity(current, requested, maximum int) int {
 		next = current * 2
 	}
 
-	if requested > current {
-		next = requested
-	}
+	next = max(next, requested)
 
 	if next > limit {
 		return limit
@@ -360,16 +365,4 @@ func validateNativeOutputDataLength(output string, data []byte, reportedLength i
 
 func capacityLimitedBytes(value []byte) []byte {
 	return value[:len(value):len(value)]
-}
-
-// bytesBeforeNULTerminator decodes an output whose native contract is textual.
-// Some KalkanCrypt methods report a fixed-size block rather than the C-string
-// length, so bytes after the first NUL are unspecified and must be ignored.
-func bytesBeforeNULTerminator(value []byte) []byte {
-	index := bytes.IndexByte(value, 0)
-	if index >= 0 {
-		return value[:index:index]
-	}
-
-	return capacityLimitedBytes(value)
 }

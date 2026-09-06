@@ -1,8 +1,12 @@
 package ckalkan
 
-import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+import (
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
-// SignXML calls SignXML and returns the signed XML bytes produced by KalkanCrypt.
+// SignXML returns req.XML with a native signature inserted using the requested
+// node selectors and flags. The input must contain XML bytes, not a file path.
 func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {
@@ -17,12 +21,7 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 		return nil, err
 	}
 
-	estimated, err := estimateSignedXMLOutput(req.XML, "SignXML")
-	if err != nil {
-		return nil, err
-	}
-
-	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
+	initial := c.config.signedXMLOutputInitialCapacity(req.OutputCapacity, req.XML)
 
 	out, err := c.callBufferWithCapacityLocked("SignXML", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
 		return ctx.SignXML(kalkancrypt.SignXMLCall{
@@ -39,10 +38,11 @@ func (c *Client) SignXML(req SignXMLRequest) ([]byte, error) {
 		return nil, err
 	}
 
-	return bytesBeforeNULTerminator(out), nil
+	return nativebytes.BeforeNUL(out), nil
 }
 
-// VerifyXML calls VerifyXML and returns the native verification info string.
+// VerifyXML verifies in-memory XML using the native flags and returns the
+// verification diagnostic text. A nonzero native status returns an error.
 func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error) {
 	nativeFlags, err := flagsToNativeInt(flags)
 	if err != nil {
@@ -69,10 +69,13 @@ func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error)
 		return "", err
 	}
 
-	return string(bytesBeforeNULTerminator(out)), nil
+	return string(nativebytes.BeforeNUL(out)), nil
 }
 
-// GetCertFromXML calls KC_getCertFromXML and extracts a signer certificate from XML.
+// GetCertFromXML returns the signer certificate selected by signID from XML.
+// Linux SDK 2.0.13 accepts one-based signature positions and also matches numeric
+// Signature Id attributes; 0 aliases the first signature. Colliding Id values
+// can select an earlier signature. ErrorIDAttrNotFound signals no match.
 func (c *Client) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
 	if err := validateNativeSignerID("signID", signID); err != nil {
 		return nil, err
@@ -91,7 +94,8 @@ func (c *Client) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
 	})
 }
 
-// GetSigAlgFromXML calls KC_getSigAlgFromXML and returns the XML signature algorithm.
+// GetSigAlgFromXML returns the native signature algorithm identifier from
+// in-memory XML, excluding its NUL terminator.
 func (c *Client) GetSigAlgFromXML(xml []byte) (string, error) {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -108,5 +112,5 @@ func (c *Client) GetSigAlgFromXML(xml []byte) (string, error) {
 		return "", err
 	}
 
-	return string(bytesBeforeNULTerminator(out)), nil
+	return string(nativebytes.BeforeNUL(out)), nil
 }

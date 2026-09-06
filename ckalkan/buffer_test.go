@@ -128,7 +128,7 @@ func TestCallBufferHandlesSmallExactAndLargerOutputs(t *testing.T) {
 			firstCode:  ErrorBufferTooSmall,
 			firstLen:   conservativeOutputBufferSize + 17,
 			secondData: []byte("grown"),
-			wantCaps:   []int{conservativeOutputBufferSize, conservativeOutputBufferSize + 17},
+			wantCaps:   []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2},
 		},
 	}
 
@@ -308,7 +308,7 @@ func TestExplicitLargerOutputBufferLimitAllowsGrowthPastDefault(t *testing.T) {
 	if string(got) != "ok" {
 		t.Fatalf("output = %q, want ok", got)
 	}
-	if want := []int{DefaultMaxOutputBufferSize, DefaultMaxOutputBufferSize + 1}; !slices.Equal(capacities, want) {
+	if want := []int{DefaultMaxOutputBufferSize, hardLimit}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
 	}
 }
@@ -376,6 +376,23 @@ func TestRepeatedOutputGrowthCannotCrossHardLimit(t *testing.T) {
 	}
 }
 
+func TestIncrementalReportedLengthsUseGeometricGrowth(t *testing.T) {
+	const hardLimit = 1024
+	cli := &Client{config: config{maxBufferSize: hardLimit}}
+	var capacities []int
+	_, err := cli.callBufferWithCapacityLocked("incremental output", 128, func(capacity int) (kalkancrypt.BufferResult, error) {
+		capacities = append(capacities, capacity)
+		return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: capacity + 1}, nil
+	})
+	if want := []int{128, 256, 512, hardLimit}; !slices.Equal(capacities, want) {
+		t.Fatalf("capacities = %v, want %v", capacities, want)
+	}
+	var limitErr *OutputBufferLimitError
+	if !errors.As(err, &limitErr) || limitErr.Requested != hardLimit+1 || limitErr.Limit != hardLimit {
+		t.Fatalf("error = %v, want typed rejection at hard limit", err)
+	}
+}
+
 func TestCallBufferRetriesOversizedOutput(t *testing.T) {
 	var capacities []int
 	cli := &Client{config: config{bufferSize: conservativeOutputBufferSize, maxBufferSize: conservativeOutputBufferSize * 2}}
@@ -398,7 +415,7 @@ func TestCallBufferRetriesOversizedOutput(t *testing.T) {
 	if string(got) != "complete" {
 		t.Fatalf("output = %q, want complete retry output", got)
 	}
-	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize + 1}; !slices.Equal(capacities, want) {
+	if want := []int{conservativeOutputBufferSize, conservativeOutputBufferSize * 2}; !slices.Equal(capacities, want) {
 		t.Fatalf("capacities = %v, want %v", capacities, want)
 	}
 }
@@ -434,6 +451,9 @@ func TestGrowCapacityCases(t *testing.T) {
 		want      int
 	}{
 		{name: "doubles when requested is smaller", current: 1024, requested: 512, maximum: 4096, want: 2048},
+		{name: "doubles when requested grows by one", current: 1024, requested: 1025, maximum: 4096, want: 2048},
+		{name: "grows to limit near maximum", current: 600, requested: 601, maximum: 1024, want: 1024},
+		{name: "does not overflow native maximum", current: maxNativeOutputBufferSize/2 + 1, requested: maxNativeOutputBufferSize/2 + 2, maximum: maxNativeOutputBufferSize, want: maxNativeOutputBufferSize},
 		{name: "uses requested when larger than double", current: 1024, requested: 3000, maximum: 4096, want: 3000},
 		{name: "caps at maximum", current: conservativeOutputBufferSize, requested: conservativeOutputBufferSize * 3, maximum: conservativeOutputBufferSize * 2, want: conservativeOutputBufferSize * 2},
 		{name: "does not grow at maximum", current: conservativeOutputBufferSize * 2, requested: conservativeOutputBufferSize * 3, maximum: conservativeOutputBufferSize * 2, want: conservativeOutputBufferSize * 2},

@@ -1,10 +1,18 @@
 package ckalkan
 
-import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+import (
+	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
+	"github.com/skarm/kalkan/internal/nativebytes"
+)
 
-// X509LoadCertificateFromFile calls X509LoadCertificateFromFile and adds a CA,
-// intermediate, or user certificate from disk to the native store.
+// X509LoadCertificateFromFile adds a CA, intermediate, or user certificate
+// from certPath to the native store selected by certType.
 func (c *Client) X509LoadCertificateFromFile(certPath string, certType CertType) error {
+	nativeType, err := enumToNativeInt("certificate type", int(certType))
+	if err != nil {
+		return err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -15,12 +23,17 @@ func (c *Client) X509LoadCertificateFromFile(certPath string, certType CertType)
 
 	c.clearErrorLocked()
 
-	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromFile(certPath, int(certType))))
+	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromFile(certPath, nativeType)))
 }
 
-// X509LoadCertificateFromBuffer calls X509LoadCertificateFromBuffer and loads a
-// certificate from bytes already held by Go code.
+// X509LoadCertificateFromBuffer loads certificate bytes in format into the
+// native store. This native API does not accept a certificate-role parameter.
 func (c *Client) X509LoadCertificateFromBuffer(cert []byte, format CertFormat) error {
+	nativeFormat, err := enumToNativeInt("certificate format", int(format))
+	if err != nil {
+		return err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -31,12 +44,17 @@ func (c *Client) X509LoadCertificateFromBuffer(cert []byte, format CertFormat) e
 
 	c.clearErrorLocked()
 
-	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromBuffer(cert, int(format))))
+	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromBuffer(cert, nativeFormat)))
 }
 
-// X509ExportCertificateFromStore calls X509ExportCertificateFromStore and returns
-// the certificate for alias in the requested format.
+// X509ExportCertificateFromStore returns the stored certificate for alias
+// in the requested format.
 func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat) ([]byte, error) {
+	nativeFormat, err := enumToNativeInt("certificate format", int(format))
+	if err != nil {
+		return nil, err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -46,13 +64,18 @@ func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat)
 	}
 
 	return c.callBufferWithCapacityLocked("X509ExportCertificateFromStore", c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.X509ExportCertificateFromStore(alias, int(format), capacity)
+		return ctx.X509ExportCertificateFromStore(alias, nativeFormat, capacity)
 	})
 }
 
-// X509CertificateGetInfo calls X509CertificateGetInfo and returns the requested
-// textual certificate property up to its native NUL terminator.
+// X509CertificateGetInfo returns native property prop from cert as text
+// bytes, excluding the NUL terminator and any trailing buffer padding.
 func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, error) {
+	nativeProperty, err := enumToNativeInt("certificate property", int(prop))
+	if err != nil {
+		return nil, err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -62,18 +85,24 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 	}
 
 	out, err := c.callBufferWithCapacityLocked("X509CertificateGetInfo", c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.X509CertificateGetInfo(cert, int(prop), capacity)
+		return ctx.X509CertificateGetInfo(cert, nativeProperty, capacity)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return bytesBeforeNULTerminator(out), nil
+	return nativebytes.BeforeNUL(out), nil
 }
 
-// X509ValidateCertificate calls KalkanCrypt and returns validation information
-// and an optional OCSP response.
+// X509ValidateCertificate checks a certificate using the requested validation
+// mode and returns native diagnostics. OCSPResponse is populated only when
+// req.Flags includes [GetOCSPResponse].
 func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (ValidateCertificateResult, error) {
+	nativeType, err := enumToNativeInt("validation type", int(req.ValidationType))
+	if err != nil {
+		return ValidateCertificateResult{}, err
+	}
+
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {
 		return ValidateCertificateResult{}, err
@@ -88,14 +117,17 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 	}
 
 	infoCap := boundedOutputCapacity(c.config.requestOutputInitialCapacity(req.OutputCapacity, initialInfoOutputBuffer), c.config.maxBufferSize)
+	// Keep a valid native OCSP buffer even when it is inactive. SDK 2.0.13 can
+	// leave its in/out length unchanged, so only consume it when requested.
 	ocspCap := boundedOutputCapacity(c.config.requestOutputInitialCapacity(req.OCSPCapacity, initialCertOutputBuffer), c.config.maxBufferSize)
+	returnOCSP := req.Flags&GetOCSPResponse != 0
 
 	for {
 		c.clearErrorLocked()
 
 		result, err := ctx.X509ValidateCertificate(kalkancrypt.ValidateCertificateCall{
 			Certificate:    req.Certificate,
-			ValidationType: int(req.ValidationType),
+			ValidationType: nativeType,
 			ValidationPath: req.ValidationPath,
 			CheckTimeUnix:  req.CheckTimeUnix,
 			Flags:          nativeFlags,
@@ -110,18 +142,18 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 			return ValidateCertificateResult{}, invalidNativeOutputLength("certificate-validation info", result.InfoLen)
 		}
 
-		if result.OCSPLen < 0 {
+		if returnOCSP && result.OCSPLen < 0 {
 			return ValidateCertificateResult{}, invalidNativeOutputLength("OCSP response", result.OCSPLen)
 		}
 
 		code := ErrorCode(result.Code)
-		if shouldRetryValidateCertificateOutput(code, result, infoCap, ocspCap) {
+		if shouldRetryValidateCertificateOutput(code, result, infoCap, ocspCap, returnOCSP) {
 			next, err := nextOutputBufferCapacities(
 				"X509ValidateCertificate",
 				code,
 				c.config.maxBufferSize,
 				outputBufferState{current: infoCap, reported: result.InfoLen, active: true},
-				outputBufferState{current: ocspCap, reported: result.OCSPLen, active: true},
+				outputBufferState{current: ocspCap, reported: result.OCSPLen, active: returnOCSP},
 			)
 			if err != nil {
 				return ValidateCertificateResult{}, err
@@ -140,18 +172,24 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 			return ValidateCertificateResult{}, err
 		}
 
-		if err := validateNativeOutputDataLength("OCSP response", result.OCSP, result.OCSPLen); err != nil {
-			return ValidateCertificateResult{}, err
+		var ocspResponse []byte
+
+		if returnOCSP {
+			if err := validateNativeOutputDataLength("OCSP response", result.OCSP, result.OCSPLen); err != nil {
+				return ValidateCertificateResult{}, err
+			}
+
+			ocspResponse = capacityLimitedBytes(result.OCSP)
 		}
 
 		return ValidateCertificateResult{
-			Info:         string(bytesBeforeNULTerminator(result.Info)),
-			OCSPResponse: capacityLimitedBytes(result.OCSP),
+			Info:         string(nativebytes.BeforeNUL(result.Info)),
+			OCSPResponse: ocspResponse,
 		}, nil
 	}
 }
 
-func shouldRetryValidateCertificateOutput(code ErrorCode, result kalkancrypt.ValidateResult, infoCap, ocspCap int) bool {
+func shouldRetryValidateCertificateOutput(code ErrorCode, result kalkancrypt.ValidateResult, infoCap, ocspCap int, returnOCSP bool) bool {
 	return code == ErrorBufferTooSmall ||
-		code == ErrorOK && (result.InfoLen > infoCap || result.OCSPLen > ocspCap)
+		code == ErrorOK && (result.InfoLen > infoCap || returnOCSP && result.OCSPLen > ocspCap)
 }

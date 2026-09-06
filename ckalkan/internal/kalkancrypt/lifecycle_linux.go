@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && amd64 && cgo
 
 package kalkancrypt
 
@@ -72,5 +72,5 @@ func (h *linuxDriver) LastErrorString(capacity int) (BufferResult, error) {
 	code := C.bridge_get_last_error_string(h.funcs, charPtr(buf), &outLen)
 	runtime.KeepAlive(buf)
 
-	return BufferResult{Code: uint64(code), Data: boundedBytes(buf, int(outLen)), OutLen: int(outLen)}, nil
+	return bufferResult(uint64(code), buf, int(outLen)), nil
 }

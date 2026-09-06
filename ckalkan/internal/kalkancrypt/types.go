@@ -15,6 +15,9 @@ var (
 // instead of importing C constants so that the common Go code builds everywhere.
 const errorLibraryNotInitialized uint64 = 0x08f00101
 
+// inBase64Flag mirrors KC_IN_BASE64 from KalkanCrypt.h.
+const inBase64Flag = 0x00000010
+
 // inFileFlag mirrors KC_IN_FILE from KalkanCrypt.h.
 const inFileFlag = 0x00008000
 
@@ -100,8 +103,8 @@ type VerifyXMLCall struct {
 
 // GetCertFromCMSCall contains the raw parameters for KC_GetCertFromCMS.
 type GetCertFromCMSCall struct {
-	// CMS contains the CMS data passed to the native function. With KC_IN_FILE
-	// it contains the path to the CMS file.
+	// CMS contains the in-memory CMS data passed to the native function.
+	// KC_IN_FILE does not make this parameter a file path.
 	CMS []byte
 	// SignID selects a signer certificate from multi-signer data.
 	SignID int
