@@ -4,12 +4,32 @@ package kalkancrypt_test
 
 import (
 	"bytes"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
 
 	kalkancrypt "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
+
+func TestGetCertFromCMSKeepsBinaryInputWithInFile(t *testing.T) {
+	ctx := openContext(t)
+	assets := loadFixtureAssets(t)
+	block, _ := pem.Decode(readExample(t, assets, "test_CMS_GOST"))
+	if block == nil || bytes.IndexByte(block.Bytes, 0) < 0 {
+		t.Fatal("CMS fixture must decode to binary input with an embedded NUL")
+	}
+	const inDER = 0x00000008
+	call := kalkancrypt.GetCertFromCMSCall{CMS: block.Bytes, SignID: 1, Flags: inDER, Capacity: 8 << 10}
+	baselineResult, err := ctx.GetCertFromCMS(call)
+	baseline := requireBufferOK(t, "GetCertFromCMS(DER)", baselineResult, err)
+	call.Flags |= inFile
+	result, err := ctx.GetCertFromCMS(call)
+	got := requireBufferOK(t, "GetCertFromCMS(DER with InFile)", result, err)
+	if !bytes.Equal(got, baseline) {
+		t.Fatal("InFile changed the certificate extracted from in-memory CMS")
+	}
+}
 
 func TestCMSFixtureOperations(t *testing.T) {
 	ctx := openContext(t)

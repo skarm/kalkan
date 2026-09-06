@@ -32,6 +32,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Benchmark smoke test
+        run: go test -run=^$ -bench=. -benchtime=1x ./...
+
   vet:
     name: Go vet
     runs-on: ubuntu-latest
@@ -90,6 +93,7 @@ jobs:
           go test -run=^$ -fuzz=^FuzzCertificateValidationInput$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzValidateBytesSize$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzOutputCapacityBounds$ -fuzztime=5s ./ckalkan
+          go test -run=^$ -fuzz=^FuzzReadMessage$ -fuzztime=5s ./isolated
 
       - name: Upload fuzz reproducers
         if: failure()
@@ -99,6 +103,7 @@ jobs:
           path: |
             testdata/fuzz/**
             ckalkan/testdata/fuzz/**
+            isolated/testdata/fuzz/**
           if-no-files-found: ignore
 
   lint:

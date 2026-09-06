@@ -138,6 +138,7 @@ func (c *Client) CloseContext(ctx context.Context) error {
 
 	library := c.library
 	if library == nil {
+		c.pemCache.Store(nil)
 		c.mu.Unlock()
 
 		return nil
@@ -189,6 +190,8 @@ func (c *Client) closeLibrary(ctx context.Context, library closer, gate chan str
 		c.mu.Lock()
 		c.library = nil
 		c.trusted = nil
+		c.pemCache.Store(nil)
+
 		closing.err = err
 		c.mu.Unlock()
 	}()

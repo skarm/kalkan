@@ -3,6 +3,7 @@ package kalkancrypt
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,40 @@ func TestFilePathBytesAddsTerminatorAndCopiesInput(t *testing.T) {
 	}
 	if int(emptySize) != 0 || !bytes.Equal(empty, []byte{0}) {
 		t.Fatalf("empty file input = %v/%d, want [0]/0", empty, emptySize)
+	}
+}
+
+func TestFileInputsRejectEmbeddedNUL(t *testing.T) {
+	value := []byte("payload\x00different")
+	tests := []struct {
+		name string
+		call func() ([]byte, nativeInt, error)
+	}{
+		{name: "path", call: func() ([]byte, nativeInt, error) { return filePathBytes(value) }},
+		{name: "file input", call: func() ([]byte, nativeInt, error) { return inputBytesWithFlags(value, inFileFlag) }},
+		{name: "CMS file", call: func() ([]byte, nativeInt, error) { return cmsInputBytes(value, inFileFlag) }},
+		{name: "Base64 CMS file", call: func() ([]byte, nativeInt, error) { return cmsInputBytes(value, inFileFlag|inBase64Flag) }},
+		{name: "signature file", call: func() ([]byte, nativeInt, error) { return verifySignatureInput(value, inFileFlag, false) }},
+		{name: "Base64 signature file", call: func() ([]byte, nativeInt, error) { return verifySignatureInput(value, inFileFlag|inBase64Flag, false) }},
+		{name: "universal signature file", call: func() ([]byte, nativeInt, error) { return verifySignatureInput(value, 0, true) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			buf, length, err := test.call()
+			if err == nil || !strings.Contains(err.Error(), "NUL") || buf != nil || length != 0 {
+				t.Fatalf("file input = %v/%d, %v, want NUL rejection without a native input", buf, length, err)
+			}
+		})
+	}
+}
+
+func TestMemoryInputsPreserveEmbeddedNUL(t *testing.T) {
+	value := []byte{'a', 0, 'b'}
+	for _, flags := range []int{0, 0x00000008, 0x00000004} {
+		buf, length, err := cmsInputBytes(value, flags)
+		if err != nil || int(length) != len(value) || !bytes.Equal(buf, value) {
+			t.Fatalf("flags %x: memory input = %v/%d, %v, want original binary input", flags, buf, length, err)
+		}
 	}
 }
 

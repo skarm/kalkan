@@ -115,6 +115,26 @@ func TestWindowsCertificateValidationPreservesNativePointers(t *testing.T) {
 	}
 }
 
+func TestWindowsCMSExtractionKeepsBinaryInputWithInFile(t *testing.T) {
+	want := []byte{0x30, 0, 1}
+	var calls int
+	fn := syscall.NewCallback(func(cms *byte, cmsLen uintptr, signID uintptr, flags uintptr, out *byte, outLen *int32) uintptr {
+		calls++
+		if cms == nil || !bytes.Equal(unsafe.Slice(cms, cmsLen), want) || flags != inFileFlag || signID != 1 {
+			t.Error("native callback received incorrect CMS input")
+			return uintptr(errorParam)
+		}
+		*out = 'c'
+		*outLen = 1
+		return 0
+	})
+	driver := &windowsDriver{funcs: &kcFunctionList{getCertFromCMS: fn}}
+	result, err := driver.GetCertFromCMS(GetCertFromCMSCall{CMS: want, SignID: 1, Flags: inFileFlag, Capacity: 8})
+	if err != nil || result.Code != 0 || string(result.Data) != "c" || calls != 1 {
+		t.Fatalf("GetCertFromCMS = %+v, %v, calls = %d", result, err, calls)
+	}
+}
+
 //go:noinline
 func growWindowsCallbackStack(depth int) {
 	var padding [8192]byte

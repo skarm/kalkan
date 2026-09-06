@@ -117,12 +117,20 @@ var process processState
 // A Client is safe for concurrent method calls, but callers must synchronize
 // sequences such as loading a key store and signing with it. Create a Client
 // with [New], then call [Client.Init]; the zero value is not initialized.
+// A Client must not be copied; share its pointer instead.
 type Client struct {
+	noCopy   noCopy
 	ctx      clientContext
 	config   config
 	closed   bool
 	ownsSlot bool
 }
+
+// noCopy makes go vet report accidental copies of a Client.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // New loads KalkanCrypt and resolves its KC_GetFunctionList table. It does not
 // call KC_Init; call Init explicitly before cryptographic operations.

@@ -449,6 +449,10 @@ func validateXMLVerificationStructure(document []byte, expectedID string) error 
 		}
 	}
 
+	// UTF-8 BOM is an encoding marker, not text before the document element.
+	// Strip it only from this scan view; native verification receives the
+	// original bytes. A BOM anywhere else remains ordinary character data.
+	document = bytes.TrimPrefix(document, []byte{0xef, 0xbb, 0xbf})
 	decoder := xml.NewDecoder(bytes.NewReader(document))
 
 	rootElement, preamble, err := scanXMLDocumentRoot(decoder)

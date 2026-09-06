@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/skarm/kalkan/ckalkan"
@@ -100,6 +101,77 @@ func TestCertificateInfoNilClient(t *testing.T) {
 	if _, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject); !errors.Is(err, ErrClosed) {
 		t.Fatalf("X509CertificateGetInfoFields = %v, want ErrClosed", err)
 	}
+}
+
+func TestCertificateInfoDoesNotCacheClosedClient(t *testing.T) {
+	for _, initialized := range []bool{false, true} {
+		t.Run(strconv.FormatBool(initialized), func(t *testing.T) {
+			client := &Client{}
+			if initialized {
+				client.library = &fakeNative{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
+					return []byte("CN=test"), nil
+				}}
+				if _, err := client.X509CertificateGetInfoFields(t.Context(), &x509.Certificate{Raw: []byte{1}}, CertificateInfoSubject); err != nil {
+					t.Fatal(err)
+				}
+				if client.pemCache.Load() == nil {
+					t.Fatal("open client did not populate the cache")
+				}
+				if err := client.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if client.pemCache.Load() != nil {
+				t.Fatal("closed client retained its certificate cache")
+			}
+			_, err := client.X509CertificateGetInfoFields(t.Context(), &x509.Certificate{Raw: make([]byte, 1<<20)}, CertificateInfoSubject)
+			if !errors.Is(err, ErrClosed) {
+				t.Fatalf("certificate info = %v, want ErrClosed", err)
+			}
+			if client.pemCache.Load() != nil {
+				t.Fatal("rejected call populated the certificate cache")
+			}
+		})
+	}
+}
+
+func TestQueuedCertificateInfoCannotRepopulateClosedCache(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client := &Client{library: &fakeNative{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
+			t.Error("queued certificate request reached the closed library")
+			return nil, nil
+		}}}
+		_, gate, err := client.lockLibrary(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		release := sync.OnceFunc(func() { releaseLibraryGate(gate) })
+		t.Cleanup(release)
+		done := make(chan error, 1)
+		go func() {
+			_, err := client.X509CertificateGetInfoFields(t.Context(), &x509.Certificate{Raw: []byte{1}}, CertificateInfoSubject)
+			done <- err
+		}()
+		synctest.Wait()
+		if client.pemCache.Load() != nil {
+			t.Fatal("queued request cached its input before entering the native gate")
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if err := client.CloseContext(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued close = %v, want context.Canceled", err)
+		}
+		release()
+		if err := <-done; !errors.Is(err, ErrClosed) {
+			t.Fatalf("queued certificate info = %v, want ErrClosed", err)
+		}
+		if err := client.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if client.pemCache.Load() != nil {
+			t.Fatal("queued request retained a cache after Close")
+		}
+	})
 }
 
 func TestCertificateInfoRejectsOversizedInputBeforeCaching(t *testing.T) {
@@ -219,7 +291,17 @@ func TestParseNativeCertificateFormats(t *testing.T) {
 		{
 			name:    "multiple PEM blocks",
 			data:    append(append([]byte(nil), pemCertificate...), pemCertificate...),
-			wantErr: "trailing data",
+			wantErr: "multiple PEM blocks",
+		},
+		{
+			name:    "malformed first PEM block",
+			data:    append([]byte("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n"), pemCertificate...),
+			wantErr: "invalid PEM",
+		},
+		{
+			name:    "unterminated first PEM block",
+			data:    append([]byte("-----BEGIN CERTIFICATE-----\nY2VydA==\n"), pemCertificate...),
+			wantErr: "invalid PEM",
 		},
 		{
 			name:    "wrong PEM block type",

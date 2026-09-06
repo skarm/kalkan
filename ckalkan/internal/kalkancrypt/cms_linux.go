@@ -36,7 +36,9 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 }
 
 func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	in, inLen, err := cmsInputBytes(call.CMS, call.Flags)
+	// SDK 2.0.13 ignores KC_IN_FILE here and always consumes in-memory CMS.
+	// Binary CMS may contain NUL bytes, so do not validate it as a file path.
+	in, inLen, err := cmsInputBytes(call.CMS, call.Flags&^inFileFlag)
 	if err != nil {
 		return BufferResult{}, err
 	}

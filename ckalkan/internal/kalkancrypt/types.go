@@ -103,8 +103,8 @@ type VerifyXMLCall struct {
 
 // GetCertFromCMSCall contains the raw parameters for KC_GetCertFromCMS.
 type GetCertFromCMSCall struct {
-	// CMS contains the CMS data passed to the native function. With KC_IN_FILE
-	// it contains the path to the CMS file.
+	// CMS contains the in-memory CMS data passed to the native function.
+	// KC_IN_FILE does not make this parameter a file path.
 	CMS []byte
 	// SignID selects a signer certificate from multi-signer data.
 	SignID int

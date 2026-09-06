@@ -47,6 +47,8 @@ func TestVerifyXMLSOAPBinding(t *testing.T) {
 		{"Body without wsu Id", strings.Replace(validSignedSOAP("#TheBody", ""), `wsu:Id="TheBody"`, `Id="TheBody"`, 1), "TheBody", "SOAP Body must have wsu:Id"},
 		{"nested Body", strings.Replace(validSignedSOAP("#TheBody", ""), `<soap:Body wsu:Id="TheBody"><payload>ok</payload></soap:Body>`, `<wrapper><soap:Body wsu:Id="TheBody"><payload>ok</payload></soap:Body></wrapper>`, 1), "TheBody", "direct child"},
 		{"DOCTYPE", `<!DOCTYPE soap:Envelope SYSTEM "http://127.0.0.1/x">` + validSignedSOAP("#TheBody", ""), "TheBody", "DTDs are not allowed"},
+		{"repeated BOM", "\ufeff\ufeff" + validSignedSOAP("#TheBody", ""), "TheBody", "text outside the document element"},
+		{"BOM after whitespace", " \ufeff" + validSignedSOAP("#TheBody", ""), "TheBody", "text outside the document element"},
 		{"multiple document roots", validSignedSOAP("#TheBody", "") + `<extra/>`, "TheBody", "exactly one document element"},
 		{"signed generic XML", validSignedGenericXML(), "", ""},
 		{"unsigned generic XML", `<document/>`, "", ""},
@@ -89,6 +91,45 @@ func TestVerifyXMLSOAPBinding(t *testing.T) {
 				t.Fatalf("native VerifyXML calls = %d, want 1", nativeCalls)
 			}
 		})
+	}
+}
+
+func TestVerifyXMLPreservesSOAPBOM(t *testing.T) {
+	for _, version := range []struct {
+		name      string
+		namespace string
+	}{
+		{name: "SOAP 1.1", namespace: xmlnsSOAP},
+		{name: "SOAP 1.2", namespace: xmlnsSOAP12},
+	} {
+		for _, declaration := range []struct {
+			name string
+			xml  string
+		}{
+			{name: "without declaration"},
+			{name: "with declaration", xml: `<?xml version="1.0" encoding="UTF-8"?>`},
+		} {
+			t.Run(version.name+"/"+declaration.name, func(t *testing.T) {
+				document := []byte("\ufeff" + declaration.xml + strings.ReplaceAll(validSignedSOAP("#TheBody", ""), xmlnsSOAP, version.namespace))
+				calls := 0
+				client := &Client{library: &fakeNative{
+					verifyXMLFunc: func(_ string, _ ckalkan.Flag, input []byte) (string, error) {
+						calls++
+						if !bytes.Equal(input, document) {
+							t.Fatal("native verification did not receive the original XML with BOM")
+						}
+						return "Verify - OK", nil
+					},
+				}}
+				result, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
+					XML:            Bytes(document),
+					ExpectedBodyID: "TheBody",
+				})
+				if err != nil || result == nil || result.Info != "Verify - OK" || calls != 1 {
+					t.Fatalf("VerifyXML = %#v, %v; native calls = %d", result, err, calls)
+				}
+			})
+		}
 	}
 }
 

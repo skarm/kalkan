@@ -1,10 +1,65 @@
 package ckalkan
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
+
+func TestX509RejectsOutOfRangeEnumsBeforeNativeCall(t *testing.T) {
+	methods := []struct {
+		name  string
+		valid int
+		call  func(*Client, int) error
+	}{
+		{name: "certificate file type", valid: int(CertCA), call: func(c *Client, value int) error {
+			return c.X509LoadCertificateFromFile("certificate.pem", CertType(value))
+		}},
+		{name: "certificate buffer format", valid: int(CertPEM), call: func(c *Client, value int) error {
+			return c.X509LoadCertificateFromBuffer([]byte("certificate"), CertFormat(value))
+		}},
+		{name: "certificate export format", valid: int(CertPEM), call: func(c *Client, value int) error {
+			_, err := c.X509ExportCertificateFromStore("", CertFormat(value))
+			return err
+		}},
+		{name: "certificate property", valid: int(CertPropSubjectDN), call: func(c *Client, value int) error {
+			_, err := c.X509CertificateGetInfo([]byte("certificate"), CertProp(value))
+			return err
+		}},
+		{name: "validation type", valid: int(UseNothing), call: func(c *Client, value int) error {
+			_, err := c.X509ValidateCertificate(ValidateCertificateRequest{ValidationType: ValidationType(value)})
+			return err
+		}},
+	}
+	for _, method := range methods {
+		t.Run(method.name, func(t *testing.T) {
+			values := []int{-1}
+			if strconv.IntSize > 32 {
+				overflow := int64(maxNativeCInt) + 1
+				aliased := int64(method.valid) + 1<<32
+				values = append(values, int(overflow), int(aliased))
+			}
+			for _, value := range values {
+				ctx := &fakeNativeContext{clearErrorFunc: func() { t.Fatal("invalid enum reached native context") }}
+				client := &Client{ctx: ctx, config: defaultConfig()}
+				if err := method.call(client, value); err == nil || !strings.Contains(err.Error(), "native C int") {
+					t.Fatalf("value %d: error = %v, want native C int range rejection", value, err)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeEnumConversionPreservesRangeBoundaries(t *testing.T) {
+	for _, value := range []int{0, maxNativeCInt} {
+		got, err := enumToNativeInt("enum", value)
+		if err != nil || got != value {
+			t.Fatalf("enumToNativeInt(%d) = %d, %v", value, got, err)
+		}
+	}
+}
 
 func TestValidateCertificateRetriesInfoAndOCSPBuffers(t *testing.T) {
 	const (

@@ -8,6 +8,11 @@ import (
 // X509LoadCertificateFromFile adds a CA, intermediate, or user certificate
 // from certPath to the native store selected by certType.
 func (c *Client) X509LoadCertificateFromFile(certPath string, certType CertType) error {
+	nativeType, err := enumToNativeInt("certificate type", int(certType))
+	if err != nil {
+		return err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -18,12 +23,17 @@ func (c *Client) X509LoadCertificateFromFile(certPath string, certType CertType)
 
 	c.clearErrorLocked()
 
-	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromFile(certPath, int(certType))))
+	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromFile(certPath, nativeType)))
 }
 
 // X509LoadCertificateFromBuffer loads certificate bytes in format into the
 // native store. This native API does not accept a certificate-role parameter.
 func (c *Client) X509LoadCertificateFromBuffer(cert []byte, format CertFormat) error {
+	nativeFormat, err := enumToNativeInt("certificate format", int(format))
+	if err != nil {
+		return err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -34,12 +44,17 @@ func (c *Client) X509LoadCertificateFromBuffer(cert []byte, format CertFormat) e
 
 	c.clearErrorLocked()
 
-	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromBuffer(cert, int(format))))
+	return c.wrapCodeLocked(ErrorCode(ctx.X509LoadCertificateFromBuffer(cert, nativeFormat)))
 }
 
 // X509ExportCertificateFromStore returns the stored certificate for alias
 // in the requested format.
 func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat) ([]byte, error) {
+	nativeFormat, err := enumToNativeInt("certificate format", int(format))
+	if err != nil {
+		return nil, err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -49,13 +64,18 @@ func (c *Client) X509ExportCertificateFromStore(alias string, format CertFormat)
 	}
 
 	return c.callBufferWithCapacityLocked("X509ExportCertificateFromStore", c.config.outputInitialCapacity(initialCertOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.X509ExportCertificateFromStore(alias, int(format), capacity)
+		return ctx.X509ExportCertificateFromStore(alias, nativeFormat, capacity)
 	})
 }
 
 // X509CertificateGetInfo returns native property prop from cert as text
 // bytes, excluding the NUL terminator and any trailing buffer padding.
 func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, error) {
+	nativeProperty, err := enumToNativeInt("certificate property", int(prop))
+	if err != nil {
+		return nil, err
+	}
+
 	process.mu.Lock()
 	defer process.mu.Unlock()
 
@@ -65,7 +85,7 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 	}
 
 	out, err := c.callBufferWithCapacityLocked("X509CertificateGetInfo", c.config.outputInitialCapacity(initialInfoOutputBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.X509CertificateGetInfo(cert, int(prop), capacity)
+		return ctx.X509CertificateGetInfo(cert, nativeProperty, capacity)
 	})
 	if err != nil {
 		return nil, err
@@ -78,6 +98,11 @@ func (c *Client) X509CertificateGetInfo(cert []byte, prop CertProp) ([]byte, err
 // mode and returns native diagnostics. OCSPResponse is populated only when
 // req.Flags includes [GetOCSPResponse].
 func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (ValidateCertificateResult, error) {
+	nativeType, err := enumToNativeInt("validation type", int(req.ValidationType))
+	if err != nil {
+		return ValidateCertificateResult{}, err
+	}
+
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {
 		return ValidateCertificateResult{}, err
@@ -102,7 +127,7 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 
 		result, err := ctx.X509ValidateCertificate(kalkancrypt.ValidateCertificateCall{
 			Certificate:    req.Certificate,
-			ValidationType: int(req.ValidationType),
+			ValidationType: nativeType,
 			ValidationPath: req.ValidationPath,
 			CheckTimeUnix:  req.CheckTimeUnix,
 			Flags:          nativeFlags,

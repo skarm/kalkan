@@ -2,7 +2,8 @@
 //
 // KalkanCrypt keeps loaded keys, XML state, network configuration, and error
 // state in the native library. The package allows one active Client per process
-// and serializes public method calls.
+// and serializes public method calls. Client values must not be copied; share
+// the pointer returned by New.
 //
 // Application code should prefer the root kalkan package. Use ckalkan when an
 // integration needs native-level control over flags, buffer behavior, and

@@ -33,7 +33,6 @@ func RunWorker(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer transport.Close()
 
 	return serve(ctx, transport, openLibrary)
 }
@@ -99,11 +98,25 @@ type operationResult struct {
 
 func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFactory) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	incoming := make(chan readResult)
 
-	go func() {
+	var (
+		ioWorkers sync.WaitGroup
+		writing   <-chan error
+	)
+
+	// serve owns the transport. Closing it interrupts both I/O goroutines;
+	// native execution may still be stuck and is left for process exit.
+	defer func() {
+		cancel()
+
+		_ = transport.Close()
+
+		ioWorkers.Wait()
+	}()
+
+	ioWorkers.Go(func() {
 		for {
 			message, err := readMessage(transport)
 			select {
@@ -116,13 +129,16 @@ func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFact
 				return
 			}
 		}
-	}()
-
-	var client workerSession
+	})
 
 	collector := &observations{}
 
-	var pending <-chan operationResult
+	var (
+		client  workerSession
+		pending <-chan operationResult
+		next    *message
+		quit    bool
+	)
 
 	expected := uint64(1)
 
@@ -137,30 +153,55 @@ func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFact
 				return read.err
 			}
 
-			if pending != nil || read.message.ID != expected || read.message.Error != nil || len(read.message.Observations) != 0 {
+			if pending != nil || next != nil || read.message.ID != expected || read.message.Error != nil || len(read.message.Observations) != 0 {
 				return fmt.Errorf("%w: unexpected request sequence", ErrProtocol)
 			}
 
 			expected++
-			done := make(chan operationResult, 1)
 
-			pending = done
-			go func(message message, session workerSession) {
-				done <- execute(message, session, factory, collector)
-			}(read.message, client)
+			if writing != nil {
+				// The parent can consume the final response bytes and send its
+				// next request before the writer publishes completion. Defer
+				// that request while still listening for EOF and cancellation.
+				next = &read.message
+				continue
+			}
+
+			pending = executeAsync(read.message, client, factory, collector)
 		case result := <-pending:
 			pending = nil
 
 			client = result.client
-			if err := writeResponse(transport, result.message); err != nil {
+			quit = result.quit
+			done := make(chan error, 1)
+
+			writing = done
+
+			ioWorkers.Go(func() { done <- writeResponse(transport, result.message) })
+		case err := <-writing:
+			writing = nil
+
+			if err != nil {
 				return err
 			}
 
-			if result.quit {
+			if quit {
 				return nil
+			}
+
+			if next != nil {
+				pending = executeAsync(*next, client, factory, collector)
+				next = nil
 			}
 		}
 	}
+}
+
+func executeAsync(request message, client workerSession, factory workerFactory, collector *observations) <-chan operationResult {
+	done := make(chan operationResult, 1)
+	go func() { done <- execute(request, client, factory, collector) }()
+
+	return done
 }
 
 type observations struct {

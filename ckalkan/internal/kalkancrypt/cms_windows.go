@@ -28,7 +28,9 @@ func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, i
 }
 
 func (h *windowsDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	in, inLen, err := cmsInputBytes(call.CMS, call.Flags)
+	// The extraction API receives in-memory CMS, including binary NUL bytes,
+	// even when the caller retained KC_IN_FILE in the native flags.
+	in, inLen, err := cmsInputBytes(call.CMS, call.Flags&^inFileFlag)
 	if err != nil {
 		return BufferResult{}, err
 	}

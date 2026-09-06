@@ -4,6 +4,7 @@ package kalkan
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,49 @@ import (
 
 	"github.com/skarm/kalkan/ckalkan"
 )
+
+func TestCMSFileInputLimitDoesNotDependOnStatSize(t *testing.T) {
+	for _, limit := range []int64{3, 4} {
+		name := "over limit"
+		if limit == 4 {
+			name = "exact limit"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "cms.fifo")
+			if err := syscall.Mkfifo(path, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			type result struct {
+				data []byte
+				err  error
+			}
+			done := make(chan result, 1)
+			go func() {
+				data, err := readCMSCertificateFile(path, limit)
+				done <- result{data: data, err: err}
+			}()
+			writer, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer writer.Close()
+			if _, err := writer.Write([]byte("ABCD")); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			got := awaitTestEvent(t, done, "CMS FIFO read")
+			if limit == 3 {
+				if !errors.Is(got.err, ErrInvalidInput) || got.data != nil {
+					t.Fatalf("oversized CMS = %q, %v; want rejected input", got.data, got.err)
+				}
+			} else if got.err != nil || string(got.data) != "ABCD" {
+				t.Fatalf("CMS = %q, %v; want ABCD", got.data, got.err)
+			}
+		})
+	}
+}
 
 func TestVerifyZIPPassesFIFOInputToNative(t *testing.T) {
 	dir := t.TempDir()

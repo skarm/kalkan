@@ -1,5 +1,14 @@
 package ckalkan
 
+func enumToNativeInt(field string, value int) (int, error) {
+	_, err := validateNativeSignedRange(field, int64(value), uint64(maxNativeCInt), "native C int")
+	if err != nil {
+		return 0, err
+	}
+
+	return value, nil
+}
+
 func storeToNativeInt(storage Store) (int, error) {
 	value, err := validateNativeUnsignedRange("storage flag", uint64(storage), uint64(maxNativeCInt), "native C int")
 	if err != nil {

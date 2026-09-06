@@ -46,6 +46,12 @@ func duplicateFile(file *os.File) (*os.File, error) {
 	}
 
 	syscall.CloseOnExec(fd)
+	// Inherited stdin/stdout pipes are blocking. Register their duplicates
+	// with Go's poller so Close interrupts an outstanding protocol read/write.
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		_ = syscall.Close(fd)
+		return nil, err
+	}
 
 	return os.NewFile(uintptr(fd), "kalkan-protocol"), nil
 }

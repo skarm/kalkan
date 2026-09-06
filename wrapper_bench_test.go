@@ -216,17 +216,16 @@ func BenchmarkVerifyCMSDetachedBytes(b *testing.B) {
 	}
 }
 
-func BenchmarkVerifyCMSDetachedFile(b *testing.B) {
+func BenchmarkVerifyCMSDetachedSignatureFile(b *testing.B) {
 	client := benchmarkClient()
 	signature := benchmarkPayload(4 << 10)
 	payload := benchmarkPayload(benchmarkLargePayloadSize)
 	signaturePath := benchmarkWriteFile(b, "signature.cms", signature)
-	payloadPath := benchmarkWriteFile(b, "payload.bin", payload)
 	ctx := context.Background()
 
 	if _, err := client.VerifyCMS(ctx, VerifyCMSRequest{
 		Signature: File(signaturePath),
-		Data:      File(payloadPath),
+		Data:      Bytes(payload),
 		Detached:  true,
 	}); err != nil {
 		b.Fatal(err)
@@ -239,7 +238,7 @@ func BenchmarkVerifyCMSDetachedFile(b *testing.B) {
 	for range b.N {
 		verification, err := client.VerifyCMS(ctx, VerifyCMSRequest{
 			Signature: File(signaturePath),
-			Data:      File(payloadPath),
+			Data:      Bytes(payload),
 			Detached:  true,
 		})
 		if err != nil {
@@ -320,6 +319,32 @@ func BenchmarkX509CertificateGetInfoSubjectCached(b *testing.B) {
 		}
 
 		benchmarkCertificateInfoSink = info
+	}
+}
+
+func BenchmarkReadCMSCertificateFile(b *testing.B) {
+	payload := benchmarkPayload(4 << 20)
+	path := benchmarkWriteFile(b, "certificate.cms", payload)
+	for _, bounded := range []bool{false, true} {
+		name := "unlimited"
+		var limit int64
+		if bounded {
+			name = "bounded"
+			limit = int64(len(payload))
+		}
+		b.Run(name, func(b *testing.B) {
+			b.SetBytes(int64(len(payload)))
+			b.ReportAllocs()
+			for b.Loop() {
+				data, err := readCMSCertificateFile(path, limit)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(data) != len(payload) {
+					b.Fatalf("CMS size = %d, want %d", len(data), len(payload))
+				}
+			}
+		})
 	}
 }
 

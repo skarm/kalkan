@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -690,7 +691,8 @@ func TestZeroClientAndInvalidConfig(t *testing.T) {
 	}
 	cfg := helperConfig(t)
 	cfg.WorkerPath = filepath.Join(t.TempDir(), "does-not-exist")
-	if _, err := Open(context.Background(), cfg); !errors.Is(err, os.ErrNotExist) {
+	// Windows may fail executable-extension lookup before starting the process.
+	if _, err := Open(context.Background(), cfg); !errors.Is(err, os.ErrNotExist) && !errors.Is(err, exec.ErrNotFound) {
 		t.Fatalf("missing worker = %v", err)
 	}
 }

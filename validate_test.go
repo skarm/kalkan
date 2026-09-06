@@ -405,6 +405,16 @@ func TestValidateCertificateRejectsInvalidPEM(t *testing.T) {
 			pem:  append(append([]byte{}, validCert...), validCert...),
 			want: "multiple PEM blocks",
 		},
+		{
+			name: "malformed first PEM block",
+			pem:  append([]byte("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n"), validCert...),
+			want: "invalid PEM",
+		},
+		{
+			name: "unterminated first PEM block",
+			pem:  append([]byte("-----BEGIN CERTIFICATE-----\nY2VydA==\n"), validCert...),
+			want: "invalid PEM",
+		},
 	}
 
 	for _, test := range tests {

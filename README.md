@@ -109,6 +109,8 @@ client, err := kalkan.Open(ctx,
 
 KalkanCrypt state is process-global. Native calls are serialized individually. A `LoadKeyStore` call followed by signing is not atomic: other calls can run between them. Callers sharing a client across different key stores must synchronize the entire load-and-sign sequence or use separate processes.
 
+Keep and share the client pointers returned by `Open` or `ckalkan.New`; do not copy client structs. `go vet` detects accidental copies, including copies of the low-level `ckalkan.Client`.
+
 After a successful native `LoadKeyStore`, the client restores every certificate successfully loaded through `WithTrustedCertificate` or `LoadTrustedCertificate` before allowing another operation to run. Certificate bytes are copied after their initial load and retained until `Close`; certificate files must remain available and unchanged for subsequent key-store loads. Restoration finishes even if the context is canceled after the native key-store load starts. A restoration error reports partial success: the key store has changed, trust may be incomplete, and a later `LoadKeyStore` retries restoration. The key-store change is not rolled back.
 
 `context.Context` can cancel waiting for the root client's call gate. It cannot interrupt the low-level process mutex wait, library loading, or an active KalkanCrypt call, including `Init`. Cleanup after failed or canceled `Open` also waits without a context.
@@ -223,7 +225,7 @@ XML operations accept `kalkan.Bytes`; file and pre-encoded sources are rejected.
 
 `GetCertFromXML` returns one embedded certificate per signature in document order; it does not verify signatures or establish certificate trust. To avoid the SDK's ambiguous lookup by position or `Signature Id`, extraction uses a copy with unqualified `ds:Signature` `Id` attributes removed. The caller's XML is unchanged, and this copy is never used by `VerifyXML`.
 
-Additional direct references may cover other WS-Security nodes. SOAP input must be UTF-8. Non-SOAP XML accepts UTF-8 or an ASCII-compatible declared encoding when the prolog and root tag are ASCII.
+Additional direct references may cover other WS-Security nodes. SOAP input must be UTF-8; one optional BOM at the start is accepted without changing the bytes passed to native verification. Non-SOAP XML accepts UTF-8 or an ASCII-compatible declared encoding when the prolog and root tag are ASCII.
 
 The wrapper does not independently allowlist `CanonicalizationMethod`, `DigestMethod`, or `SignatureMethod`: the supported cryptographic algorithms depend on the installed KalkanCrypt version and repository fixtures do not establish a stable complete set. KalkanCrypt remains responsible for rejecting unsupported methods.
 

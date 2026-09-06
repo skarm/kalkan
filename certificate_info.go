@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"math"
@@ -301,9 +300,6 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 	}
 
 	certPEM := c.cachedPEMForCertificate(cert.Raw)
-	if certPEM == nil {
-		certPEM = c.encodeAndCacheCertificatePEM(cert.Raw)
-	}
 
 	info := &CertificateInfo{}
 
@@ -318,6 +314,15 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 		}
 
 		value, err := withLockedLibraryResult(c, ctx, "X509CertificateGetInfo", func(native certificates) ([]byte, error) {
+			if certPEM == nil {
+				// Populate only while the open client's gate is held, so Close
+				// cannot finish before a queued call publishes a new cache entry.
+				certPEM = c.cachedPEMForCertificate(cert.Raw)
+				if certPEM == nil {
+					certPEM = c.encodeAndCacheCertificatePEM(cert.Raw)
+				}
+			}
+
 			return native.X509CertificateGetInfo(certPEM, item.prop)
 		}, expectedCode)
 		if err != nil {
@@ -512,22 +517,37 @@ func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certif
 }
 
 func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
+	if maxSize <= 0 || maxSize == math.MaxInt64 {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
+		}
+
+		return data, nil
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("kalkan: open CMS file: %w", err)
 	}
 	defer file.Close()
 
-	var reader io.Reader = file
-	if maxSize > 0 && maxSize < math.MaxInt64 {
-		reader = io.LimitReader(file, maxSize+1)
+	var buffer bytes.Buffer
+
+	if info, statErr := file.Stat(); statErr == nil && info.Mode().IsRegular() && info.Size() >= 0 {
+		initial := min(info.Size(), maxSize+1)
+		if initial <= int64(math.MaxInt)-bytes.MinRead {
+			// ReadFrom needs spare capacity for the final EOF probe. Stat is
+			// only an allocation hint; LimitReader also bounds a growing file.
+			buffer.Grow(int(initial) + bytes.MinRead)
+		}
 	}
 
-	data, err := io.ReadAll(reader)
-	if err != nil {
+	if _, err := buffer.ReadFrom(io.LimitReader(file, maxSize+1)); err != nil {
 		return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
 	}
 
+	data := buffer.Bytes()
 	if err := validateBytesSize(data, "CMS input", maxSize); err != nil {
 		return nil, err
 	}
@@ -678,20 +698,12 @@ func parseNativeCertificate(data []byte) (*x509.Certificate, error) {
 
 	text := bytes.TrimSpace(nativebytes.BeforeNUL(data))
 	if bytes.HasPrefix(text, []byte("-----BEGIN ")) {
-		block, rest := pem.Decode(text)
-		if block == nil {
-			return nil, fmt.Errorf("%w: certificate output contains invalid PEM", ErrInvalidInput)
+		der, err := parseCertificatePEM(text)
+		if err != nil {
+			return nil, err
 		}
 
-		if len(bytes.TrimSpace(rest)) != 0 {
-			return nil, fmt.Errorf("%w: certificate PEM contains trailing data", ErrInvalidInput)
-		}
-
-		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("%w: certificate PEM block type must be CERTIFICATE, got %q", ErrInvalidInput, block.Type)
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
+		cert, err := x509.ParseCertificate(der)
 		if err != nil {
 			return nil, fmt.Errorf("%w: certificate PEM contains invalid DER: %w", ErrInvalidInput, err)
 		}

@@ -79,6 +79,7 @@ Use the shared `awaitTestEvent` helper for bounded channel waits.
 
 ```sh
 go test ./...
+go test -run=^$ -bench=. -benchtime=1x ./...
 go test -race -shuffle=on -count=1 ./...
 go vet ./...
 golangci-lint run ./...
@@ -88,6 +89,10 @@ Integration tests skip when `KALKANCRYPT_LIBRARY` is unset. The filename convent
 is descriptive; it is not an additional build tag. Use `make test-native` with
 the library and assets configured, or `make docker-test`, to run the native suite.
 See [Contributing](CONTRIBUTING.md#run-the-checks) for the environment settings.
+
+The benchmark smoke run checks that every benchmark still accepts its inputs;
+it is not a performance measurement. CI also fuzzes the isolated IPC decoder
+with `FuzzReadMessage` alongside the public input and output-buffer checks.
 
 ## Remaining review items (2026-09-06)
 

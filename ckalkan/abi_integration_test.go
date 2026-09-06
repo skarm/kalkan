@@ -3,10 +3,58 @@ package ckalkan_test
 import (
 	"crypto/sha256"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
-	ckalkan "github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/ckalkan"
 )
+
+func TestNativeFileInputsRejectEmbeddedNUL(t *testing.T) {
+	client := newIntegrationClient(t)
+	path := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := []byte(path + "\x00different")
+	for _, flags := range []ckalkan.Flag{ckalkan.InFile, ckalkan.InFile | ckalkan.InBase64} {
+		tests := []struct {
+			name string
+			call func() error
+		}{
+			{name: "HashData", call: func() error {
+				_, err := client.HashData(ckalkan.SHA256, flags, input)
+				return err
+			}},
+			{name: "SignData", call: func() error {
+				_, err := client.SignData(ckalkan.SignDataRequest{Flags: flags | ckalkan.SignCMS, Data: input})
+				return err
+			}},
+			{name: "VerifyData", call: func() error {
+				_, err := client.VerifyData(ckalkan.VerifyDataRequest{Flags: flags | ckalkan.SignCMS, Signature: input})
+				return err
+			}},
+			{name: "X509ValidateCertificate", call: func() error {
+				_, err := client.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
+					Flags: flags, Certificate: input, ValidationType: ckalkan.UseNothing,
+				})
+				return err
+			}},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				if err := test.call(); err == nil || !strings.Contains(err.Error(), "NUL") {
+					t.Fatalf("flags %x: error = %v, want NUL path rejection", flags, err)
+				}
+			})
+		}
+		_, err := client.GetTimeFromSig(input, flags, 0)
+		if code, ok := ckalkan.ErrorCodeOf(err); !ok || code != ckalkan.ErrorParam {
+			t.Fatalf("GetTimeFromSig flags %x: error = %v, want native parameter error", flags, err)
+		}
+	}
+}
 
 // TestNativeABISmoke checks that calls cross the ABI and return Go-visible
 // status. Operation-specific integration tests assert successful results and

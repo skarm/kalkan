@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -201,38 +200,10 @@ func certificateValidationInput(source Source, maxInputSize int64) ([]byte, erro
 
 	switch source.encoding {
 	case EncodingPEM:
-		cert = bytes.TrimSpace(cert)
-		if !bytes.HasPrefix(cert, []byte("-----BEGIN ")) {
-			if block, _ := pem.Decode(cert); block != nil {
-				return nil, fmt.Errorf("%w: certificate PEM input contains leading data", ErrInvalidInput)
-			}
-
-			return nil, fmt.Errorf("%w: certificate PEM input is invalid", ErrInvalidInput)
+		cert, err = parseCertificatePEM(cert)
+		if err != nil {
+			return nil, err
 		}
-
-		block, rest := pem.Decode(cert)
-		if block == nil {
-			return nil, fmt.Errorf("%w: certificate PEM input is invalid", ErrInvalidInput)
-		}
-
-		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("%w: certificate PEM block type must be CERTIFICATE, got %q", ErrInvalidInput, block.Type)
-		}
-
-		rest = bytes.TrimSpace(rest)
-		if len(rest) != 0 {
-			if next, _ := pem.Decode(rest); next != nil {
-				return nil, fmt.Errorf("%w: certificate PEM input contains multiple PEM blocks", ErrInvalidInput)
-			}
-
-			return nil, fmt.Errorf("%w: certificate PEM input contains trailing data", ErrInvalidInput)
-		}
-
-		if len(block.Bytes) == 0 {
-			return nil, fmt.Errorf("%w: certificate PEM input decodes to empty DER", ErrInvalidInput)
-		}
-
-		cert = block.Bytes
 	case EncodingBase64:
 		der, err := base64.StdEncoding.AppendDecode(nil, bytes.TrimSpace(cert))
 		if err != nil {
