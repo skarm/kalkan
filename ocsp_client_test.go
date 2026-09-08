@@ -32,7 +32,7 @@ func ocspTestClient(t *testing.T, endpoint string) *Client {
 	cfg := defaultOpenConfig()
 	WithOCSPURL(endpoint)(&cfg)
 	WithCustomOCSP()(&cfg)
-	return &Client{config: cfg.runtime(), library: &fakeNative{
+	return &Client{config: cfg.runtime(), session: newNativeBackend(&fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationType != ckalkan.UseNothing || req.ValidationPath != "" || req.Flags&ckalkan.GetOCSPResponse != 0 {
 				t.Errorf("OCSP reached vendor: %+v", req)
@@ -42,7 +42,7 @@ func ocspTestClient(t *testing.T, endpoint string) *Client {
 		loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error { return nil },
 		loadCertFileFunc:   func(string, ckalkan.CertType) error { return nil },
 		setProxyFunc:       func(ckalkan.ProxyRequest) error { return nil },
-	}}
+	})}
 }
 
 func TestValidateCertificateOCSP(t *testing.T) {
@@ -90,10 +90,10 @@ func TestOCSPIssuerChecksExpandedPEMLimit(t *testing.T) {
 	calls := 0
 	client := &Client{
 		config: runtimeConfig{customOCSP: true, ocspURL: defaultOCSPURL, maxInputSize: limit},
-		library: &fakeNative{validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+		session: newNativeBackend(&fakeSDK{validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			calls++
 			return ckalkan.ValidateCertificateResult{}, errors.New("unexpected native validation")
-		}},
+		}}),
 	}
 	_, err := client.ValidateCertificate(t.Context(), ValidateCertificateRequest{
 		Certificate: Bytes(pki.leaf.Raw), Issuer: DER(pki.ca.Raw), Mode: CertificateValidationOCSP,
@@ -129,7 +129,7 @@ func TestCustomOCSPEndpointPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	nativeCalls := 0
-	client, err := openWithLibraryFactory(t.Context(), []Option{
+	client, err := openWithBackendFactory(t.Context(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTSAURL(server.URL),
 		WithOCSPURL(server.URL + "/configured"),
@@ -139,8 +139,8 @@ func TestCustomOCSPEndpointPolicy(t *testing.T) {
 			AllowedPorts:     []string{endpoint.Port()},
 			AllowIPAddresses: true,
 		}),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				nativeCalls++
 				if req.ValidationType != ckalkan.UseNothing || req.ValidationPath != "" || req.Flags&ckalkan.GetOCSPResponse != 0 {
@@ -148,7 +148,7 @@ func TestCustomOCSPEndpointPolicy(t *testing.T) {
 				}
 				return ckalkan.ValidateCertificateResult{Info: "chain ok"}, nil
 			},
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -449,9 +449,9 @@ func ocspTestNegativeSerialCertificate(t *testing.T, certificate *x509.Certifica
 	return ocspTestMarshal(t, outer), tbs
 }
 
-func ocspTestNative(t *testing.T, client *Client) *fakeNative {
+func ocspTestNative(t *testing.T, client *Client) *fakeSDK {
 	t.Helper()
-	native, ok := client.library.(*fakeNative)
+	native, ok := testNativeBackend(t, client).sdk.(*fakeSDK)
 	if !ok {
 		t.Fatal("unexpected test native type")
 	}
@@ -461,10 +461,10 @@ func ocspTestNative(t *testing.T, client *Client) *fakeNative {
 func TestOCSPTimeoutDoesNotEnableGoImplementation(t *testing.T) {
 	const endpoint = "http://ocsp.example.test"
 	nativeCalls := 0
-	client, err := openWithLibraryFactory(t.Context(), []Option{
+	client, err := openWithBackendFactory(t.Context(), []Option{
 		WithLibraryPath(testLibraryPath()), WithOCSPURL(endpoint), WithOCSPTimeout(time.Nanosecond),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			setTSAURLFunc: func(string) error { return nil },
 			validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				nativeCalls++
@@ -473,7 +473,7 @@ func TestOCSPTimeoutDoesNotEnableGoImplementation(t *testing.T) {
 				}
 				return ckalkan.ValidateCertificateResult{Info: "native OCSP", OCSPResponse: []byte("native response")}, nil
 			},
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		t.Fatal(err)

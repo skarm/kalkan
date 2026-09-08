@@ -64,22 +64,31 @@ func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertif
 	}
 
 	var (
-		trusted       []loadedTrustedCertificate
+		trusted       []trustedCertificate
 		checkTimeUnix int64
 	)
 	if !req.CheckTime.IsZero() {
 		checkTimeUnix = req.CheckTime.Unix()
 	}
 
-	// Retain native chain and certificate-time validation.
-	// Do not invoke the vendor's OCSP transport.
-	// Copy trust state under the native call gate.
-	result, err := withLockedLibraryResult(c, ctx, "ValidateCertificate", func(native certificates) (ckalkan.ValidateCertificateResult, error) {
-		if issuer == nil {
-			trusted = slices.Clone(c.trusted)
+	// Preserve native chain and certificate-time validation, but never invoke
+	// the vendor's OCSP transport. Snapshot trust while holding its native gate.
+	result, err := withBackendResult(c, ctx, "ValidateCertificate", func(session backend) (ckalkan.ValidateCertificateResult, error) {
+		native, ok := session.(*nativeBackend)
+		if !ok {
+			return ckalkan.ValidateCertificateResult{}, unsupportedOperation("Go OCSP")
 		}
 
-		return native.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
+		operations, ok := native.sdk.(certificateOperations)
+		if !ok {
+			return ckalkan.ValidateCertificateResult{}, unsupportedOperation("ValidateCertificate")
+		}
+
+		if issuer == nil {
+			trusted = slices.Clone(native.trusted)
+		}
+
+		return operations.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
 			Certificate: input, ValidationType: ckalkan.UseNothing,
 			CheckTimeUnix: checkTimeUnix, Flags: flags,
 		})
@@ -144,7 +153,7 @@ func checkOCSPIssuer(certificate, issuer *x509.Certificate) error {
 	return certsig.CheckCertificateSignature(certificate, issuer)
 }
 
-func findOCSPIssuer(certificate *x509.Certificate, trusted []loadedTrustedCertificate) *x509.Certificate {
+func findOCSPIssuer(certificate *x509.Certificate, trusted []trustedCertificate) *x509.Certificate {
 	for _, candidate := range trusted {
 		data, err := ocspTrustedCertificateBytes(candidate)
 		if err != nil {
@@ -160,7 +169,7 @@ func findOCSPIssuer(certificate *x509.Certificate, trusted []loadedTrustedCertif
 	return nil
 }
 
-func ocspTrustedCertificateBytes(certificate loadedTrustedCertificate) ([]byte, error) {
+func ocspTrustedCertificateBytes(certificate trustedCertificate) ([]byte, error) {
 	if certificate.path == "" {
 		return certificate.data, nil
 	}

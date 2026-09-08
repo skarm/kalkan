@@ -9,16 +9,16 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// OperationObservation describes one native-call attempt, including setup calls
+// OperationObservation describes one backend-call attempt, including setup calls
 // during Open and the final Close. Input validation before the call helper does
 // not produce an observation. Fields contain no request or response payloads,
 // paths, URLs, or raw error text.
 type OperationObservation struct {
-	// Operation names the native-call attempt, such as Hash or SignXML.
+	// Operation names the attempted operation, such as Hash or SignXML.
 	Operation string
 	// QueueWait measures the wait to enter the client call gate.
 	QueueWait time.Duration
-	// NativeDuration measures the low-level callback, including its checks and lock waits.
+	// NativeDuration measures the backend callback, including its checks and lock waits.
 	// It is zero if the helper does not enter the callback.
 	NativeDuration time.Duration
 	// TotalDuration measures the call helper through gate release, excluding
@@ -35,10 +35,10 @@ type OperationObservation struct {
 	Expected bool
 }
 
-// Observer receives native call durations and outcome metadata without payloads.
+// Observer receives operation durations and outcome metadata without payloads.
 // The client invokes callbacks synchronously after it releases the gate.
 // Callbacks can run concurrently and can call Client methods.
-// A slow callback delays its caller without the native gate lock.
+// A slow callback delays its caller without the client call gate lock.
 //
 // The Close callback runs in the shutdown goroutine after the saved close
 // result is ready.
@@ -68,7 +68,7 @@ func reportOperation(c *Client, ctx context.Context, operation string, start tim
 		c.config.observer(ctx, observation)
 	}
 
-	logNativeCall(c, ctx, observation)
+	logOperation(c, ctx, observation)
 }
 
 func operationErrorClass(err error, code ckalkan.ErrorCode, expected bool) string {
@@ -98,17 +98,17 @@ func operationErrorClass(err error, code ckalkan.ErrorCode, expected bool) strin
 	}
 }
 
-func logNativeCall(c *Client, ctx context.Context, observation OperationObservation) {
+func logOperation(c *Client, ctx context.Context, observation OperationObservation) {
 	if c.logger == nil {
 		return
 	}
 
 	level := slog.LevelDebug
-	message := "kalkan native call completed"
+	message := "kalkan operation completed"
 
 	if observation.ErrorClass != "none" && !observation.Expected {
 		level = slog.LevelError
-		message = "kalkan native call failed"
+		message = "kalkan operation failed"
 	}
 
 	if !c.logger.Enabled(ctx, level) {

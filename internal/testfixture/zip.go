@@ -21,7 +21,8 @@ const (
 	OverwriteDuplicates
 )
 
-// ExtractZIP extracts an SDK fixture archive into a fresh directory for the // It fails the test on extraction errors.
+// ExtractZIP extracts an SDK fixture archive into a fresh test-owned directory.
+// It fails the test on extraction errors.
 // Test cleanup removes the directory.
 func ExtractZIP(t testing.TB, zipPath string, duplicates DuplicatePolicy) string {
 	t.Helper()
@@ -81,7 +82,7 @@ func extractZIPFile(file *zip.File, outPath string, flags int) error {
 		return err
 	}
 
-	out, err := os.OpenFile(outPath, flags, file.Mode())
+	out, err := os.OpenFile(outPath, flags, file.Mode()) //nolint:gosec // extractZIP rejects traversal and absolute names before joining the test-owned root.
 	if err != nil {
 		return errors.Join(err, in.Close())
 	}

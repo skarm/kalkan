@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/internal/testfixture"
 )
 
 func TestSignCMSInputFormatControlsCMSResigning(t *testing.T) {
@@ -55,7 +56,7 @@ func TestSignCMSInputFormatControlsCMSResigning(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var envelope signHashCMSEnvelope
+			var envelope testfixture.CMSEnvelope
 			if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != input.wantSigners {
 				t.Fatalf("CMS signer count = %d, %v, want %d", len(envelope.Content.SignerInfos), err, input.wantSigners)
 			}
@@ -110,7 +111,7 @@ func TestVerifyCMSRejectsChangedSignatureValue(t *testing.T) {
 				t.Fatal("positive VerifyCMS control returned different attached data")
 			}
 
-			var envelope signHashCMSEnvelope
+			var envelope testfixture.CMSEnvelope
 			if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != 1 {
 				t.Fatalf("decode generated CMS signer: error=%v trailing bytes=%d", err, len(rest))
 			}

@@ -147,7 +147,7 @@ func TestXMLVerificationMatrix(t *testing.T) {
 						t.Fatal(flagErr)
 					}
 					verify := func(document []byte) (string, error) {
-						return withLockedLibraryResult(client, ctx, "VerifyXML", func(native xmlSignatures) (string, error) {
+						return withOperationsResult(client, ctx, "VerifyXML", func(native xmlOperations) (string, error) {
 							return native.VerifyXML("", flags, document)
 						})
 					}

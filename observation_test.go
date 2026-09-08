@@ -36,8 +36,8 @@ func TestObserverReportsSafeOutcomesWithoutChangingErrors(t *testing.T) {
 				var logs bytes.Buffer
 				var observation OperationObservation
 				var count int
-				client := &Client{library: &fakeNative{}, logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { observation = event; count++ }}}
-				result, err := withLockedLibraryResult(client, context.Background(), "TestOperation", func(initializer) (int, error) {
+				client := &Client{session: newNativeBackend(&fakeSDK{}), logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { observation = event; count++ }}}
+				result, err := withOperationsResult(client, context.Background(), "TestOperation", func(sessionInitializer) (int, error) {
 					time.Sleep(time.Millisecond)
 					return 7, test.err
 				}, test.expectedCode)
@@ -70,18 +70,18 @@ func TestObserverReportsSafeOutcomesWithoutChangingErrors(t *testing.T) {
 func TestObserverMeasuresCanceledQueueWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		events := make(chan OperationObservation, 1)
-		client := &Client{library: &fakeNative{}, config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { events <- event }}}
-		_, gate, err := client.lockLibrary(context.Background())
+		client := &Client{session: newNativeBackend(&fakeSDK{}), config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { events <- event }}}
+		_, gate, err := client.acquireBackend(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer releaseLibraryGate(gate)
+		defer releaseCallGate(gate)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		queued := &observedQueueContext{Context: ctx, waiting: make(chan struct{})}
 		result := make(chan error, 1)
 		go func() {
-			result <- withLockedLibrary(client, queued, "Queued", func(initializer) error {
+			result <- withOperations(client, queued, "Queued", func(sessionInitializer) error {
 				t.Error("canceled waiter entered native call")
 				return nil
 			})
@@ -104,20 +104,20 @@ func TestObserverSeparatesQueueNativeAndCallbackTime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var observation OperationObservation
 		client := &Client{
-			library: &fakeNative{hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
+			session: newNativeBackend(&fakeSDK{hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				time.Sleep(3 * time.Millisecond)
 				return []byte("digest"), nil
-			}},
+			}}),
 			config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) {
 				time.Sleep(7 * time.Millisecond)
 				observation = event
 			}},
 		}
-		_, gate, err := client.lockLibrary(context.Background())
+		_, gate, err := client.acquireBackend(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		unblock := sync.OnceFunc(func() { releaseLibraryGate(gate) })
+		unblock := sync.OnceFunc(func() { releaseCallGate(gate) })
 		defer unblock()
 		queued := &observedQueueContext{Context: context.Background(), waiting: make(chan struct{})}
 		type hashResult struct {
@@ -174,19 +174,19 @@ func TestObserverDoesNotHoldNativeGate(t *testing.T) {
 	defer releaseOnce.Do(func() { close(release) })
 	var observed atomic.Int32
 	var calls atomic.Int32
-	client := &Client{library: &fakeNative{initFunc: func() error {
+	client := &Client{session: newNativeBackend(&fakeSDK{initFunc: func() error {
 		if calls.Add(1) == 2 {
 			close(secondNative)
 		}
 		return nil
-	}}, config: runtimeConfig{observer: func(context.Context, OperationObservation) {
+	}}), config: runtimeConfig{observer: func(context.Context, OperationObservation) {
 		if observed.Add(1) == 1 {
 			close(entered)
 			<-release
 		}
 	}}}
 	call := func() error {
-		return withLockedLibrary(client, context.Background(), "Init", func(native initializer) error { return native.Init() })
+		return withOperations(client, context.Background(), "Init", func(native sessionInitializer) error { return native.Init() })
 	}
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- call() }()
@@ -211,7 +211,7 @@ func TestCloseObserverRunsAfterSavedResultAndGateRelease(t *testing.T) {
 		exited := make(chan struct{})
 		var releaseOnce sync.Once
 		defer releaseOnce.Do(func() { close(release) })
-		client := &Client{library: &fakeNative{closeFunc: func() error { time.Sleep(time.Millisecond); return nativeErr }}, config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { entered <- event; <-release; close(exited) }}}
+		client := &Client{session: newNativeBackend(&fakeSDK{closeFunc: func() error { time.Sleep(time.Millisecond); return nativeErr }}), config: runtimeConfig{observer: func(_ context.Context, event OperationObservation) { entered <- event; <-release; close(exited) }}}
 		closed := make(chan error, 1)
 		go func() { closed <- client.Close() }()
 		event := awaitTestEvent(t, entered, "Close observer")
@@ -223,7 +223,7 @@ func TestCloseObserverRunsAfterSavedResultAndGateRelease(t *testing.T) {
 		}
 		select {
 		case <-client.gate:
-			releaseLibraryGate(client.gate)
+			releaseCallGate(client.gate)
 		default:
 			t.Fatal("Close observer holds native gate")
 		}
@@ -237,7 +237,7 @@ func TestCloseObserverRunsAfterSavedResultAndGateRelease(t *testing.T) {
 
 func TestWithObserverCoversOpenSetupAndClose(t *testing.T) {
 	events := make(chan OperationObservation, 4)
-	client, err := openWithLibraryFactory(context.Background(), []Option{WithLibraryPath(testLibraryPath()), WithObserver(func(_ context.Context, event OperationObservation) { events <- event })}, func(config) (closer, error) { return &fakeNative{}, nil })
+	client, err := openWithBackendFactory(context.Background(), []Option{WithLibraryPath(testLibraryPath()), WithObserver(func(_ context.Context, event OperationObservation) { events <- event })}, func(config) (backend, error) { return newNativeBackend(&fakeSDK{}), nil })
 	if err != nil {
 		t.Fatal(err)
 	}
