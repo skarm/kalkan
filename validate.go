@@ -116,8 +116,8 @@ func (c *Client) ValidateCertificate(ctx context.Context, req ValidateCertificat
 		checkTimeUnix = req.CheckTime.Unix()
 	}
 
-	result, err := withLockedLibraryResult(c, ctx, "ValidateCertificate", func(native certificates) (ckalkan.ValidateCertificateResult, error) {
-		return native.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
+	result, err := withOperationsResult(c, ctx, "ValidateCertificate", func(operations certificateOperations) (ckalkan.ValidateCertificateResult, error) {
+		return operations.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
 			Certificate:    cert,
 			ValidationType: validationType,
 			ValidationPath: revocationSource,

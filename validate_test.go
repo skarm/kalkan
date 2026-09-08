@@ -16,7 +16,7 @@ import (
 
 func TestValidateCertificateMapsOCSPRequest(t *testing.T) {
 	checkTime := time.Unix(1_700_000_000, 0).UTC()
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if string(req.Certificate) != "cert-pem" {
 				t.Fatalf("certificate = %q, want cert-pem", req.Certificate)
@@ -40,7 +40,7 @@ func TestValidateCertificateMapsOCSPRequest(t *testing.T) {
 			}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	validation, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate:          Bytes([]byte("cert-pem")),
@@ -63,14 +63,14 @@ func TestValidateCertificateMapsOCSPRequest(t *testing.T) {
 
 func TestValidateCertificateDoesNotCopyOCSPResponse(t *testing.T) {
 	nativeOCSP := []byte("ocsp-response")
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			return ckalkan.ValidateCertificateResult{
 				Info:         "certificate ok",
 				OCSPResponse: nativeOCSP,
 			}, nil
 		},
-	}}
+	})}
 
 	validation, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate:        DER([]byte("cert")),
@@ -86,7 +86,7 @@ func TestValidateCertificateDoesNotCopyOCSPResponse(t *testing.T) {
 }
 
 func TestValidateCertificateTrimsOCSPRevocationSource(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationPath != "http://ocsp.example.test/path" {
 				t.Fatalf("revocation source = %q, want trimmed OCSP URL", req.ValidationPath)
@@ -94,7 +94,7 @@ func TestValidateCertificateTrimsOCSPRevocationSource(t *testing.T) {
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate:      Bytes([]byte("cert-pem")),
@@ -109,7 +109,7 @@ func TestValidateCertificateTrimsOCSPRevocationSource(t *testing.T) {
 func TestValidateCertificateUsesConfiguredOCSPURL(t *testing.T) {
 	const configuredOCSPURL = "http://ocsp.example.test/"
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationPath != configuredOCSPURL {
 				t.Fatalf("revocation source = %q, want configured OCSP URL", req.ValidationPath)
@@ -117,7 +117,7 @@ func TestValidateCertificateUsesConfiguredOCSPURL(t *testing.T) {
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native, config: runtimeConfig{ocspURL: configuredOCSPURL}}
+	client := &Client{session: newNativeBackend(native), config: runtimeConfig{ocspURL: configuredOCSPURL}}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: Bytes([]byte("cert-pem")),
@@ -129,7 +129,7 @@ func TestValidateCertificateUsesConfiguredOCSPURL(t *testing.T) {
 }
 
 func TestValidateCertificateDoesNotReloadDefaults(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationPath != "" {
 				t.Fatalf("revocation source = %q, want existing runtime value without default reapply", req.ValidationPath)
@@ -138,7 +138,7 @@ func TestValidateCertificateDoesNotReloadDefaults(t *testing.T) {
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: DER([]byte("cert")),
@@ -150,13 +150,13 @@ func TestValidateCertificateDoesNotReloadDefaults(t *testing.T) {
 }
 
 func TestValidateCertificateRejectsUnusedRevocationSource(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Error("ValidateCertificate called native with RevocationSource and CertificateValidationNone")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate:      Bytes([]byte("cert")),
@@ -169,13 +169,13 @@ func TestValidateCertificateRejectsUnusedRevocationSource(t *testing.T) {
 }
 
 func TestValidateCertificateRejectsInvalidOCSPURL(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Error("ValidateCertificate called native with invalid OCSP RevocationSource")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	tests := []struct {
 		name             string
@@ -228,13 +228,13 @@ func TestValidateCertificateRequiresOCSPModeForResponse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 					t.Error("ValidateCertificate called native with ReturnOCSPResponse outside OCSP mode")
 					return ckalkan.ValidateCertificateResult{}, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.ValidateCertificate(context.Background(), test.req)
 			if err == nil || !strings.Contains(err.Error(), "ReturnOCSPResponse requires OCSP certificate validation mode") {
@@ -248,7 +248,7 @@ func TestValidateCertificateCRLPath(t *testing.T) {
 	t.Run("preserve CRL path whitespace", func(t *testing.T) {
 		crlPath := writeTestFile(t, t.TempDir(), "cert.crl", []byte("crl"))
 		crlPathWithWhitespace := " \t" + crlPath + "\n"
-		native := &fakeNative{
+		native := &fakeSDK{
 			validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				if req.ValidationPath != crlPathWithWhitespace {
 					t.Fatalf("revocation source = %q, want preserved path %q", req.ValidationPath, crlPathWithWhitespace)
@@ -256,7 +256,7 @@ func TestValidateCertificateCRLPath(t *testing.T) {
 				return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 			Certificate:      Bytes([]byte("cert")),
@@ -269,13 +269,13 @@ func TestValidateCertificateCRLPath(t *testing.T) {
 	})
 
 	t.Run("reject NUL", func(t *testing.T) {
-		native := &fakeNative{
+		native := &fakeSDK{
 			validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				t.Error("ValidateCertificate called native with embedded NUL RevocationSource")
 				return ckalkan.ValidateCertificateResult{}, nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 			Certificate:      Bytes([]byte("cert")),
@@ -307,7 +307,7 @@ func TestValidateCertificateDoesNotStatCRLPath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 					if req.ValidationPath != test.path {
 						t.Fatalf("RevocationSource = %q, want %q", req.ValidationPath, test.path)
@@ -316,7 +316,7 @@ func TestValidateCertificateDoesNotStatCRLPath(t *testing.T) {
 					return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 				Certificate:      Bytes([]byte("cert")),
@@ -343,13 +343,13 @@ func TestValidateCertificateOnNilClient(t *testing.T) {
 }
 
 func TestValidateCertificateRequiresMode(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Error("ValidateCertificate called native X509ValidateCertificate for unspecified validation mode")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: Bytes([]byte("cert-pem")),
@@ -360,13 +360,13 @@ func TestValidateCertificateRequiresMode(t *testing.T) {
 }
 
 func TestValidateCertificateRejectsEmptyCertificate(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Error("ValidateCertificate called native X509ValidateCertificate for empty certificate")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: Bytes(nil),
@@ -419,13 +419,13 @@ func TestValidateCertificateRejectsInvalidPEM(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 					t.Error("ValidateCertificate called native with invalid PEM")
 					return ckalkan.ValidateCertificateResult{}, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 				Certificate: PEM(test.pem),
@@ -464,7 +464,7 @@ func TestCertificateInputRejectsEmptyDER(t *testing.T) {
 }
 
 func TestValidateCertificateAcceptsNoRevocation(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationType != ckalkan.UseNothing {
 				t.Fatalf("validation type = %#x, want UseNothing", req.ValidationType)
@@ -472,7 +472,7 @@ func TestValidateCertificateAcceptsNoRevocation(t *testing.T) {
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate: Bytes([]byte("cert-pem")),
@@ -621,14 +621,14 @@ func TestValidateCertificateNormalizesExplicitEncodingsToPEM(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			client := &Client{config: runtimeConfig{maxInputSize: int64(len(tc.source.data))}, library: &fakeNative{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+			client := &Client{config: runtimeConfig{maxInputSize: int64(len(tc.source.data))}, session: newNativeBackend(&fakeSDK{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				calls++
 				block, rest := pem.Decode(req.Certificate)
 				if block == nil || block.Type != "CERTIFICATE" || len(rest) != 0 || !bytes.Equal(block.Bytes, der) {
 					t.Fatalf("native certificate = %q, want one PEM block containing original DER", req.Certificate)
 				}
 				return ckalkan.ValidateCertificateResult{Info: "certificate valid"}, nil
-			}}}
+			}})}
 			result, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{Certificate: tc.source, Mode: CertificateValidationNone})
 			if err != nil || result == nil || result.Info != "certificate valid" || calls != 1 {
 				t.Fatalf("ValidateCertificate = %#v, %v, calls=%d", result, err, calls)

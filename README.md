@@ -6,17 +6,17 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/skarm/kalkan.svg)](https://pkg.go.dev/github.com/skarm/kalkan)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 
-Go wrapper for KalkanCrypt. The root package exposes typed operations over the lower-level `ckalkan` binding.
+Go wrapper for KalkanCrypt. The root package exposes typed operations over the native `ckalkan` binding and an optional Java backend for hashing, CMS, XML/WS-Security, ZIP and certificate operations on macOS.
 
 ## Compatibility
 
 - Go 1.26+
-- `linux/amd64` with `CGO_ENABLED=1`
-- `windows/amd64`
+- Native backend: `linux/amd64` with `CGO_ENABLED=1`, or `windows/amd64`
+- Java backend: JDK 17+ and the NCA RK Java provider JAR; tested on `darwin/arm64` with JDK 17 and 26 and provider 0.7.5, without a native library or cgo
 
 Native CI exercises `libkalkancryptwr-64.so.2.0.13`.
 
-`windows/386`, Linux with `CGO_ENABLED=0`, and other targets compile against the unsupported driver and return `ErrUnavailable`.
+The native backend returns `ErrUnavailable` on `windows/386`, Linux with `CGO_ENABLED=0`, and other unsupported native targets. Select the Java backend explicitly with `WithJavaProvider` to use its supported operations on macOS.
 
 Obtain the SDK from the [NCA RK developer portal](https://pki.gov.kz/en/to-developers/). `WithLibraryPath` requires an absolute path to the x64 `.so` or DLL.
 
@@ -25,6 +25,97 @@ Obtain the SDK from the [NCA RK developer portal](https://pki.gov.kz/en/to-devel
 ```sh
 go get github.com/skarm/kalkan@latest
 ```
+
+## macOS: Java backend
+
+Obtain `knca_provider_jce_kalkan-0.7.5.jar` from the SDK's `Java/provider` directory and install a JDK 17 or later. The vendor JAR is not included in this module. `WithJavaProvider` requires an absolute JAR path and cannot be combined with `WithLibraryPath`. `WithJavaExecutable` accepts an executable path or name; its default is `java` from `PATH`. A JDK is required: a small bootstrap compiles the embedded Java source tree through the standard compiler API and starts the worker in the same JVM. No separate `javac` executable or build tool is needed.
+
+The public client handles input validation, serialization of calls and diagnostics through the backend contract in [`backend.go`](backend.go). [`backend_native.go`](backend_native.go) owns native trust restoration; [`backend_java.go`](backend_java.go) binds each Java operation to its request context and maps errors. The Go bridge in `internal/javakalkan` owns process IPC, HTTP and bounded file input. The [Java worker](internal/javakalkan/worker/README.md) has a separate source tree and separates keys, certificate validation, CMS and XML. Java SDK tests live beside the backend in `internal/javakalkan/*_sdk_test.go`, in the external `javakalkan_test` package using the public API. SDK-independent tests use the internal package.
+
+Use the root `kalkan.Open` API; `ckalkan` and `isolated` remain native backends. This example loads a PKCS#12 key, computes a hash, signs an attached CMS, and verifies it with explicit CA trust:
+
+```go
+import (
+	"context"
+	"errors"
+
+	"github.com/skarm/kalkan"
+)
+
+func cmsRoundTrip(ctx context.Context, password string, payload []byte) (
+	digest *kalkan.Digest, result *kalkan.Verification, err error,
+) {
+	client, err := kalkan.Open(ctx,
+		kalkan.WithJavaProvider("/opt/kalkan/knca_provider_jce_kalkan-0.7.5.jar"),
+		kalkan.WithJavaExecutable("java"),
+		kalkan.WithTrustedCertificate(kalkan.TrustedCertificate{
+			Path: "/opt/kalkan/certs/root.cer", Type: kalkan.CertificateCA,
+		}),
+		kalkan.WithTrustedCertificate(kalkan.TrustedCertificate{
+			Path: "/opt/kalkan/certs/intermediate.cer", Type: kalkan.CertificateIntermediate,
+		}),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { err = errors.Join(err, client.Close()) }()
+	if err = client.LoadKeyStore(ctx, kalkan.KeyStore{
+		Type: kalkan.PKCS12, Path: "/opt/kalkan/keys/signing.p12", Password: password,
+	}); err != nil {
+		return nil, nil, err
+	}
+	digest, err = client.Hash(ctx, kalkan.HashRequest{
+		Algorithm: kalkan.GOST2015_512, Data: kalkan.Bytes(payload),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	signed, err := client.SignCMS(ctx, kalkan.SignCMSRequest{
+		Data: kalkan.Bytes(payload), IncludeCertificate: true,
+	})
+	if err != nil {
+		return digest, nil, err
+	}
+	result, err = client.VerifyCMS(ctx, kalkan.VerifyCMSRequest{
+		Signature: kalkan.DER(signed.Data), SignerID: 1,
+	})
+	return digest, result, err
+}
+```
+
+The provider JAR supports `Hash` with SHA-256 and all three exposed GOST algorithms, PKCS#12 loading, `SignCMS`, `SignHash`, `VerifyCMS`, `GetTimeFromSig`, trusted-certificate loading, `ValidateCertificate`, `GetCertFromCMS`, `X509ExportCertificateFromStore`, `X509CertificateGetInfo` and `X509CertificateGetInfoFields`.
+
+`CertificateInfo.SignatureAlgorithm` uses the native SDK's `signatureAlgorithm=<name>(<OID>)` format for known signature algorithms, including RSA and GOST. The Java backend preserves an unknown algorithm as its dotted OID instead of inventing a name. Reading this metadata does not verify the certificate signature.
+
+CMS signing supports attached and detached signatures and DER, Base64, or PEM output. To add a signer, pass an in-memory DER/Base64/PEM CMS in `SignCMSRequest.ExistingSignature`, supply the same payload in `Data`, and match its `Detached` setting. Existing signatures, trust and revocation are verified before the new signer is added; existing signer records, certificates and CRLs are preserved. For append operations, Base64/PEM payloads, including files, are decoded in Go before the backend call; `WithMaxInputSize` also bounds these encoded files. For detached verification, set `Detached: true` and supply the original payload as `Data`. `VerifyCMS` verifies all primary signers; `SignerID` only selects the certificate returned in `SignerCert` (`0`: none, `1`: first). Attached verification returns the payload for in-memory signature inputs; file and detached verification leave `Data` empty.
+
+`Timestamp: true` in `SignCMSRequest` or `SignHashRequest` requests a new RFC 3161 token from `WithTSAURL` (default `http://tsp.pki.gov.kz:80`). The response must match a fresh random nonce and the SHA-256 imprint of the signature; its TSA signature, purpose, chain and revocation are verified before inclusion. `GetTimeFromSig` authenticates the first signer's timestamp tokens and their binding to its signature, returning the earliest verified token time. It also works with detached CMS without requiring its payload; it does not verify the document's primary signature. Use `VerifyCMS` to validate the document.
+
+Java CMS verification requires a chain to an explicitly trusted root CA; load intermediates needed to construct that chain. The Java trust store is independent of loaded signing keys: changing a PKCS12 store preserves trust without rereading certificate files. Certificate dates are checked by default. `SkipCertificateTimeCheck` skips dates while retaining chain validation. This deliberately differs from the broader effect observed for the native SDK's `KC_NOCHECKCERTTIME` flag and does not promise identical validation policy. The example uses default date checks; the repository's expired PKCS#12 fixtures require an explicit skip only in historical-fixture tests.
+
+`VerifyCMS` checks OCSP revocation by default for every chain certificate except the trusted root, using `WithOCSPURL` (default `http://ocsp.pki.gov.kz`). It authenticates the response signature, responder authorization, certificate and issuer identifiers, freshness, and status. Revoked, unknown, stale, forged, or unavailable status fails verification. Select CRL with `WithJavaRevocation(CertificateValidationCRL, source)`: `source` can be an HTTP(S) URL, a file, or a directory containing `.crl`, `.der`, or `.pem` files; an empty source uses certificate distribution points. Local bundles need full CRLs for all chain issuers. For each issuer, verification selects the newest applicable full CRL with a valid signature and validity period, using `CRLNumber` when available and publication time otherwise; conflicting numbers or publication times are rejected. Stale CRLs in a bundle do not prevent use of a current authenticated CRL. Local CRLs are loaded at `Open`; open a new client to refresh them. `WithJavaRevocation(CertificateValidationNone, "")` explicitly disables only revocation for offline use and is reported in diagnostics. `SkipCertificateTimeCheck` does not bypass revocation.
+
+When an RFC 3161 `signatureTimeStampToken` is present, verification checks its imprint over the CMS signature bytes, TSA signature, ESSCertID/ESSCertIDv2, TSA certificate purpose, and its chain and validity at the timestamp time. TSA-chain revocation uses current evidence under the selected mode. Load the TSA root and intermediates as well; they can differ from the document signer's chain. An untrusted or invalid timestamp rejects the whole CMS, even with `SkipCertificateTimeCheck`. Timestamp time does not replace the current date for the primary signer's certificate checks. This is not archival revocation validation as of signing time.
+
+Standalone `ValidateCertificate` supports None, CRL, and OCSP modes, including validated OCSP output with `ReturnOCSPResponse`. An explicit `CheckTime` validates certificate dates and the chain at that instant in None/CRL modes, taking precedence over `SkipCertificateTimeCheck`. CRL evidence must cover that instant; revocations dated after it do not invalidate that historical result. Historical OCSP validation requires archived evidence and remains unsupported. Full direct CRLs are supported; delta, indirect, and scoped CRLs are rejected. Delegated OCSP responders require `OCSPSigning` and `id-pkix-ocsp-nocheck`; responders without the latter are explicitly unsupported. Clock skew tolerance is five minutes; OCSP responses without `nextUpdate` are accepted for at most 24 hours from `thisUpdate`. A missing nonce is allowed with a fresh authenticated response; a mismatched nonce is rejected. CMS countersignatures, nested timestamps and hardware tokens remain unsupported. Java-specific unsupported operations match `ErrJavaUnsupported`; methods absent from this backend need not match that sentinel. Provider failures use `JavaError`, which has no native KalkanCrypt status code.
+
+TSA and revocation network requests run in Go: `EndpointPolicy` also applies to certificate-derived URLs, redirects are disabled, and each HTTP request has a 15-second timeout. Decoded responses are limited to 64 MiB or a smaller positive `WithMaxInputSize`. `WithProxy` configures an HTTP proxy with optional Basic authentication for these requests, including HTTPS CONNECT. HTTP proxy environment variables are not used. Destinations have no host allowlist by default; configure `WithEndpointPolicy` when processing untrusted certificates.
+
+`SignXML`, `VerifyXML`, `SignWSSE`, `GetCertFromXML` and `GetSigAlgFromXML` additionally require the Kalkan XMLDSig adapter, Apache Santuario and SLF4J API. Pass their absolute paths alongside `WithJavaProvider`:
+
+```go
+kalkan.WithJavaXMLLibraries(
+    "/opt/kalkan/java/kalkancrypt-xmldsig-0.5.jar",
+    "/opt/kalkan/java/xmlsec-3.0.6.jar",
+    "/opt/kalkan/java/slf4j-api-2.0.9.jar",
+)
+```
+
+The adapter supports RSA/SHA-256, GOST95 and GOST2015-512 XML signing; GOST2015-256 XML signing is unavailable in XMLDSig adapter 0.5. All six public canonicalization modes are supported. WS-Security signs the selected SOAP 1.1/1.2 Body with an exclusive-canonicalization reference and embeds its X509v3 certificate in a `wsse:KeyIdentifier`, matching the native SDK. Verification and certificate extraction also accept local BinarySecurityToken references. `VerifyXML` verifies all signatures and applies the same explicit trust and OCSP/CRL policy; SOAP verification also requires the correct `ExpectedBodyID`.
+
+XML IDs must be globally unique and contain only XML `NameChar` characters excluding colon; numeric IDs are accepted for native compatibility. URI escapes in references are unsupported. References are limited to the same document or a unique element ID, with enveloped-signature and canonicalization transforms; XPointer, external references, XPath/XSLT transforms, `ds:Object`, XAdES and XML timestamp objects are rejected. Adding a signature with `SignXML` returns `ErrJavaUnsupported` if the result would invalidate an existing signature. This preservation check verifies signatures and referenced content without checking existing signers' trust or certificate dates. Certificate/algorithm extraction returns metadata and does not substitute for signature verification. The hash, CMS and certificate APIs remain available when these optional XML JARs are omitted.
+
+Each Java client owns a persistent child process and exchanges requests through pipes. Calls within one client are serialized; synchronize a complete load-and-sign sequence if sharing it across keys. Cancellation before a queued call starts leaves the session usable. Cancellation after a worker request starts terminates the Java session; subsequent calls return `ErrJavaWorkerFailed`, and recovery requires a new `Open`. `Close` reaps the process and removes the temporary worker sources and classes. Inputs and outputs are buffered in full; this is not a streaming API. `Hash`, `SignCMS`, `VerifyCMS` and trusted-certificate file inputs must be regular files and also honor `WithMaxInputSize`; PKCS12 containers are loaded separately by the provider. CMS, ZIP and CRL file reads share cancellation and size checks; individual Java protocol fields cannot exceed the signed 32-bit array limit. Go checks cancellation between file reads but cannot interrupt an operating-system filesystem call. `WithMaxOutputBufferSize` bounds returned fields. These limits do not bound total JVM memory.
 
 ## Packages
 
@@ -81,7 +172,7 @@ func hash(ctx context.Context) (digest *kalkan.Digest, err error) {
 }
 ```
 
-`Open` configures these production endpoints by default:
+For the native backend, `Open` configures these production endpoints by default:
 
 - TSA: `http://tsp.pki.gov.kz:80`
 - OCSP: `http://ocsp.pki.gov.kz`
@@ -105,7 +196,7 @@ client, err := kalkan.Open(ctx,
 
 `Open` always configures a nonempty TSA URL; `WithTSAURL("")` is invalid. The `Timestamp` fields of `SignCMSRequest` and `SignHashRequest` request timestamp tokens independently of this URL setup. The SDK setter `KC_TSASetUrl` returns no status, so a successful setup or `ckalkan.Client.SetTSAURL` call does not confirm that the SDK accepted the URL or that the TSA server is reachable.
 
-## Runtime model
+## Native runtime model
 
 KalkanCrypt state is process-global. Native calls are serialized individually. A `LoadKeyStore` call followed by signing is not atomic: other calls can run between them. Callers sharing a client across different key stores must synchronize the entire load-and-sign sequence or use separate processes.
 
@@ -121,7 +212,7 @@ On Windows, `LoadLibraryExW` uses `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRA
 
 ## Optional process isolation
 
-Import `github.com/skarm/kalkan/isolated` to run each client in a dedicated child process. The application provides its own worker mode in the same executable; no separate worker command or build is needed. The ordinary `kalkan.Open` keeps its in-process behavior.
+Import `github.com/skarm/kalkan/isolated` to run each native client in a dedicated child process. The application provides its own worker mode in the same executable; no separate worker command or build is needed. `kalkan.Open` with `WithLibraryPath` keeps its in-process behavior.
 
 At the start of `main`, before parsing application flags or starting services:
 
@@ -191,7 +282,7 @@ A source encoding other than `EncodingAuto` takes precedence over request encodi
 
 The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. On Linux and Windows, length-delimited in-memory inputs are normally passed directly to KalkanCrypt without an adapter copy. Base64 data passed to `SignData` and Base64 CMS signatures passed to `VerifyData`, `GetCertFromCMS`, and `GetTimeFromSig` receive an owned NUL-terminated copy because Linux SDK 2.0.13 reads these inputs as C strings despite accepting an explicit length; the logical length passed to the SDK is unchanged. Except for `GetCertFromCMS`, `File` forwards the original path after empty-path and NUL validation; the native adapter adds the C-string terminator required by `KC_IN_FILE`. Keep borrowed slices and referenced files unchanged until the call returns.
 
-`WithMaxInputSize` caps high-level in-memory inputs and files read by `GetCertFromCMS`. It does not apply to files read directly by the SDK or native output buffers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
+For the native backend, `WithMaxInputSize` caps high-level in-memory inputs and files read by `GetCertFromCMS`. It does not apply to files read directly by the native SDK or native output buffers. The Java backend also enforces it on payload and trusted-certificate files read by its Go adapter; it does not bound PKCS12 containers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
 
 Native binary outputs are returned strictly according to the SDK-reported `outLen`; zero bytes inside that range are preserved. The returned slice has `len` and `cap` limited to the logical result, so unused buffer capacity is not exposed. Byte-slice results are bounded views rather than copies: keeping a result alive also retains the successful native backing allocation, avoiding a second large allocation and copy. Known textual outputs use C-string semantics and end at the first NUL because some KalkanCrypt methods report a fixed-size block and leave unspecified bytes after the terminator.
 
@@ -223,11 +314,11 @@ CMS output is raw DER by default. Select `CMSOutputBase64` or `CMSOutputPEM` for
 
 XML operations accept `kalkan.Bytes`; file and pre-encoded sources are rejected.
 
-`GetCertFromXML` returns one embedded certificate per signature in document order; it does not verify signatures or establish certificate trust. To avoid the SDK's ambiguous lookup by position or `Signature Id`, extraction uses a copy with unqualified `ds:Signature` `Id` attributes removed. The caller's XML is unchanged, and this copy is never used by `VerifyXML`.
+`GetCertFromXML` returns one embedded certificate per signature in document order. When Java encounters multiple embedded certificates, it identifies the signer by verifying `SignatureValue` over `SignedInfo` with each candidate; missing or ambiguous matches fail. Extraction does not verify referenced document content, certificate dates or trust. The native backend does not verify signatures during extraction. To avoid the native SDK's ambiguous lookup by position or `Signature Id`, extraction uses a copy with unqualified `ds:Signature` `Id` attributes removed. The caller's XML is unchanged, and this copy is never used by `VerifyXML`.
 
 Additional direct references may cover other WS-Security nodes. SOAP input must be UTF-8; one optional BOM at the start is accepted without changing the bytes passed to native verification. Non-SOAP XML accepts UTF-8 or an ASCII-compatible declared encoding when the prolog and root tag are ASCII.
 
-The wrapper does not independently allowlist `CanonicalizationMethod`, `DigestMethod`, or `SignatureMethod`: the supported cryptographic algorithms depend on the installed KalkanCrypt version and repository fixtures do not establish a stable complete set. KalkanCrypt remains responsible for rejecting unsupported methods.
+For the native backend, the wrapper does not independently allowlist `CanonicalizationMethod`, `DigestMethod`, or `SignatureMethod`: the supported cryptographic algorithms depend on the installed KalkanCrypt version and repository fixtures do not establish a stable complete set. KalkanCrypt remains responsible for rejecting unsupported methods.
 
 ## Certificate validation
 
@@ -249,7 +340,11 @@ Use `X509CertificateGetInfoFields` on metadata hot paths. `CertificateInfo` expo
 
 ## ZIP containers
 
-`SignZIPRequest.OutputPath` must end with `.zip`, case-insensitively. Existing requested and normalized output paths are rejected before the native call. KalkanCrypt creates the file without an atomic create-if-absent guarantee.
+The Java backend implements `SignZIP`, `VerifyZIP` and `ExtractZIPSignerCertificate` using the NCA `META-INF/NCAManifest.xml` format and a detached CMS signature. It signs a regular file, a directory tree, a pipe-separated native SDK file list, or an unsigned ZIP. Signing an existing signed ZIP first verifies it, then adds a CMS signer. Verification checks all payload digests, all CMS signatures, explicit trust, revocation and any present timestamps. Native Linux KalkanCrypt 2.0.13 and Java containers were verified in both directions.
+
+Java ZIP processing buffers the archive and payloads in memory, capped at 64 MiB (or a smaller positive `WithMaxInputSize`) and 4096 archive entries including metadata. Traversal paths, duplicate/case-alias names, symlinks and unsigned extra files are rejected. Local headers must agree with the central directory; unlisted local entries and prepended data or executables are rejected. New archives use SHA-256 payload digests; verification also supports the native GOST95 and GOST2015-512 digest URIs. Empty containers, alternate manifest formats and multiple independent CMS references are unsupported. Java output creation uses exclusive creation; `WithAtomicZIPOutput()` also delays publication until the archive is complete. Certificate extraction uses one-based `SignerID` values: 1 selects the first signer.
+
+`SignZIPRequest.OutputPath` must end with `.zip`, case-insensitively. Existing requested and normalized output paths are rejected before the native call. The native KalkanCrypt backend creates the file without an atomic create-if-absent guarantee.
 
 `WithAtomicZIPOutput()` enables atomic publication of completed ZIP output without replacing an existing file. KalkanCrypt writes into a private temporary directory next to the output; temporary files are removed when the operation returns. This option requires hard-link support and an output directory controlled by the application. It is disabled by default.
 
@@ -259,15 +354,31 @@ ZIP input paths are forwarded after empty-path and NUL validation. Keep the file
 
 ## Diagnostics
 
-`WithObserver(func(ctx context.Context, event kalkan.OperationObservation) { ... })` reports native-call attempts, including setup during `Open` and final `Close`. `QueueWait`, `NativeDuration`, and `TotalDuration` measure the call helper; validation before it and diagnostic callbacks are excluded. `NativeDuration` includes checks and lock waits inside the low-level call callback. `ErrorClass`, `NativeCode`, and `Expected` describe the outcome without raw error text or input/output data. Returned errors are unchanged. Certificate enumeration endings and absent optional properties retain their expected status.
+`WithObserver(func(ctx context.Context, event kalkan.OperationObservation) { ... })` reports backend-call attempts, including setup during `Open` and final `Close`. `QueueWait`, `NativeDuration`, and `TotalDuration` measure the call helper; validation before it and diagnostic callbacks are excluded. `NativeDuration` includes checks and lock waits inside the backend callback. `ErrorClass`, `NativeCode`, and `Expected` describe the outcome without raw error text or input/output data. Returned errors are unchanged. Certificate enumeration endings and absent optional properties retain their expected status.
 
-Observers run synchronously after the native gate is released, may run concurrently, and must not panic. A slow observer delays its caller; `Close` publishes its saved result before invoking diagnostics and may return first. `WithLogger` records the same safe metadata and never records raw SDK error messages, paths, URLs, or payloads. Timings are not collected when both logger and observer are absent.
+Observers run synchronously after the client call gate is released, may run concurrently, and must not panic. A slow observer delays its caller; `Close` publishes its saved result before invoking diagnostics and may return first. `WithLogger` records the same safe metadata and never records raw SDK error messages, paths, URLs, or payloads. Timings are not collected when both logger and observer are absent.
 
 ## Checks
 
 ```sh
 make check
 ```
+
+Java integration tests, including on macOS:
+
+```sh
+kalkan_java_sdk="$PWD/../kcsdk/java"
+KALKANCRYPT_JAVA_PROVIDER="$kalkan_java_sdk/knca_provider_jce_kalkan-0.7.5.jar" \
+KALKANCRYPT_JAVA_XML_LIBRARIES="$kalkan_java_sdk/kalkancrypt-xmldsig-0.5.jar:$kalkan_java_sdk/xmlsec-3.0.6.jar:$kalkan_java_sdk/slf4j-api-2.0.9.jar" \
+KALKANCRYPT_JAVA_EXECUTABLE=java \
+go test -count=1 ./...
+```
+
+`KALKANCRYPT_JAVA_XML_LIBRARIES` enables the XML/WS-Security tests; omit it for provider-only tests. Its path-list separator is `:` on macOS/Linux and `;` on Windows. CI reads all four JARs from the private `skarm/kcsdk` repository and runs on macOS/Linux with JDK 17 and 26. See [test setup](.github/TESTING.md#running-checks) for the required checkout token and fork behavior.
+
+The Java suite checks timestamp issuance/extraction, adding CMS signers, XML/WS-Security, ZIP containers, certificate properties, HTTP proxies, historical certificate/CRL validation, native-reference hash vectors, attached/detached CMS in DER/Base64/PEM, file and empty inputs, tamper rejection, precomputed-digest signing, PKCS#12 password failures, certificate dates and trust, signer-certificate extraction, and existing native CMS fixtures. It was run with provider 0.7.5 and JDK 17 and 26 on macOS ARM64. Live bidirectional native/Java tests additionally require `KALKANCRYPT_LIBRARY` on a supported native platform. Tests that require an unset backend environment variable are skipped.
+
+Revocation and timestamp tests use independently generated ephemeral RSA certificates, CMS, CRLs, OCSP responses, and local HTTP servers. They cover revoked intermediates and TSAs, unknown status, wrong issuers/nonces/signatures/imprints, untrusted TSAs, stale evidence, unavailable services, URL restrictions, and network cancellation. Historical CMS fixtures contain production TSA timestamps and must fail without the corresponding trust. To additionally verify those original files completely, set `KALKANCRYPT_JAVA_TSA_CERTIFICATES` to a directory containing public `root_gost_2022.cer` and `nca_gost_2022.cer` from the [NCA website](https://pki.gov.kz/en/cert-en/). Production certificates are not checked into the repository. Primary signatures are also tested separately on a copy with the unsigned timestamp attribute removed.
 
 ```sh
 KALKANCRYPT_LIBRARY=/opt/kalkan/lib/libkalkancryptwr-64.so \

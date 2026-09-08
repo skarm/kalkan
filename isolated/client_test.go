@@ -126,6 +126,9 @@ func runBrokenWorker(mode string) {
 			return
 		}
 		response := message{ID: request.ID, Operation: request.Operation, Payload: nullPayload()}
+		if request.Operation == opClose && mode == "broken-close-result" {
+			response.Payload = wirePayload{metadata: []byte{1}}
+		}
 		if request.Operation == "Hash" {
 			switch mode {
 			case "broken-id":
@@ -151,6 +154,9 @@ func runBrokenWorker(mode string) {
 			return
 		}
 		if request.Operation == "Close" {
+			if mode == "broken-close-result" {
+				time.Sleep(time.Hour)
+			}
 			return
 		}
 	}
@@ -434,6 +440,20 @@ func TestCanceledCloseContextKillsWorkerAndSavesResult(t *testing.T) {
 	awaitExit(t, client)
 	if err := client.Close(); !errors.Is(err, context.Canceled) {
 		t.Fatalf("saved close = %v", err)
+	}
+}
+
+func TestMalformedCloseAcknowledgementWaitsForWorkerExit(t *testing.T) {
+	client := openHelper(t, "broken-close-result", nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := client.CloseContext(ctx); !errors.Is(err, ErrProtocol) || !errors.Is(err, ErrWorkerFailed) {
+		t.Fatalf("malformed Close response = %v", err)
+	}
+	select {
+	case <-client.exited:
+	default:
+		t.Fatal("Close returned before the worker was reaped")
 	}
 }
 

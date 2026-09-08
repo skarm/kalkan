@@ -95,14 +95,14 @@ func TestEndpointPolicyAddressForms(t *testing.T) {
 }
 
 func TestEndpointPolicyAppliesToPerRequestOCSPOverride(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			t.Fatal("ValidateCertificate called native for an endpoint rejected by policy")
 			return ckalkan.ValidateCertificateResult{}, nil
 		},
 	}
 	client := &Client{
-		library: native,
+		session: newNativeBackend(native),
 		config: runtimeConfig{
 			ocspURL: defaultOCSPURL,
 			endpointPolicy: &EndpointPolicy{
@@ -178,7 +178,7 @@ func TestEndpointPolicyRejectsInvalidConfigurationBeforeNative(t *testing.T) {
 				options = append(options, WithOCSPURL(test.ocspURL))
 			}
 			called := false
-			client, err := openWithLibraryFactory(context.Background(), options, func(config) (closer, error) { called = true; return &fakeNative{}, nil })
+			client, err := openWithBackendFactory(context.Background(), options, func(config) (backend, error) { called = true; return newNativeBackend(&fakeSDK{}), nil })
 			if client != nil {
 				defer client.Close()
 			}
@@ -205,19 +205,19 @@ func TestEndpointPolicyKeepsUnrestrictedDefault(t *testing.T) {
 func TestEndpointPolicyOpenAndOCSPOverride(t *testing.T) {
 	var tsa string
 	var responder string
-	native := &fakeNative{
+	native := &fakeSDK{
 		setTSAURLFunc: func(url string) error { tsa = url; return nil },
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			responder = req.ValidationPath
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTSAURL("https://TSA.EXAMPLE./timestamp"),
 		WithOCSPURL("https://ocsp.example"),
 		WithEndpointPolicy(EndpointPolicy{AllowedHosts: []string{"tsa.example", "ocsp.example"}, RequireHTTPS: true}),
-	}, func(config) (closer, error) { return native, nil })
+	}, func(config) (backend, error) { return newNativeBackend(native), nil })
 	if err != nil {
 		t.Fatal(err)
 	}

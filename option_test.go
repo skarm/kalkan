@@ -22,7 +22,7 @@ func TestOpenRequiresLibraryPath(t *testing.T) {
 
 func TestOpenUsesDefaultNetworkURLs(t *testing.T) {
 	var sawTSA bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		setTSAURLFunc: func(tsaURL string) error {
 			sawTSA = true
 			if tsaURL != defaultTSAURL {
@@ -38,10 +38,10 @@ func TestOpenUsesDefaultNetworkURLs(t *testing.T) {
 		},
 	}
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
-	}, func(config) (closer, error) {
-		return native, nil
+	}, func(config) (backend, error) {
+		return newNativeBackend(native), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -75,11 +75,11 @@ func TestOpenRejectsRelativeLibraryPath(t *testing.T) {
 func TestOpenPreservesLibraryPath(t *testing.T) {
 	var factoryCalls int
 
-	_, err := openWithLibraryFactory(context.Background(), []Option{
+	_, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(" \t" + testLibraryPath() + "\n"),
-	}, func(config) (closer, error) {
+	}, func(config) (backend, error) {
 		factoryCalls++
-		return &fakeNative{}, nil
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if err == nil || !strings.Contains(err.Error(), "absolute library path") {
 		t.Fatalf("Open error = %v, want absolute library path error", err)
@@ -92,11 +92,11 @@ func TestOpenPreservesLibraryPath(t *testing.T) {
 func TestOpenRejectsNULInLibraryPath(t *testing.T) {
 	var factoryCalls int
 
-	_, err := openWithLibraryFactory(context.Background(), []Option{
+	_, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath("/tmp/lib.so\x00suffix"),
-	}, func(config) (closer, error) {
+	}, func(config) (backend, error) {
 		factoryCalls++
-		return &fakeNative{}, nil
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "NUL") {
 		t.Fatalf("Open error = %v, want ErrInvalidInput embedded NUL rejection", err)
@@ -139,7 +139,7 @@ func TestValidateNativePathStringPolicy(t *testing.T) {
 }
 
 func TestSigningOperationsRejectEmbeddedNULBeforeNativeCall(t *testing.T) {
-	client := &Client{library: &fakeNative{}}
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 
 	tests := []struct {
 		name  string
@@ -325,12 +325,12 @@ func TestOpenRejectsInvalidURLs(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var factoryCalls int
-			_, err := openWithLibraryFactory(context.Background(), []Option{
+			_, err := openWithBackendFactory(context.Background(), []Option{
 				WithLibraryPath(testLibraryPath()),
 				test.option,
-			}, func(config) (closer, error) {
+			}, func(config) (backend, error) {
 				factoryCalls++
-				return &fakeNative{}, nil
+				return newNativeBackend(&fakeSDK{}), nil
 			})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Open error = %v, want %q", err, test.want)
@@ -344,7 +344,7 @@ func TestOpenRejectsInvalidURLs(t *testing.T) {
 
 func TestOpenTrimsConfiguredTSAAndOCSPURLs(t *testing.T) {
 	var sawTSA bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		setTSAURLFunc: func(tsaURL string) error {
 			sawTSA = true
 			if tsaURL != "http://tsa.example/path" {
@@ -360,12 +360,12 @@ func TestOpenTrimsConfiguredTSAAndOCSPURLs(t *testing.T) {
 		},
 	}
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTSAURL(" \thttp://tsa.example/path\n"),
 		WithOCSPURL(" \thttp://ocsp.example/path\n"),
-	}, func(config) (closer, error) {
-		return native, nil
+	}, func(config) (backend, error) {
+		return newNativeBackend(native), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -386,15 +386,15 @@ func TestOpenTrimsConfiguredTSAAndOCSPURLs(t *testing.T) {
 func TestOpenMapsMaxBufferSize(t *testing.T) {
 	const wantMaxOutputBufferSize = 2 << 20
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithMaxOutputBufferSize(wantMaxOutputBufferSize),
-	}, func(cfg config) (closer, error) {
+	}, func(cfg config) (backend, error) {
 		if cfg.maxOutputBufferSize != wantMaxOutputBufferSize {
 			t.Fatalf("max output buffer size = %d, want %d", cfg.maxOutputBufferSize, wantMaxOutputBufferSize)
 		}
 
-		return &fakeNative{}, nil
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -412,11 +412,11 @@ func TestClientHasNoDefaultLogger(t *testing.T) {
 	defer slog.SetDefault(originalLogger)
 
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				return []byte("digest"), nil
 			},
-		},
+		}),
 	}
 
 	if _, err := client.Hash(context.Background(), HashRequest{Data: Bytes([]byte("payload"))}); err != nil {
@@ -431,15 +431,15 @@ func TestClientHasNoDefaultLogger(t *testing.T) {
 func TestWithLoggerRecordsNativeCallSuccess(t *testing.T) {
 	handler := newRecordingHandler()
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				return []byte("digest"), nil
 			},
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -450,7 +450,7 @@ func TestWithLoggerRecordsNativeCallSuccess(t *testing.T) {
 	}
 
 	records := handler.Records()
-	if !hasLogRecord(records, slog.LevelDebug, "kalkan native call completed", map[string]string{
+	if !hasLogRecord(records, slog.LevelDebug, "kalkan operation completed", map[string]string{
 		"component": "kalkan",
 		"operation": "Hash",
 	}) {
@@ -462,15 +462,15 @@ func TestWithLoggerRecordsNativeCallError(t *testing.T) {
 	handler := newRecordingHandler()
 	nativeErr := errors.New("native hash failed")
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				return nil, nativeErr
 			},
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -482,7 +482,7 @@ func TestWithLoggerRecordsNativeCallError(t *testing.T) {
 	}
 
 	records := handler.Records()
-	if !hasLogRecord(records, slog.LevelError, "kalkan native call failed", map[string]string{
+	if !hasLogRecord(records, slog.LevelError, "kalkan operation failed", map[string]string{
 		"component":   "kalkan",
 		"operation":   "Hash",
 		"error_class": "operation_failure",
@@ -494,11 +494,11 @@ func TestWithLoggerRecordsNativeCallError(t *testing.T) {
 func TestWithLoggerRecordsClose(t *testing.T) {
 	handler := newRecordingHandler()
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithLogger(slog.New(handler)),
-	}, func(config) (closer, error) {
-		return &fakeNative{}, nil
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -508,7 +508,7 @@ func TestWithLoggerRecordsClose(t *testing.T) {
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	waitForLogRecord(t, handler, slog.LevelDebug, "kalkan native call completed", map[string]string{
+	waitForLogRecord(t, handler, slog.LevelDebug, "kalkan operation completed", map[string]string{
 		"component": "kalkan",
 		"operation": "Close",
 	})

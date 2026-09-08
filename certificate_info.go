@@ -7,9 +7,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"math"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -27,48 +25,49 @@ const (
 )
 
 // CertificateInfo contains selected KalkanCrypt certificate properties.
-// Fields that were not requested retain their zero values. Optional properties
-// absent from the certificate may also be empty. Parsed fields and inferred
-// subject details depend on the properties selected by
+// Unrequested or unavailable properties have zero values. Parsed fields and
+// inferred subject details depend on the properties selected by
 // [Client.X509CertificateGetInfoFields].
 type CertificateInfo struct {
-	// Subject is the native subject distinguished name string.
+	// Subject is the subject distinguished name.
 	Subject string
-	// SerialNumber is the native certificate serial number string.
+	// SerialNumber is the certificate serial number.
 	SerialNumber string
-	// ValidFrom is the parsed native notBefore value.
+	// ValidFrom is the parsed notBefore value.
 	ValidFrom time.Time
-	// ValidUntil is the parsed native notAfter value.
+	// ValidUntil is the parsed notAfter value.
 	ValidUntil time.Time
-	// Issuer is the native issuer distinguished name string.
+	// Issuer is the issuer distinguished name.
 	Issuer string
-	// Policy is the native certificate policies string.
+	// Policy is the certificate policies string.
 	Policy string
-	// KeyUsage is the native key usage string.
+	// KeyUsage is the key usage string.
 	KeyUsage string
-	// ExtKeyUsage is the native extended key usage string.
+	// ExtKeyUsage is the extended key usage string.
 	ExtKeyUsage string
-	// AuthKeyID is the native authority key identifier string.
+	// AuthKeyID is the authority key identifier.
 	AuthKeyID string
-	// SubjKeyID is the native subject key identifier string.
+	// SubjKeyID is the subject key identifier.
 	SubjKeyID string
-	// AlgorithmSignCert is the native certificate signature algorithm string.
-	AlgorithmSignCert string
-	// PublicKey is the native public key string.
+	// SignatureAlgorithm describes the certificate signature algorithm as
+	// "signatureAlgorithm=<name>(<OID>)". The Java backend uses native SDK names
+	// for known algorithms and returns the OID alone for unknown algorithms.
+	SignatureAlgorithm string
+	// PublicKey is the public key string.
 	PublicKey string
-	// OCSPURL is the native OCSP responder string.
+	// OCSPURL is the OCSP responder string.
 	OCSPURL string
-	// CRLURL is the native CRL distribution point string.
+	// CRLURL is the CRL distribution point string.
 	CRLURL string
-	// DeltaCRLURL is the native delta CRL distribution point string.
+	// DeltaCRLURL is the delta CRL distribution point string.
 	DeltaCRLURL string
-	// SubjectCountry is the native subject country value.
+	// SubjectCountry is the subject country value.
 	SubjectCountry string
-	// SubjectSerialNumber is the native subject serialNumber value.
+	// SubjectSerialNumber is the subject serialNumber value.
 	SubjectSerialNumber string
-	// SubjectOrganization is the native subject organization value.
+	// SubjectOrganization is the subject organization value.
 	SubjectOrganization string
-	// SubjectOrganizationalUnit is the native subject organizational unit value.
+	// SubjectOrganizationalUnit is the subject organizational unit value.
 	SubjectOrganizationalUnit string
 	// Policies contains parsed values from Policy.
 	Policies []string
@@ -160,8 +159,8 @@ const (
 	CertificateInfoAuthKeyID
 	// CertificateInfoSubjKeyID requests the subject key identifier.
 	CertificateInfoSubjKeyID
-	// CertificateInfoAlgorithmSignCert requests the signature algorithm.
-	CertificateInfoAlgorithmSignCert
+	// CertificateInfoSignatureAlgorithm requests the signature algorithm.
+	CertificateInfoSignatureAlgorithm
 	// CertificateInfoPublicKey requests the native public key string.
 	CertificateInfoPublicKey
 	// CertificateInfoOCSPURL requests the OCSP responder URL.
@@ -191,7 +190,7 @@ const CertificateInfoAllFields = CertificateInfoSubject |
 	CertificateInfoExtKeyUsage |
 	CertificateInfoAuthKeyID |
 	CertificateInfoSubjKeyID |
-	CertificateInfoAlgorithmSignCert |
+	CertificateInfoSignatureAlgorithm |
 	CertificateInfoPublicKey |
 	CertificateInfoOCSPURL |
 	CertificateInfoCRLURL |
@@ -223,7 +222,7 @@ var certificateInfoProperties = [...]certificateInfoProperty{
 	{field: CertificateInfoExtKeyUsage, prop: ckalkan.CertPropExtKeyUsage},
 	{field: CertificateInfoAuthKeyID, prop: ckalkan.CertPropAuthKeyID},
 	{field: CertificateInfoSubjKeyID, prop: ckalkan.CertPropSubjKeyID},
-	{field: CertificateInfoAlgorithmSignCert, prop: ckalkan.CertPropSignatureAlg},
+	{field: CertificateInfoSignatureAlgorithm, prop: ckalkan.CertPropSignatureAlg},
 	{field: CertificateInfoPublicKey, prop: ckalkan.CertPropPubKey},
 	{field: CertificateInfoOCSPURL, prop: ckalkan.CertPropOCSP, optional: true},
 	{field: CertificateInfoCRLURL, prop: ckalkan.CertPropGetCRL, optional: true},
@@ -231,7 +230,7 @@ var certificateInfoProperties = [...]certificateInfoProperty{
 }
 
 // X509ExportCertificateFromStore exports the default certificate from
-// KalkanCrypt's native store and parses it as an x509 certificate.
+// the session's key store and parses it as an x509 certificate.
 func (c *Client) X509ExportCertificateFromStore(ctx context.Context) (*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -241,8 +240,8 @@ func (c *Client) X509ExportCertificateFromStore(ctx context.Context) (*x509.Cert
 		return nil, err
 	}
 
-	out, err := withLockedLibraryResult(c, ctx, "X509ExportCertificateFromStore", func(native certificates) ([]byte, error) {
-		return native.X509ExportCertificateFromStore("", ckalkan.CertDER)
+	out, err := withOperationsResult(c, ctx, "X509ExportCertificateFromStore", func(operations certificateOperations) ([]byte, error) {
+		return operations.X509ExportCertificateFromStore("", ckalkan.CertDER)
 	})
 	if err != nil {
 		return nil, err
@@ -313,7 +312,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 			expectedCode = ckalkan.ErrorGetCertProp
 		}
 
-		value, err := withLockedLibraryResult(c, ctx, "X509CertificateGetInfo", func(native certificates) ([]byte, error) {
+		value, err := withOperationsResult(c, ctx, "X509CertificateGetInfo", func(operations certificateOperations) ([]byte, error) {
 			if certPEM == nil {
 				// Populate only while the open client's gate is held, so Close
 				// cannot finish before a queued call publishes a new cache entry.
@@ -323,7 +322,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 				}
 			}
 
-			return native.X509CertificateGetInfo(certPEM, item.prop)
+			return operations.X509CertificateGetInfo(certPEM, item.prop)
 		}, expectedCode)
 		if err != nil {
 			if item.optional && isKalkanErrorCode(err, ckalkan.ErrorGetCertProp) {
@@ -343,7 +342,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 	return info, nil
 }
 
-type entry struct {
+type pemCacheEntry struct {
 	der []byte
 	pem []byte
 }
@@ -382,7 +381,7 @@ func (c *Client) cachedPEMForCertificate(der []byte) []byte {
 
 func (c *Client) encodeAndCacheCertificatePEM(der []byte) []byte {
 	encoded := encodeCertificatePEM(der)
-	c.pemCache.Store(&entry{
+	c.pemCache.Store(&pemCacheEntry{
 		der: slices.Clone(der),
 		pem: encoded,
 	})
@@ -460,8 +459,8 @@ func applyCertificateInfoProperty(info *CertificateInfo, field CertificateInfoFi
 		info.AuthKeyID = value
 	case CertificateInfoSubjKeyID:
 		info.SubjKeyID = value
-	case CertificateInfoAlgorithmSignCert:
-		info.AlgorithmSignCert = value
+	case CertificateInfoSignatureAlgorithm:
+		info.SignatureAlgorithm = value
 	case CertificateInfoPublicKey:
 		info.PublicKey = value
 	case CertificateInfoOCSPURL:
@@ -496,7 +495,7 @@ func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certif
 	if cms.file {
 		// KC_GetCertFromCMS expects CMS contents even when KC_IN_FILE is set.
 		// Read a file once so every signer lookup sees the same container.
-		value, err = readCMSCertificateFile(string(value), c.configuredMaxInputSize())
+		value, err = readCMSInputFile(ctx, string(value), c.configuredMaxInputSize(), false)
 		if err != nil {
 			return nil, err
 		}
@@ -508,51 +507,12 @@ func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certif
 			expectedCode = ckalkan.ErrorCertNotFound
 		}
 
-		return withLockedLibraryResult(c, ctx, "GetCertFromCMS", func(native cmsSignatures) ([]byte, error) {
+		return withOperationsResult(c, ctx, "GetCertFromCMS", func(operations cmsOperations) ([]byte, error) {
 			// KC_GetCertFromCMS numbers certificates from 1. Keep the
 			// collection count zero-based so its limit still counts results.
-			return native.GetCertFromCMS(value, signID+1, flags)
+			return operations.GetCertFromCMS(value, signID+1, flags)
 		}, expectedCode)
 	})
-}
-
-func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
-	if maxSize <= 0 || maxSize == math.MaxInt64 {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
-		}
-
-		return data, nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("kalkan: open CMS file: %w", err)
-	}
-	defer file.Close()
-
-	var buffer bytes.Buffer
-
-	if info, statErr := file.Stat(); statErr == nil && info.Mode().IsRegular() && info.Size() >= 0 {
-		initial := min(info.Size(), maxSize+1)
-		if initial <= int64(math.MaxInt)-bytes.MinRead {
-			// ReadFrom needs spare capacity for the final EOF probe. Stat is
-			// only an allocation hint; LimitReader also bounds a growing file.
-			buffer.Grow(int(initial) + bytes.MinRead)
-		}
-	}
-
-	if _, err := buffer.ReadFrom(io.LimitReader(file, maxSize+1)); err != nil {
-		return nil, fmt.Errorf("kalkan: read CMS file: %w", err)
-	}
-
-	data := buffer.Bytes()
-	if err := validateBytesSize(data, "CMS input", maxSize); err != nil {
-		return nil, err
-	}
-
-	return data, nil
 }
 
 // GetTimeFromSig returns the timestamp embedded for CMS signer 0 (the first
@@ -576,8 +536,8 @@ func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Tim
 		flags |= ckalkan.InFile
 	}
 
-	return withLockedLibraryResult(c, ctx, "GetTimeFromSig", func(native cmsSignatures) (time.Time, error) {
-		return native.GetTimeFromSig(value, flags, 0)
+	return withOperationsResult(c, ctx, "GetTimeFromSig", func(operations cmsOperations) (time.Time, error) {
+		return operations.GetTimeFromSig(value, flags, 0)
 	})
 }
 
@@ -605,8 +565,8 @@ func (c *Client) GetCertFromXML(ctx context.Context, source Source) ([]*x509.Cer
 			expectedCode = ckalkan.ErrorIDAttrNotFound
 		}
 
-		return withLockedLibraryResult(c, ctx, "GetCertFromXML", func(native xmlSignatures) ([]byte, error) {
-			return native.GetCertFromXML(value, signID+1)
+		return withOperationsResult(c, ctx, "GetCertFromXML", func(operations xmlOperations) ([]byte, error) {
+			return operations.GetCertFromXML(value, signID+1)
 		}, expectedCode)
 	})
 }
@@ -626,8 +586,8 @@ func (c *Client) GetSigAlgFromXML(ctx context.Context, source Source) (string, e
 		return "", err
 	}
 
-	return withLockedLibraryResult(c, ctx, "GetSigAlgFromXML", func(native xmlSignatures) (string, error) {
-		return native.GetSigAlgFromXML(value)
+	return withOperationsResult(c, ctx, "GetSigAlgFromXML", func(operations xmlOperations) (string, error) {
+		return operations.GetSigAlgFromXML(value)
 	})
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-type fakeNative struct {
+type fakeSDK struct {
 	initFunc                func() error
 	hashDataFunc            func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error)
 	signHashFunc            func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error)
@@ -39,168 +39,168 @@ type fakeNative struct {
 	closeFunc               func() error
 }
 
-func (f *fakeNative) Init() error {
+func (f *fakeSDK) Init() error {
 	if f.initFunc != nil {
 		return f.initFunc()
 	}
 	return nil
 }
 
-func (f *fakeNative) Close() error {
+func (f *fakeSDK) Close() error {
 	if f.closeFunc != nil {
 		return f.closeFunc()
 	}
 	return nil
 }
 
-func (f *fakeNative) HashData(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
+func (f *fakeSDK) HashData(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 	if f.hashDataFunc == nil {
 		return nil, errors.New("unexpected HashData call")
 	}
 	return f.hashDataFunc(algorithm, flags, data)
 }
 
-func (f *fakeNative) SignHash(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
+func (f *fakeSDK) SignHash(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 	if f.signHashFunc == nil {
 		return nil, errors.New("unexpected SignHash call")
 	}
 	return f.signHashFunc(alias, flags, hash)
 }
 
-func (f *fakeNative) SignData(req ckalkan.SignDataRequest) ([]byte, error) {
+func (f *fakeSDK) SignData(req ckalkan.SignDataRequest) ([]byte, error) {
 	if f.signDataFunc == nil {
 		return nil, errors.New("unexpected SignData call")
 	}
 	return f.signDataFunc(req.Alias, req.Flags, req.Data, req.Signature)
 }
 
-func (f *fakeNative) VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+func (f *fakeSDK) VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 	if f.verifyDataFunc == nil {
 		return ckalkan.VerifyDataResult{}, errors.New("unexpected VerifyData call")
 	}
 	return f.verifyDataFunc(req)
 }
 
-func (f *fakeNative) SignXML(req ckalkan.SignXMLRequest) ([]byte, error) {
+func (f *fakeSDK) SignXML(req ckalkan.SignXMLRequest) ([]byte, error) {
 	if f.signXMLFunc == nil {
 		return nil, errors.New("unexpected SignXML call")
 	}
 	return f.signXMLFunc(req)
 }
 
-func (f *fakeNative) VerifyXML(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
+func (f *fakeSDK) VerifyXML(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
 	if f.verifyXMLFunc == nil {
 		return "", errors.New("unexpected VerifyXML call")
 	}
 	return f.verifyXMLFunc(alias, flags, xml)
 }
 
-func (f *fakeNative) SignWSSE(req ckalkan.SignWSSERequest) ([]byte, error) {
+func (f *fakeSDK) SignWSSE(req ckalkan.SignWSSERequest) ([]byte, error) {
 	if f.signWSSEFunc == nil {
 		return nil, errors.New("unexpected SignWSSE call")
 	}
 	return f.signWSSEFunc(req)
 }
 
-func (f *fakeNative) X509ValidateCertificate(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+func (f *fakeSDK) X509ValidateCertificate(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 	if f.validateCertificateFunc == nil {
 		return ckalkan.ValidateCertificateResult{}, errors.New("unexpected X509ValidateCertificate call")
 	}
 	return f.validateCertificateFunc(req)
 }
 
-func (f *fakeNative) X509ExportCertificateFromStore(alias string, format ckalkan.CertFormat) ([]byte, error) {
+func (f *fakeSDK) X509ExportCertificateFromStore(alias string, format ckalkan.CertFormat) ([]byte, error) {
 	if f.exportCertStoreFunc == nil {
 		return nil, errors.New("unexpected X509ExportCertificateFromStore call")
 	}
 	return f.exportCertStoreFunc(alias, format)
 }
 
-func (f *fakeNative) X509CertificateGetInfo(cert []byte, prop ckalkan.CertProp) ([]byte, error) {
+func (f *fakeSDK) X509CertificateGetInfo(cert []byte, prop ckalkan.CertProp) ([]byte, error) {
 	if f.certificateGetInfoFunc == nil {
 		return nil, errors.New("unexpected X509CertificateGetInfo call")
 	}
 	return f.certificateGetInfoFunc(cert, prop)
 }
 
-func (f *fakeNative) GetCertFromCMS(cms []byte, signID int, flags ckalkan.Flag) ([]byte, error) {
+func (f *fakeSDK) GetCertFromCMS(cms []byte, signID int, flags ckalkan.Flag) ([]byte, error) {
 	if f.getCertFromCMSFunc == nil {
 		return nil, errors.New("unexpected GetCertFromCMS call")
 	}
 	return f.getCertFromCMSFunc(cms, signID, flags)
 }
 
-func (f *fakeNative) GetTimeFromSig(data []byte, flags ckalkan.Flag, sigID int) (time.Time, error) {
+func (f *fakeSDK) GetTimeFromSig(data []byte, flags ckalkan.Flag, sigID int) (time.Time, error) {
 	if f.getTimeFromSigFunc == nil {
 		return time.Time{}, errors.New("unexpected GetTimeFromSig call")
 	}
 	return f.getTimeFromSigFunc(data, flags, sigID)
 }
 
-func (f *fakeNative) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
+func (f *fakeSDK) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
 	if f.getCertFromXMLFunc == nil {
 		return nil, errors.New("unexpected GetCertFromXML call")
 	}
 	return f.getCertFromXMLFunc(xml, signID)
 }
 
-func (f *fakeNative) GetSigAlgFromXML(xml []byte) (string, error) {
+func (f *fakeSDK) GetSigAlgFromXML(xml []byte) (string, error) {
 	if f.getSigAlgFromXMLFunc == nil {
 		return "", errors.New("unexpected GetSigAlgFromXML call")
 	}
 	return f.getSigAlgFromXMLFunc(xml)
 }
 
-func (f *fakeNative) LoadKeyStore(storage ckalkan.Store, password, container, alias string) error {
+func (f *fakeSDK) LoadKeyStore(storage ckalkan.Store, password, container, alias string) error {
 	if f.loadKeyStoreFunc != nil {
 		return f.loadKeyStoreFunc(storage, password, container, alias)
 	}
 	return errors.New("unexpected LoadKeyStore call")
 }
 
-func (f *fakeNative) X509LoadCertificateFromBuffer(cert []byte, format ckalkan.CertFormat) error {
+func (f *fakeSDK) X509LoadCertificateFromBuffer(cert []byte, format ckalkan.CertFormat) error {
 	if f.loadCertBufferFunc != nil {
 		return f.loadCertBufferFunc(cert, format)
 	}
 	return errors.New("unexpected X509LoadCertificateFromBuffer call")
 }
 
-func (f *fakeNative) X509LoadCertificateFromFile(path string, certType ckalkan.CertType) error {
+func (f *fakeSDK) X509LoadCertificateFromFile(path string, certType ckalkan.CertType) error {
 	if f.loadCertFileFunc != nil {
 		return f.loadCertFileFunc(path, certType)
 	}
 	return errors.New("unexpected X509LoadCertificateFromFile call")
 }
 
-func (f *fakeNative) SetTSAURL(tsaURL string) error {
+func (f *fakeSDK) SetTSAURL(tsaURL string) error {
 	if f.setTSAURLFunc != nil {
 		return f.setTSAURLFunc(tsaURL)
 	}
 	return nil
 }
 
-func (f *fakeNative) SetProxy(req ckalkan.ProxyRequest) error {
+func (f *fakeSDK) SetProxy(req ckalkan.ProxyRequest) error {
 	if f.setProxyFunc != nil {
 		return f.setProxyFunc(req)
 	}
 	return errors.New("unexpected SetProxy call")
 }
 
-func (f *fakeNative) ZipConSign(req ckalkan.ZipConSignRequest) error {
+func (f *fakeSDK) ZipConSign(req ckalkan.ZipConSignRequest) error {
 	if f.zipConSignFunc != nil {
 		return f.zipConSignFunc(req)
 	}
 	return errors.New("unexpected ZipConSign call")
 }
 
-func (f *fakeNative) ZipConVerify(zipFile string, flags ckalkan.Flag) (string, error) {
+func (f *fakeSDK) ZipConVerify(zipFile string, flags ckalkan.Flag) (string, error) {
 	if f.zipConVerifyFunc != nil {
 		return f.zipConVerifyFunc(zipFile, flags)
 	}
 	return "", errors.New("unexpected ZipConVerify call")
 }
 
-func (f *fakeNative) GetCertFromZipFile(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
+func (f *fakeSDK) GetCertFromZipFile(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
 	if f.getCertFromZipFileFunc != nil {
 		return f.getCertFromZipFileFunc(zipFile, flags, signID)
 	}
