@@ -81,7 +81,7 @@ func extractZIPFile(file *zip.File, outPath string, flags int) error {
 		return err
 	}
 
-	out, err := os.OpenFile(outPath, flags, file.Mode())
+	out, err := os.OpenFile(outPath, flags, file.Mode()) //nolint:gosec // extractZIP rejects traversal and absolute names before joining the test-owned root.
 	if err != nil {
 		return errors.Join(err, in.Close())
 	}

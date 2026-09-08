@@ -14,7 +14,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
+func TestWithOperationsLoggingDoesNotHoldNativeGate(t *testing.T) {
 	handlerEntered := make(chan struct{})
 	releaseHandler := make(chan struct{})
 	secondNativeCall := make(chan struct{})
@@ -37,7 +37,7 @@ func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
 
 	var nativeCalls atomic.Int32
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			initFunc: func() error {
 				if nativeCalls.Add(1) == 2 {
 					close(secondNativeCall)
@@ -45,12 +45,12 @@ func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
 
 				return nil
 			},
-		},
+		}),
 		logger: slog.New(handler),
 	}
 
 	call := func() error {
-		return withLockedLibrary(client, context.Background(), "Init", func(native initializer) error {
+		return withOperations(client, context.Background(), "Init", func(native sessionInitializer) error {
 			return native.Init()
 		})
 	}
@@ -72,7 +72,7 @@ func TestWithLockedLibraryLoggingDoesNotHoldNativeGate(t *testing.T) {
 	}
 }
 
-func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
+func TestWithOperationsResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 	handlerEntered := make(chan struct{})
 	releaseHandler := make(chan struct{})
 	secondNativeCall := make(chan struct{})
@@ -95,7 +95,7 @@ func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 
 	var nativeCalls atomic.Int32
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				call := nativeCalls.Add(1)
 				if call == 2 {
@@ -104,12 +104,12 @@ func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 
 				return []byte{byte(call)}, nil
 			},
-		},
+		}),
 		logger: slog.New(handler),
 	}
 
 	call := func() ([]byte, error) {
-		return withLockedLibraryResult(client, context.Background(), "Hash", func(native hashing) ([]byte, error) {
+		return withOperationsResult(client, context.Background(), "Hash", func(native hashOperations) ([]byte, error) {
 			return native.HashData(ckalkan.SHA256, 0, []byte("payload"))
 		})
 	}
@@ -149,11 +149,11 @@ func TestWithLockedLibraryResultLoggingDoesNotHoldNativeGate(t *testing.T) {
 func TestReentrantLoggerCanCallClientMethod(t *testing.T) {
 	var nativeCalls atomic.Int32
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				return []byte{byte(nativeCalls.Add(1))}, nil
 			},
-		},
+		}),
 	}
 
 	reentrantDone := make(chan error, 1)
@@ -230,7 +230,7 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 
 	var nativeCalls atomic.Int32
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				if nativeCalls.Add(1) == 1 {
 					return nil, nativeErr
@@ -240,7 +240,7 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 
 				return []byte("digest"), nil
 			},
-		},
+		}),
 		logger: slog.New(handler),
 	}
 
@@ -251,7 +251,7 @@ func TestNativeCallErrorIsLoggedAfterGateRelease(t *testing.T) {
 	}()
 
 	logged := awaitTestEvent(t, handlerEntered, "native error log")
-	if logged.level != slog.LevelError || logged.message != "kalkan native call failed" || logged.operation != "Hash" {
+	if logged.level != slog.LevelError || logged.message != "kalkan operation failed" || logged.operation != "Hash" {
 		t.Fatalf("logged native call = %+v", logged)
 	}
 	if logged.errorClass != "operation_failure" {
@@ -278,7 +278,7 @@ func TestNativeCallbackPanicReleasesGate(t *testing.T) {
 	panicValue := errors.New("fake native panic")
 	var nativeCalls atomic.Int32
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			initFunc: func() error {
 				if nativeCalls.Add(1) == 1 {
 					panic(panicValue)
@@ -286,14 +286,14 @@ func TestNativeCallbackPanicReleasesGate(t *testing.T) {
 
 				return nil
 			},
-		},
+		}),
 	}
 
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
 
-		_ = withLockedLibrary(client, context.Background(), "Init", func(native initializer) error {
+		_ = withOperations(client, context.Background(), "Init", func(native sessionInitializer) error {
 			return native.Init()
 		})
 	}()
@@ -304,7 +304,7 @@ func TestNativeCallbackPanicReleasesGate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := withLockedLibrary(client, ctx, "Init", func(native initializer) error {
+	if err := withOperations(client, ctx, "Init", func(native sessionInitializer) error {
 		return native.Init()
 	}); err != nil {
 		t.Fatalf("helper call after panic returned error: %v", err)
@@ -345,7 +345,7 @@ func TestCloseContextCompletesBeforeSlowLogger(t *testing.T) {
 		},
 	}
 	client := &Client{
-		library: &fakeNative{},
+		session: newNativeBackend(&fakeSDK{}),
 		logger:  slog.New(handler),
 	}
 
@@ -365,11 +365,11 @@ func TestCloseContextCompletesBeforeSlowLogger(t *testing.T) {
 	}
 
 	client.mu.Lock()
-	library := client.library
+	session := client.session
 	closing := client.closing
 	client.mu.Unlock()
-	if library != nil || closing == nil {
-		t.Fatalf("client lifecycle after CloseContext = library %v, closing %v; want fully closed", library, closing)
+	if session != nil || closing == nil {
+		t.Fatalf("client lifecycle after CloseContext = library %v, closing %v; want fully closed", session, closing)
 	}
 	select {
 	case <-closing.done:
@@ -443,10 +443,10 @@ func TestSignerCertificateLoggingClassifiesEndOfList(t *testing.T) {
 					return nil, &ckalkan.KalkanError{Code: tc.code}
 				}
 				client := &Client{
-					library: &fakeNative{
+					session: newNativeBackend(&fakeSDK{
 						getCertFromCMSFunc: func(_ []byte, id int, _ ckalkan.Flag) ([]byte, error) { return fetch(id) },
 						getCertFromXMLFunc: func(_ []byte, id int) ([]byte, error) { return fetch(id) },
-					},
+					}),
 					logger: slog.New(&callbackSlogHandler{handle: func(_ context.Context, record slog.Record) error {
 						levels = append(levels, record.Level)
 						return nil
@@ -482,9 +482,9 @@ func TestCertificatePropertyLoggingClassifiesOptionalAbsence(t *testing.T) {
 		t.Run(fmt.Sprint(item.prop), func(t *testing.T) {
 			var level slog.Level
 			client := &Client{
-				library: &fakeNative{certificateGetInfoFunc: func(_ []byte, _ ckalkan.CertProp) ([]byte, error) {
+				session: newNativeBackend(&fakeSDK{certificateGetInfoFunc: func(_ []byte, _ ckalkan.CertProp) ([]byte, error) {
 					return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
-				}},
+				}}),
 				logger: slog.New(&callbackSlogHandler{handle: func(_ context.Context, record slog.Record) error {
 					level = record.Level
 					return nil

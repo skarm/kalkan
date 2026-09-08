@@ -109,8 +109,8 @@ func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 		flags |= ckalkan.InFile
 	}
 
-	digest, err := withLockedLibraryResult(c, ctx, "Hash", func(native hashing) ([]byte, error) {
-		return native.HashData(algorithm, flags, data)
+	digest, err := withOperationsResult(c, ctx, "Hash", func(operations hashOperations) ([]byte, error) {
+		return operations.HashData(algorithm, flags, data)
 	})
 	if err != nil {
 		return nil, err
@@ -169,8 +169,8 @@ func (c *Client) SignHash(ctx context.Context, req SignHashRequest) (*CMS, error
 
 	flags |= checkFlags
 
-	out, err := withLockedLibraryResult(c, ctx, "SignHash", func(native hashing) ([]byte, error) {
-		return native.SignHash(req.Alias, flags, req.Digest)
+	out, err := withOperationsResult(c, ctx, "SignHash", func(operations hashOperations) ([]byte, error) {
+		return operations.SignHash(req.Alias, flags, req.Digest)
 	})
 	if err != nil {
 		return nil, err

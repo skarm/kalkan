@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/internal/testfixture"
 )
 
 func TestClientFixtureOperations(t *testing.T) {
@@ -257,7 +258,7 @@ func assertHashSigning(t *testing.T, ctx context.Context, client *Client, payloa
 	if len(signedHash.Data) == 0 {
 		t.Fatal("SignHash returned an empty CMS")
 	}
-	assertSignHashCMSStructure(t, signedHash.Data, gost512.Data)
+	testfixture.AssertSignHashCMSStructure(t, signedHash.Data, gost512.Data)
 
 	// A CMS can be created even when the digest does not match the loaded key's
 	// algorithm. Verify the original payload to prove the signing contract.

@@ -16,7 +16,7 @@ import (
 )
 
 func TestSignXMLUsesRequestedCanonicalization(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 			wantFlags := ckalkan.XMLExclC14N | ckalkan.NoCheckCertTime
 			if req.Flags != wantFlags {
@@ -25,7 +25,7 @@ func TestSignXMLUsesRequestedCanonicalization(t *testing.T) {
 			return []byte("<signed/>"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignXML(context.Background(), SignXMLRequest{
 		XML:                  Bytes([]byte("<root/>")),
@@ -42,11 +42,11 @@ func TestSignXMLUsesRequestedCanonicalization(t *testing.T) {
 
 func TestSignXMLDoesNotCopyOutput(t *testing.T) {
 	signedXML := []byte("<signed/>")
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		signXMLFunc: func(ckalkan.SignXMLRequest) ([]byte, error) {
 			return signedXML, nil
 		},
-	}}
+	})}
 
 	signed, err := client.SignXML(context.Background(), SignXMLRequest{
 		XML: Bytes([]byte("<root/>")),
@@ -60,7 +60,7 @@ func TestSignXMLDoesNotCopyOutput(t *testing.T) {
 }
 
 func TestVerifyXMLUsesRequestedCanonicalization(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
 			wantFlags := ckalkan.XMLInclC14N11Comment | ckalkan.NoCheckCertTime
 			if flags != wantFlags {
@@ -69,7 +69,7 @@ func TestVerifyXMLUsesRequestedCanonicalization(t *testing.T) {
 			return "Verify - OK", nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	verification, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 		XML:                  Bytes([]byte("<signed/>")),
@@ -139,7 +139,7 @@ func TestBundledXMLExample(t *testing.T) {
 }
 
 func TestSignWSSEWrapsSOAPBodyWhenRequested(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			x := string(req.XML)
 			if !strings.Contains(x, `<soap:Envelope`) {
@@ -157,7 +157,7 @@ func TestSignWSSEWrapsSOAPBodyWhenRequested(t *testing.T) {
 			return []byte("<signed-wsse/>"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	signed, err := client.SignWSSE(context.Background(), SignWSSERequest{
 		XML:      Bytes([]byte("<payload>ok</payload>")),
@@ -174,11 +174,11 @@ func TestSignWSSEWrapsSOAPBodyWhenRequested(t *testing.T) {
 
 func TestSignWSSEDoesNotCopyOutput(t *testing.T) {
 	signedWSSE := []byte("<signed-wsse/>")
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		signWSSEFunc: func(ckalkan.SignWSSERequest) ([]byte, error) {
 			return signedWSSE, nil
 		},
-	}}
+	})}
 
 	signed, err := client.SignWSSE(context.Background(), SignWSSERequest{
 		XML:    Bytes([]byte("<payload/>")),
@@ -227,13 +227,13 @@ func TestSignWSSERejectsInvalidWrappedPayload(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 					t.Error("SignWSSE called native SignWSSE for invalid SOAP wrapping input")
 					return nil, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.SignWSSE(context.Background(), SignWSSERequest{
 				XML:      Bytes([]byte(test.payload)),
@@ -366,7 +366,7 @@ func TestWrapSOAPBodyRejectsInvalidPayloads(t *testing.T) {
 }
 
 func TestSignWSSEUsesRequestedCanonicalization(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			wantFlags := ckalkan.XMLExclC14NComment
 			if req.Flags != wantFlags {
@@ -375,7 +375,7 @@ func TestSignWSSEUsesRequestedCanonicalization(t *testing.T) {
 			return []byte("<signed-wsse/>"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignWSSE(context.Background(), SignWSSERequest{
 		XML:              Bytes([]byte("<soap:Envelope/>")),
@@ -388,13 +388,13 @@ func TestSignWSSEUsesRequestedCanonicalization(t *testing.T) {
 }
 
 func TestSignWSSERejectsInvalidBodyID(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			t.Error("SignWSSE called native SignWSSE with invalid BodyID and WrapSOAP=false")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	tests := []struct {
 		name   string
@@ -423,7 +423,7 @@ func TestSignWSSERejectsInvalidBodyID(t *testing.T) {
 
 func TestVerifyXMLPropagatesNativeErrors(t *testing.T) {
 	nativeErr := errors.New("native verify failed")
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyXMLFunc: func(alias string, flags ckalkan.Flag, xml []byte) (string, error) {
 			if alias != "verify-key" {
 				t.Fatalf("alias = %q, want verify-key", alias)
@@ -437,7 +437,7 @@ func TestVerifyXMLPropagatesNativeErrors(t *testing.T) {
 			return "", nativeErr
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 		Alias: "verify-key",
@@ -449,7 +449,7 @@ func TestVerifyXMLPropagatesNativeErrors(t *testing.T) {
 }
 
 func TestSignXMLRejectsFileSource(t *testing.T) {
-	client := &Client{library: &fakeNative{}}
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 
 	_, err := client.SignXML(context.Background(), SignXMLRequest{
 		XML: File("/tmp/document.xml"),
@@ -460,7 +460,7 @@ func TestSignXMLRejectsFileSource(t *testing.T) {
 }
 
 func TestXMLMethodsRequireSource(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 			t.Error("SignXML called native SignXML without XML source")
 			return nil, nil
@@ -474,7 +474,7 @@ func TestXMLMethodsRequireSource(t *testing.T) {
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	tests := []struct {
 		name string
@@ -514,13 +514,13 @@ func TestXMLMethodsRequireSource(t *testing.T) {
 }
 
 func TestSignXMLRejectsEmptyInput(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 			t.Error("SignXML called native SignXML for empty XML input")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignXML(context.Background(), SignXMLRequest{
 		XML: Bytes([]byte(" \n\t ")),
@@ -542,13 +542,13 @@ func TestSignXMLRejectsEncodedSources(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				signXMLFunc: func(req ckalkan.SignXMLRequest) ([]byte, error) {
 					t.Error("SignXML called native SignXML for unsupported XML source encoding")
 					return nil, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.SignXML(context.Background(), SignXMLRequest{
 				XML: test.source,
@@ -563,14 +563,14 @@ func TestSignXMLRejectsEncodedSources(t *testing.T) {
 func TestSignXMLValidatesBeforeNativeLock(t *testing.T) {
 	enteredHash := make(chan struct{})
 	releaseHash := make(chan struct{})
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			close(enteredHash)
 			<-releaseHash
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	hashDone := make(chan error, 1)
 	go func() {

@@ -149,8 +149,8 @@ func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, e
 		return nil, err
 	}
 
-	out, err := withLockedLibraryResult(c, ctx, "SignXML", func(native xmlSignatures) ([]byte, error) {
-		return native.SignXML(ckalkan.SignXMLRequest{
+	out, err := withOperationsResult(c, ctx, "SignXML", func(operations xmlOperations) ([]byte, error) {
+		return operations.SignXML(ckalkan.SignXMLRequest{
 			Alias:           req.Alias,
 			Flags:           flags,
 			XML:             input,
@@ -198,8 +198,8 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 		return nil, err
 	}
 
-	info, err := withLockedLibraryResult(c, ctx, "VerifyXML", func(native xmlSignatures) (string, error) {
-		return native.VerifyXML(req.Alias, flags, input)
+	info, err := withOperationsResult(c, ctx, "VerifyXML", func(operations xmlOperations) (string, error) {
+		return operations.VerifyXML(req.Alias, flags, input)
 	})
 	if err != nil {
 		return nil, err
@@ -248,8 +248,8 @@ func (c *Client) SignWSSE(ctx context.Context, req SignWSSERequest) (*SignedXML,
 		return nil, err
 	}
 
-	out, err := withLockedLibraryResult(c, ctx, "SignWSSE", func(native xmlSignatures) ([]byte, error) {
-		return native.SignWSSE(ckalkan.SignWSSERequest{
+	out, err := withOperationsResult(c, ctx, "SignWSSE", func(operations xmlOperations) ([]byte, error) {
+		return operations.SignWSSE(ckalkan.SignWSSERequest{
 			Alias:      req.Alias,
 			Flags:      flags,
 			XML:        input,

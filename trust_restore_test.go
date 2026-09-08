@@ -13,9 +13,18 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
+func testNativeBackend(t *testing.T, client *Client) *nativeBackend {
+	t.Helper()
+	backend, ok := client.session.(*nativeBackend)
+	if !ok {
+		t.Fatalf("client backend = %T, want *nativeBackend", client.session)
+	}
+	return backend
+}
+
 func TestKeyStoreRestoresConfiguredAndRuntimeTrustWithoutDuplicates(t *testing.T) {
 	loads := make(map[string]int)
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error {
 			clear(loads) // A successful SDK key-store load resets trust.
 			return nil
@@ -30,9 +39,9 @@ func TestKeyStoreRestoresConfiguredAndRuntimeTrustWithoutDuplicates(t *testing.T
 		},
 	}
 	configured := TrustedCertificate{Path: "/tmp/ca.pem", Type: CertificateCA}
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()), WithTrustedCertificate(configured),
-	}, func(config) (closer, error) { return native, nil })
+	}, func(config) (backend, error) { return newNativeBackend(native), nil })
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -71,18 +80,18 @@ func TestKeyStoreRestoresConfiguredAndRuntimeTrustWithoutDuplicates(t *testing.T
 
 func TestFailedTrustedCertificateLoadIsNotRemembered(t *testing.T) {
 	failure := &ckalkan.KalkanError{Code: ckalkan.ErrorCertParse}
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error { return failure },
 		loadCertFileFunc:   func(string, ckalkan.CertType) error { return failure },
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	for _, cert := range []TrustedCertificate{
 		{Path: "/tmp/invalid.pem", Type: CertificateCA},
 		{Data: []byte("invalid"), Type: CertificateIntermediate, Format: CertificatePEM},
 	} {
 		err := client.LoadTrustedCertificate(context.Background(), cert)
-		if !errors.Is(err, failure) || len(client.trusted) != 0 {
-			t.Fatalf("failed load: err=%v retained=%d, want native failure and no retained certificate", err, len(client.trusted))
+		if !errors.Is(err, failure) || len(testNativeBackend(t, client).trusted) != 0 {
+			t.Fatalf("failed load: err=%v retained=%d, want native failure and no retained certificate", err, len(testNativeBackend(t, client).trusted))
 		}
 	}
 }
@@ -93,7 +102,7 @@ func TestKeyStoreTrustRestorationFailures(t *testing.T) {
 	var keyErr error
 	var failRestore bool
 	var calls []string
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error {
 			calls = append(calls, "key")
 			return keyErr
@@ -106,7 +115,7 @@ func TestKeyStoreTrustRestorationFailures(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	for _, name := range []string{"first", "second", "third"} {
 		if err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{Data: []byte(name)}); err != nil {
 			t.Fatalf("initial certificate load: %v", err)
@@ -125,8 +134,8 @@ func TestKeyStoreTrustRestorationFailures(t *testing.T) {
 	if !errors.Is(err, nativeFailure) || !strings.Contains(err.Error(), "key store loaded but restoring trusted certificate 2 failed") {
 		t.Fatalf("restore error = %v, want explicit partial-success error wrapping native failure", err)
 	}
-	if !reflect.DeepEqual(calls, []string{"key", "first", "second"}) || len(client.trusted) != 3 {
-		t.Fatalf("failed restoration calls=%v retained=%d, want stop at failure and retain full registry", calls, len(client.trusted))
+	if !reflect.DeepEqual(calls, []string{"key", "first", "second"}) || len(testNativeBackend(t, client).trusted) != 3 {
+		t.Fatalf("failed restoration calls=%v retained=%d, want stop at failure and retain full registry", calls, len(testNativeBackend(t, client).trusted))
 	}
 
 	failRestore, calls = false, nil
@@ -142,11 +151,11 @@ func TestKeyStoreRestoresTrustAfterContextCanceledInsideNativeLoad(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loads := 0
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc:   func(ckalkan.Store, string, string, string) error { cancel(); return nil },
 		loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error { loads++; return nil },
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	if err := client.LoadTrustedCertificate(ctx, TrustedCertificate{Data: []byte("certificate")}); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
@@ -167,7 +176,7 @@ func TestKeyStoreTrustRestorationHoldsCallGate(t *testing.T) {
 	t.Cleanup(finishRestore)
 	hashEntered := make(chan struct{}, 1)
 	var restoring bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error {
 			restoring = true
 			close(keyEntered)
@@ -186,7 +195,7 @@ func TestKeyStoreTrustRestorationHoldsCallGate(t *testing.T) {
 			return make([]byte, 32), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	if err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{Data: []byte("certificate")}); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
@@ -222,7 +231,7 @@ func TestCloseWaitsForTrustRestorationAndReleasesCertificates(t *testing.T) {
 	t.Cleanup(finishRestore)
 	closed := make(chan struct{}, 1)
 	var restoring bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error { restoring = true; return nil },
 		loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error {
 			if restoring {
@@ -233,13 +242,14 @@ func TestCloseWaitsForTrustRestorationAndReleasesCertificates(t *testing.T) {
 		},
 		closeFunc: func() error { closed <- struct{}{}; return nil },
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	if err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{Data: []byte("certificate")}); err != nil {
 		t.Fatalf("initial load: %v", err)
 	}
 	keyDone := make(chan error, 1)
 	go func() { keyDone <- client.LoadKeyStore(context.Background(), KeyStore{Path: "/tmp/key.p12"}) }()
 	awaitTestEvent(t, restoreEntered, "trust restoration")
+	backend := testNativeBackend(t, client)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := client.CloseContext(ctx); !errors.Is(err, context.Canceled) {
@@ -257,7 +267,7 @@ func TestCloseWaitsForTrustRestorationAndReleasesCertificates(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if client.trusted != nil {
+	if backend.trusted != nil {
 		t.Fatal("Close retained trusted certificate memory")
 	}
 }
@@ -272,8 +282,8 @@ func TestTrustedCertificateOptionSupportsConcurrentOpen(t *testing.T) {
 	results := make(chan opened, 4)
 	for range cap(results) {
 		go func() {
-			client, err := openWithLibraryFactory(context.Background(), options, func(config) (closer, error) {
-				return &fakeNative{loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error { return nil }}, nil
+			client, err := openWithBackendFactory(context.Background(), options, func(config) (backend, error) {
+				return newNativeBackend(&fakeSDK{loadCertBufferFunc: func([]byte, ckalkan.CertFormat) error { return nil }}), nil
 			})
 			results <- opened{client, err}
 		}()
@@ -288,11 +298,11 @@ func TestTrustedCertificateOptionSupportsConcurrentOpen(t *testing.T) {
 		defer result.client.Close()
 	}
 	for i, client := range clients {
-		if sameByteSliceBacking(client.trusted[0].data, data) {
+		if sameByteSliceBacking(testNativeBackend(t, client).trusted[0].data, data) {
 			t.Fatal("client retained shared option data")
 		}
 		for _, previous := range clients[:i] {
-			if sameByteSliceBacking(client.trusted[0].data, previous.trusted[0].data) {
+			if sameByteSliceBacking(testNativeBackend(t, client).trusted[0].data, testNativeBackend(t, previous).trusted[0].data) {
 				t.Fatal("concurrent clients share their retained certificate buffer")
 			}
 		}
@@ -312,7 +322,7 @@ func (native *keyStoreOnlyNative) LoadKeyStore(ckalkan.Store, string, string, st
 
 func TestKeyStoreWithoutTrustDoesNotRequireCertificateCapability(t *testing.T) {
 	native := &keyStoreOnlyNative{}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 	if err := client.LoadKeyStore(context.Background(), KeyStore{Path: "/tmp/key.p12"}); err != nil || native.loads != 1 {
 		t.Fatalf("LoadKeyStore = %v, native calls=%d, want successful key-store-only operation", err, native.loads)
 	}

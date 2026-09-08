@@ -383,6 +383,10 @@ func (c *Client) gracefulShutdown(ctx context.Context, closing *closeState) erro
 	response, err := c.exchange(ctx, opClose, nullPayload())
 	closing.observations = response.Observations
 
+	if err == nil && !response.Payload.isNull() {
+		err = c.failProtocol(errors.New("invalid Close acknowledgement"))
+	}
+
 	if err != nil {
 		_ = c.stop(err)
 		select {
@@ -391,10 +395,6 @@ func (c *Client) gracefulShutdown(ctx context.Context, closing *closeState) erro
 		case <-c.exited:
 			return err
 		}
-	}
-
-	if !response.Payload.isNull() {
-		return c.failProtocol(errors.New("invalid Close acknowledgement"))
 	}
 
 	select {

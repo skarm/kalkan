@@ -1,10 +1,17 @@
 KALKANCRYPT_LIBRARY ?=
 KALKANCRYPT_SDK_ASSETS ?= $(CURDIR)/testdata
+JAVA_FORMAT ?= google-java-format
 
-.PHONY: fmt vet test test-race test-native docker-test docker-lint lint check
+.PHONY: fmt fmt-java vet test test-race test-native docker-test docker-lint lint check
 
 fmt:
 	go fmt ./...
+
+fmt-java:
+	$(JAVA_FORMAT) --aosp --replace \
+		internal/javakalkan/worker/src/Bootstrap.java \
+		internal/javakalkan/worker/src/kalkan/worker/*.java \
+		internal/javakalkan/testdata/*.java
 
 test:
 	go test ./...

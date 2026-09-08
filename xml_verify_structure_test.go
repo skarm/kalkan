@@ -59,13 +59,13 @@ func TestVerifyXMLSOAPBinding(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			nativeCalls := 0
-			native := &fakeNative{
+			native := &fakeSDK{
 				verifyXMLFunc: func(string, ckalkan.Flag, []byte) (string, error) {
 					nativeCalls++
 					return "Verify - OK", nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			verification, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 				XML:            Bytes([]byte(test.document)),
@@ -112,7 +112,7 @@ func TestVerifyXMLPreservesSOAPBOM(t *testing.T) {
 			t.Run(version.name+"/"+declaration.name, func(t *testing.T) {
 				document := []byte("\ufeff" + declaration.xml + strings.ReplaceAll(validSignedSOAP("#TheBody", ""), xmlnsSOAP, version.namespace))
 				calls := 0
-				client := &Client{library: &fakeNative{
+				client := &Client{session: newNativeBackend(&fakeSDK{
 					verifyXMLFunc: func(_ string, _ ckalkan.Flag, input []byte) (string, error) {
 						calls++
 						if !bytes.Equal(input, document) {
@@ -120,7 +120,7 @@ func TestVerifyXMLPreservesSOAPBOM(t *testing.T) {
 						}
 						return "Verify - OK", nil
 					},
-				}}
+				})}
 				result, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 					XML:            Bytes(document),
 					ExpectedBodyID: "TheBody",
@@ -301,12 +301,12 @@ func TestVerifyXMLSOAPBodyTransformPolicy(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			nativeCalls := 0
-			client := &Client{library: &fakeNative{
+			client := &Client{session: newNativeBackend(&fakeSDK{
 				verifyXMLFunc: func(string, ckalkan.Flag, []byte) (string, error) {
 					nativeCalls++
 					return "Verify - OK", nil
 				},
-			}}
+			})}
 
 			verification, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 				XML:            Bytes([]byte(test.document)),
@@ -354,12 +354,12 @@ func TestVerifyXMLRejectsXPathTransformBeforeNative(t *testing.T) {
 	document := signedSOAPWithBodyReferenceContent(`<ds:Transforms><ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116"><ds:XPath>true()</ds:XPath></ds:Transform></ds:Transforms>`)
 	document = strings.Replace(document, "<payload>ok</payload>", "<payload>"+secretPayload+"</payload>", 1)
 
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		verifyXMLFunc: func(string, ckalkan.Flag, []byte) (string, error) {
 			t.Fatal("native VerifyXML called for a SOAP Body Reference containing XPath")
 			return "", nil
 		},
-	}}
+	})}
 
 	_, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 		XML:            Bytes([]byte(document)),
@@ -394,7 +394,7 @@ func nestedSignedInfoSOAP() string {
 
 func TestVerifyXMLDoesNotCopyInput(t *testing.T) {
 	document := []byte(validSignedSOAP("#TheBody", ""))
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		verifyXMLFunc: func(_ string, _ ckalkan.Flag, input []byte) (string, error) {
 			if !sameByteSliceBacking(input, document) {
 				t.Fatal("VerifyXML copied the caller's XML buffer")
@@ -402,7 +402,7 @@ func TestVerifyXMLDoesNotCopyInput(t *testing.T) {
 
 			return "Verify - OK", nil
 		},
-	}}
+	})}
 
 	if _, err := client.VerifyXML(context.Background(), VerifyXMLRequest{
 		XML:            Bytes(document),
@@ -417,7 +417,7 @@ func TestVerifyXMLPreservesNonUTF8Input(t *testing.T) {
 	document = append(document, 0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2) // "Привет" in Windows-1251.
 	document = append(document, []byte(`</document>`)...)
 
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		verifyXMLFunc: func(_ string, _ ckalkan.Flag, input []byte) (string, error) {
 			if !sameByteSliceBacking(input, document) {
 				t.Fatal("VerifyXML copied or transcoded the caller's XML buffer")
@@ -425,7 +425,7 @@ func TestVerifyXMLPreservesNonUTF8Input(t *testing.T) {
 
 			return "Verify - OK", nil
 		},
-	}}
+	})}
 
 	if _, err := client.VerifyXML(context.Background(), VerifyXMLRequest{XML: Bytes(document)}); err != nil {
 		t.Fatalf("VerifyXML returned error: %v", err)

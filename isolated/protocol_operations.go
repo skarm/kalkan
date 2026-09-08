@@ -238,6 +238,11 @@ func (d *payloadDecoder) source() kalkan.Source {
 	data, path, encoding := d.bytes(), d.text(), kalkan.Encoding(d.integer())
 	file, set := d.boolean(), d.boolean()
 
+	if (file && data != nil) || (!file && path != "") || (!set && (file || data != nil || path != "")) {
+		d.err = fmt.Errorf("%w: inconsistent source descriptor", ErrProtocol)
+		return kalkan.Source{}
+	}
+
 	var source kalkan.Source
 
 	if set {
@@ -309,6 +314,7 @@ func (e *payloadEncoder) signCMSRequest(v kalkan.SignCMSRequest) {
 	e.boolean(v.IncludeCertificate)
 	e.integer(int(v.OutputFormat))
 	e.integer(int(v.CertificateTimeCheck))
+	e.source(v.ExistingSignature)
 }
 
 func (d *payloadDecoder) signCMSRequest() kalkan.SignCMSRequest {
@@ -320,6 +326,7 @@ func (d *payloadDecoder) signCMSRequest() kalkan.SignCMSRequest {
 		IncludeCertificate:   d.boolean(),
 		OutputFormat:         kalkan.CMSOutputFormat(d.integer()),
 		CertificateTimeCheck: kalkan.CertificateTimeCheck(d.integer()),
+		ExistingSignature:    d.source(),
 	}
 }
 
