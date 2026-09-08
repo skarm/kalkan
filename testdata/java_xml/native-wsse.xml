@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"><SOAP-ENV:Header xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" soap:mustUnderstand="1"><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="sig-715b1386-d02c-977a-a7ff-a0c8f914ac27">
+<ds:SignedInfo>
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#">
+<InclusiveNamespaces xmlns="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="soap"/>
+</ds:CanonicalizationMethod>
+<ds:SignatureMethod Algorithm="urn:ietf:params:xml:ns:pkigovkz:xmlsec:algorithms:gostr34102015-gostr34112015-512"/>
+<ds:Reference URI="#body">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="urn:ietf:params:xml:ns:pkigovkz:xmlsec:algorithms:gostr34112015-512"/>
+<ds:DigestValue>WE5DQN50OiDBldoE6OtSxnJl41I7U6KCpYFIW/chfxcdKIPztlttBrxvqKOaigHP
+6sFnm3p9nKktIuMuhUyGAg==</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo>
+<ds:SignatureValue>FCr8Wh6oBVxQWa3kQecTSj3BiLJD8IQIaZz1hfuCBFNFqXJldUP5h54pZXA1WS2S
+D6f4ceoQLdHHrN+KIkPTbCGNrUZ4ygBKMxs2eq1RJd/V5lnG52LSVsi3FBfRwFmO
+aQz3qkIItT1E1nMOKkeho/1o09n2zNYJz1z2HuQmNwA=</ds:SignatureValue>
+<ds:KeyInfo Id="ki-715b1386-d02c-977a-a7ff-a0c8f914ac28"><wsse:SecurityTokenReference wsu:Id="str-715b1386-d02c-977a-a7ff-a0c8f914ac29"><wsse:KeyIdentifier EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3">MIIENjCCA56gAwIBAgIUEseiHy33i5nLZzI+LiVXebtq4wkwDgYKKoMOAwoBAQID
+AgUAMF0xTjBMBgNVBAMMRdKw0JvQotCi0KvSmiDQmtCj05jQm9CQ0J3QlNCr0KDQ
+o9Co0Ksg0J7QoNCi0JDQm9Cr0pogKEdPU1QpIFRFU1QgMjAyMjELMAkGA1UEBhMC
+S1owHhcNMjMxMTEwMTIwMzEyWhcNMjQxMTA5MTIwMzEyWjB5MR4wHAYDVQQDDBXQ
+otCV0KHQotCe0JIg0KLQldCh0KIxFTATBgNVBAQMDNCi0JXQodCi0J7QkjEYMBYG
+A1UEBRMPSUlOMTIzNDU2Nzg5MDExMQswCQYDVQQGEwJLWjEZMBcGA1UEKgwQ0KLQ
+ldCh0KLQntCS0JjQpzCBrDAjBgkqgw4DCgEBAgIwFgYKKoMOAwoBAQICAQYIKoMO
+AwoBAwMDgYQABIGAMM47v8RpxDPPfdpBRq36BMCuLeYGoO5FqTkU/FQxy398Z/cu
+ELhXi/1dwPqSRpUVi32MMSMrfNmkzbxDL0ie2n2R9WUu4V9ez+F3EtRzsfXfXXPo
+7ZLnSIQZ7RekXqqGiH1RFeH7s+V/jhZD/wVzCOLBS0dgGzGCnZu07UNBp1CjggHG
+MIIBwjA4BgNVHSAEMTAvMC0GBiqDDgMDAjAjMCEGCCsGAQUFBwIBFhVodHRwOi8v
+cGtpLmdvdi5rei9jcHMwdwYIKwYBBQUHAQEEazBpMCgGCCsGAQUFBzABhhxodHRw
+Oi8vdGVzdC5wa2kuZ292Lmt6L29jc3AvMD0GCCsGAQUFBzAChjFodHRwOi8vdGVz
+dC5wa2kuZ292Lmt6L2NlcnQvbmNhX2dvc3QyMDIyX3Rlc3QuY2VyMEEGA1UdHwQ6
+MDgwNqA0oDKGMGh0dHA6Ly90ZXN0LnBraS5nb3Yua3ovY3JsL25jYV9nb3N0MjAy
+Ml90ZXN0LmNybDBDBgNVHS4EPDA6MDigNqA0hjJodHRwOi8vdGVzdC5wa2kuZ292
+Lmt6L2NybC9uY2FfZ29zdDIwMjJfZF90ZXN0LmNybDAdBgNVHSUEFjAUBggrBgEF
+BQcDBAYIKoMOAwMEAQEwDgYDVR0PAQH/BAQDAgPIMB0GA1UdDgQWBBQCx6IfLfeL
+mctnMj4uJVd5u2rjCTAfBgNVHSMEGDAWgBT60ksbo6DJYf4cqFA+aqK7RQ24ozAW
+BgYqgw4DAwUEDDAKBggqgw4DAwUBATAOBgoqgw4DCgEBAgMCBQADgYEAablHxEAF
+bw+JecEAj6cdqC+RU8alMwm5giwSjP5RV9QzVsJ72adtej5Ra6ZrPG/ySN0Gbbn3
+7WlvQSHzrBQKrvpLazAclcETnWklbGhmtFPYehpCrvgy/QhvK791j4q+vp/aA7eI
+x5DPsBh5ZmjhS3T9O5lAWbtSwkiHGjy1DpM=</wsse:KeyIdentifier></wsse:SecurityTokenReference></ds:KeyInfo>
+</ds:Signature></wsse:Security></SOAP-ENV:Header><soap:Body wsu:Id="body"><value>native WSSE interoperability</value></soap:Body></soap:Envelope>

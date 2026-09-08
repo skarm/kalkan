@@ -140,7 +140,7 @@ func TestOperationsPreserveRequestsAndResponses(t *testing.T) {
 	}{
 		{"Hash", kalkan.HashRequest{Algorithm: kalkan.GOST2015_512, Data: kalkan.File("document.bin").WithEncoding(kalkan.EncodingAuto)}, &kalkan.Digest{Algorithm: kalkan.GOST2015_512, Data: []byte{1, 2}}, &kalkan.Digest{Algorithm: kalkan.GOST2015_512, Data: []byte{1, 2}}},
 		{"SignHash", kalkan.SignHashRequest{Alias: "alias", Digest: []byte{3, 0, 4}, DigestAlgorithm: kalkan.GOST2015_256, Timestamp: true, IncludeCertificate: true, OutputFormat: kalkan.CMSOutputPEM, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, &kalkan.CMS{Data: []byte("CMS")}, &kalkan.CMS{Data: []byte("CMS")}},
-		{"SignCMS", kalkan.SignCMSRequest{Alias: "alias", Data: kalkan.Base64([]byte("AQID")), Detached: true, Timestamp: true, IncludeCertificate: true, OutputFormat: kalkan.CMSOutputBase64, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, &kalkan.CMS{Data: []byte("CMS")}, &kalkan.CMS{Data: []byte("CMS")}},
+		{"SignCMS", kalkan.SignCMSRequest{Alias: "alias", Data: kalkan.Base64([]byte("AQID")), ExistingSignature: kalkan.DER([]byte{0, 1, 255}), Detached: true, Timestamp: true, IncludeCertificate: true, OutputFormat: kalkan.CMSOutputBase64, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, &kalkan.CMS{Data: []byte("CMS")}, &kalkan.CMS{Data: []byte("CMS")}},
 		{"VerifyCMS", kalkan.VerifyCMSRequest{Alias: "alias", Signature: kalkan.File("signed.cms").WithEncoding(kalkan.EncodingPEM), Data: kalkan.Bytes(nil), Detached: true, Encoding: kalkan.EncodingDER, SignerID: 7, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, verification, verification},
 		{"SignXML", kalkan.SignXMLRequest{Alias: "alias", XML: kalkan.Bytes([]byte("<root/>")), SignNodeID: "node", ParentSignNode: "root", ParentNamespace: "urn:root", Canonicalization: kalkan.XMLCanonicalizationExclusiveWithComments, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, &kalkan.SignedXML{XML: []byte("<signed/>")}, &kalkan.SignedXML{XML: []byte("<signed/>")}},
 		{"VerifyXML", kalkan.VerifyXMLRequest{Alias: "alias", XML: kalkan.Bytes([]byte("<signed/>")), ExpectedBodyID: "body", Canonicalization: kalkan.XMLCanonicalizationInclusive11, CertificateTimeCheck: kalkan.SkipCertificateTimeCheck}, verification, verification},
@@ -288,6 +288,42 @@ func TestDispatchRejectsMalformedRequestsAndPreservesOperationErrors(t *testing.
 	result, err := dispatch(context.Background(), client, "Hash", payload)
 	if !errors.Is(err, failure) || len(result.metadata) != 0 || client.calls != 1 {
 		t.Fatalf("operation failure changed: result = %+v, error = %v, calls = %d", result, err, client.calls)
+	}
+}
+
+func TestDispatchRejectsInconsistentSourceDescriptors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data []byte
+		path string
+		file bool
+		set  bool
+	}{
+		{"file with bytes", []byte("ignored"), "input.xml", true, true},
+		{"file with empty bytes", []byte{}, "input.xml", true, true},
+		{"bytes with path", []byte("<root/>"), "ignored.xml", false, true},
+		{"absent bytes", []byte("ignored"), "", false, false},
+		{"absent empty bytes", []byte{}, "", false, false},
+		{"absent path", nil, "ignored.xml", false, false},
+		{"absent file", nil, "", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			e := payloadEncoder{}
+			e.bytes(test.data)
+			e.text(test.path)
+			e.integer(int(kalkan.EncodingRaw))
+			e.boolean(test.file)
+			e.boolean(test.set)
+			payload, err := e.finish()
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &recordingClient{t: t}
+			_, err = dispatch(t.Context(), client, opGetCertFromXML, roundTripPayload(t, payload))
+			if !errors.Is(err, ErrProtocol) || client.calls != 0 {
+				t.Fatalf("inconsistent source: error=%v, SDK calls=%d", err, client.calls)
+			}
+		})
 	}
 }
 

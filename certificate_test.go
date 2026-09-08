@@ -11,7 +11,7 @@ import (
 )
 
 func TestLoadKeyStoreValidatesTypeAndPath(t *testing.T) {
-	client := &Client{library: &fakeNative{}}
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type: KeyStoreType(99),
@@ -32,7 +32,7 @@ func TestLoadKeyStoreValidatesTypeAndPath(t *testing.T) {
 func TestLoadKeyStorePreservesPath(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "key.p12", []byte("p12"))
 	pathWithWhitespace := " \t" + path + "\n"
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			if container != pathWithWhitespace {
 				t.Fatalf("container = %q, want preserved path %q", container, pathWithWhitespace)
@@ -40,7 +40,7 @@ func TestLoadKeyStorePreservesPath(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type: PKCS12,
@@ -52,13 +52,13 @@ func TestLoadKeyStorePreservesPath(t *testing.T) {
 }
 
 func TestLoadKeyStoreRejectsNUL(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			t.Error("LoadKeyStore called native with embedded NUL")
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type:     PKCS12,
@@ -72,7 +72,7 @@ func TestLoadKeyStoreRejectsNUL(t *testing.T) {
 
 func TestLoadKeyStorePassesPKCS12ToNative(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "key.p12", []byte("p12"))
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			if storage != ckalkan.StorePKCS12 {
 				t.Fatalf("storage = %#x, want StorePKCS12", storage)
@@ -89,7 +89,7 @@ func TestLoadKeyStorePassesPKCS12ToNative(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type:     PKCS12,
@@ -104,7 +104,7 @@ func TestLoadKeyStorePassesPKCS12ToNative(t *testing.T) {
 
 func TestLoadKeyStoreAcceptsCyrillicInput(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "ключ.p12", []byte("p12"))
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			if container != path {
 				t.Fatalf("container = %q", container)
@@ -118,7 +118,7 @@ func TestLoadKeyStoreAcceptsCyrillicInput(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type:     PKCS12,
@@ -135,7 +135,7 @@ func TestLoadTrustedCertificateMapsSources(t *testing.T) {
 	certPath := writeTestFile(t, t.TempDir(), "ca.pem", []byte("cert"))
 	bufferLoaded := false
 	fileLoaded := false
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 			bufferLoaded = true
 			if string(cert) != "cert-pem" {
@@ -157,7 +157,7 @@ func TestLoadTrustedCertificateMapsSources(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	if err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 		Data:   []byte("cert-pem"),
@@ -183,7 +183,7 @@ func TestLoadTrustedCertificateUsesCallerData(t *testing.T) {
 	releaseNative := make(chan struct{})
 	certSeen := make(chan []byte, 1)
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 			close(enteredNative)
 			<-releaseNative
@@ -191,7 +191,7 @@ func TestLoadTrustedCertificateUsesCallerData(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	done := make(chan error, 1)
 	go func() {
@@ -219,7 +219,7 @@ func TestOpenWithTrustedCertificateUsesCallerData(t *testing.T) {
 	initEntered := make(chan struct{})
 	releaseInit := make(chan struct{})
 	certSeen := make(chan []byte, 1)
-	native := &fakeNative{
+	native := &fakeSDK{
 		initFunc: func() error {
 			close(initEntered)
 			<-releaseInit
@@ -233,15 +233,15 @@ func TestOpenWithTrustedCertificateUsesCallerData(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		client, err := openWithLibraryFactory(context.Background(), []Option{
+		client, err := openWithBackendFactory(context.Background(), []Option{
 			WithLibraryPath(testLibraryPath()),
 			WithTrustedCertificate(TrustedCertificate{
 				Data:   data,
 				Type:   CertificateCA,
 				Format: CertificatePEM,
 			}),
-		}, func(config) (closer, error) {
-			return native, nil
+		}, func(config) (backend, error) {
+			return newNativeBackend(native), nil
 		})
 		if client != nil {
 			_ = client.Close()
@@ -272,7 +272,7 @@ func TestOpenRetainsOwnedTrustedCertificatesUntilClose(t *testing.T) {
 	data := []byte("trusted certificate setup data")
 	wantData := string(data)
 	loads := 0
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(ckalkan.Store, string, string, string) error { return nil },
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 			loads++
@@ -284,15 +284,15 @@ func TestOpenRetainsOwnedTrustedCertificatesUntilClose(t *testing.T) {
 		},
 	}
 
-	client, err := openWithLibraryFactory(context.Background(), []Option{
+	client, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTrustedCertificate(TrustedCertificate{
 			Data:   data,
 			Type:   CertificateCA,
 			Format: CertificatePEM,
 		}),
-	}, func(config) (closer, error) {
-		return native, nil
+	}, func(config) (backend, error) {
+		return newNativeBackend(native), nil
 	})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
@@ -303,6 +303,7 @@ func TestOpenRetainsOwnedTrustedCertificatesUntilClose(t *testing.T) {
 		}
 	}()
 
+	backend := testNativeBackend(t, client)
 	if loads != 1 {
 		t.Fatalf("Open loaded the trusted certificate %d times, want 1", loads)
 	}
@@ -316,13 +317,13 @@ func TestOpenRetainsOwnedTrustedCertificatesUntilClose(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
-	if client.trusted != nil {
+	if backend.trusted != nil {
 		t.Fatal("Close retained trusted certificate buffers")
 	}
 }
 
 func TestLoadTrustedCertificateRejectsMultipleSources(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 			t.Error("LoadTrustedCertificate called native buffer loader with both Path and Data")
 			return nil
@@ -332,7 +333,7 @@ func TestLoadTrustedCertificateRejectsMultipleSources(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 		Data:   []byte("cert"),
@@ -349,7 +350,7 @@ func TestLoadTrustedCertificatePath(t *testing.T) {
 	t.Run("preserve path whitespace", func(t *testing.T) {
 		certPath := writeTestFile(t, t.TempDir(), "ca.pem", []byte("cert"))
 		certPathWithWhitespace := " \n" + certPath + "\t"
-		native := &fakeNative{
+		native := &fakeSDK{
 			loadCertFileFunc: func(path string, certType ckalkan.CertType) error {
 				if path != certPathWithWhitespace {
 					t.Fatalf("path = %q, want preserved path %q", path, certPathWithWhitespace)
@@ -357,7 +358,7 @@ func TestLoadTrustedCertificatePath(t *testing.T) {
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 			Path: certPathWithWhitespace,
@@ -369,13 +370,13 @@ func TestLoadTrustedCertificatePath(t *testing.T) {
 	})
 
 	t.Run("reject NUL", func(t *testing.T) {
-		native := &fakeNative{
+		native := &fakeSDK{
 			loadCertFileFunc: func(path string, certType ckalkan.CertType) error {
 				t.Error("LoadTrustedCertificate called native with embedded NUL")
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 			Path: "/tmp/ca\x00.pem",
@@ -424,7 +425,7 @@ func TestLoadTrustedCertificateDoesNotStatPath(t *testing.T) {
 func assertLoadKeyStoreReceivesPath(t *testing.T, path string) {
 	t.Helper()
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			if container != path {
 				t.Fatalf("container = %q, want %q", container, path)
@@ -432,7 +433,7 @@ func assertLoadKeyStoreReceivesPath(t *testing.T, path string) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type: PKCS12,
@@ -446,7 +447,7 @@ func assertLoadKeyStoreReceivesPath(t *testing.T, path string) {
 func assertLoadTrustedCertificateReceivesPath(t *testing.T, path string) {
 	t.Helper()
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertFileFunc: func(got string, certType ckalkan.CertType) error {
 			if got != path {
 				t.Fatalf("path = %q, want %q", got, path)
@@ -454,7 +455,7 @@ func assertLoadTrustedCertificateReceivesPath(t *testing.T, path string) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 		Path: path,
@@ -497,7 +498,7 @@ func TestProxyNativeFlags(t *testing.T) {
 }
 
 func TestSetProxyValidatesAndCallsNative(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		setProxyFunc: func(req ckalkan.ProxyRequest) error {
 			wantFlags := ckalkan.ProxyOn | ckalkan.ProxyAuth
 			if req.Flags != wantFlags {
@@ -513,7 +514,7 @@ func TestSetProxyValidatesAndCallsNative(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.SetProxy(context.Background(), Proxy{
 		Enabled:  true,
@@ -528,13 +529,13 @@ func TestSetProxyValidatesAndCallsNative(t *testing.T) {
 }
 
 func TestSetProxyRejectsInvalidProxyBeforeNativeCall(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		setProxyFunc: func(ckalkan.ProxyRequest) error {
 			t.Error("SetProxy called native for invalid proxy")
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.SetProxy(context.Background(), Proxy{Enabled: true, Port: "3128"})
 	if err == nil || !strings.Contains(err.Error(), "proxy address is empty") {

@@ -3,7 +3,6 @@ package kalkan
 import (
 	"fmt"
 	"log/slog"
-	"path/filepath"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -12,10 +11,8 @@ const (
 	defaultTSAURL  = "http://tsp.pki.gov.kz:80"
 	defaultOCSPURL = "http://ocsp.pki.gov.kz"
 
-	// DefaultMaxOutputBufferSize is the default hard limit for each native
-	// output buffer. It is a security and availability boundary, not a promise
-	// that any operation should consume the full amount. Applications may set a
-	// smaller limit with WithMaxOutputBufferSize.
+	// DefaultMaxOutputBufferSize limits each output buffer unless overridden
+	// by WithMaxOutputBufferSize.
 	DefaultMaxOutputBufferSize = ckalkan.DefaultMaxOutputBufferSize
 )
 
@@ -29,6 +26,7 @@ type runtimeConfig struct {
 
 type config struct {
 	libraryPath         string
+	java                javaConfig
 	tsaURL              string
 	ocspURL             string
 	proxy               *Proxy
@@ -59,7 +57,8 @@ func WithTSAURL(url string) Option {
 }
 
 // WithOCSPURL overrides the OCSP endpoint used by ValidateCertificate when the
-// request does not specify RevocationSource.
+// request does not specify RevocationSource. It is also the default responder
+// for Java CMS, XML and ZIP verification.
 func WithOCSPURL(url string) Option {
 	return func(c *config) {
 		c.ocspURL = url
@@ -79,7 +78,7 @@ func WithEndpointPolicy(policy EndpointPolicy) Option {
 }
 
 // WithTrustedCertificate loads a trusted certificate during Open.
-// Successful loads are retained until Close and restored after LoadKeyStore.
+// Certificates stay trusted until Close, including across LoadKeyStore calls.
 // See TrustedCertificate for byte ownership and file lifetime requirements.
 func WithTrustedCertificate(cert TrustedCertificate) Option {
 	return func(c *config) {
@@ -87,27 +86,26 @@ func WithTrustedCertificate(cert TrustedCertificate) Option {
 	}
 }
 
-// WithMaxInputSize sets a byte limit for high-level in-memory byte inputs
-// before native calls. It also bounds CMS files read by GetCertFromCMS, whose
-// native operation requires in-memory contents. Values less than or equal to
-// zero disable this limit.
+// WithMaxInputSize limits in-memory inputs and files read by the Go wrapper.
+// It does not limit files read directly by the native SDK or PKCS12 containers
+// loaded by the Java provider. Values less than or equal to zero disable this
+// limit; backend-specific protocol and archive limits still apply.
 func WithMaxInputSize(size int64) Option {
 	return func(c *config) {
 		c.maxInputSize = max(size, 0)
 	}
 }
 
-// WithMaxOutputBufferSize sets the hard cap for the low-level KalkanCrypt
-// output-buffer retry policy. Zero restores DefaultMaxOutputBufferSize. A
-// positive value selects a smaller or larger cap, subject to the native C int
-// ABI maximum. A negative value makes Open return ErrInvalidInput.
+// WithMaxOutputBufferSize limits each native output buffer or Java result field.
+// Zero selects DefaultMaxOutputBufferSize. Positive values must fit in a signed
+// 32-bit integer. A negative value makes Open return ErrInvalidInput.
 func WithMaxOutputBufferSize(size int) Option {
 	return func(c *config) {
 		c.maxOutputBufferSize = size
 	}
 }
 
-// WithProxy configures KalkanCrypt's native HTTP proxy settings during Open.
+// WithProxy configures KalkanCrypt's HTTP proxy settings during Open.
 func WithProxy(proxy Proxy) Option {
 	return func(c *config) {
 		c.proxy = &proxy
@@ -134,8 +132,8 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
-// WithObserver installs an optional callback for native-call timings and safe
-// outcome metadata. It runs after the native gate is released; see Observer
+// WithObserver installs an optional callback for operation timings and safe
+// outcome metadata. It runs after the client call gate is released; see Observer
 // for concurrency and Close behavior. Passing nil disables observations.
 func WithObserver(observer Observer) Option {
 	return func(c *config) {
@@ -161,29 +159,20 @@ func (c *config) validate() error {
 		}
 	}
 
-	libraryPath, err := validateNativePathString("library path", c.libraryPath)
-	if err != nil {
-		if c.libraryPath == "" {
-			return fmt.Errorf("%w: library path is required", ErrInvalidInput)
-		}
-
+	if err := c.validateBackend(); err != nil {
 		return err
 	}
 
-	if !filepath.IsAbs(libraryPath) {
-		return fmt.Errorf("%w: absolute library path is required", ErrInvalidInput)
-	}
+	endpointPolicy := c.startupEndpointPolicy()
 
-	c.libraryPath = libraryPath
-
-	tsaURL, err := normalizeNativeHTTPURLWithPolicy("TSA URL", c.tsaURL, endpointPurposeTSA, c.endpointPolicy)
+	tsaURL, err := normalizeNativeHTTPURLWithPolicy("TSA URL", c.tsaURL, endpointPurposeTSA, endpointPolicy)
 	if err != nil {
 		return err
 	}
 
 	c.tsaURL = tsaURL
 
-	ocspURL, err := normalizeNativeHTTPURLWithPolicy("OCSP URL", c.ocspURL, endpointPurposeOCSP, c.endpointPolicy)
+	ocspURL, err := normalizeNativeHTTPURLWithPolicy("OCSP URL", c.ocspURL, endpointPurposeOCSP, endpointPolicy)
 	if err != nil {
 		return err
 	}

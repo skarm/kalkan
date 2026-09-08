@@ -11,7 +11,7 @@ import (
 	"unicode"
 )
 
-// endpointPurpose identifies the native network operation that will use an
+// endpointPurpose identifies the network operation that will use an
 // endpoint. It is provided to diagnostics so applications can distinguish TSA
 // and OCSP policy failures.
 type endpointPurpose string
@@ -25,12 +25,14 @@ const (
 	endpointPurposeOCSP endpointPurpose = "OCSP"
 )
 
-// EndpointPolicy restricts native TSA and OCSP destinations. Its zero value is
-// invalid because AllowedHosts must contain at least one host. Host matching is
-// exact and case-insensitive after removing a trailing DNS dot. The policy is a
-// local validation boundary only: KalkanCrypt performs DNS resolution and HTTP
+// EndpointPolicy restricts native TSA/OCSP and Java revocation destinations.
+// Its zero value is invalid: AllowedHosts must contain at least one host.
+// Host matching is exact and case-insensitive after removing a trailing DNS dot.
+// The policy is a local validation boundary: native KalkanCrypt performs DNS resolution and HTTP
 // requests itself, so production deployments still need an egress firewall or
-// proxy to prevent DNS rebinding and redirect-based bypasses.
+// proxy to prevent DNS rebinding and redirect-based bypasses. The Java backend
+// validates each destination, including certificate-derived CRL URLs, and
+// rejects redirects; DNS resolution still requires external egress controls.
 type EndpointPolicy struct {
 	// AllowedHosts is the exact allowlist of DNS names. IP literals are rejected
 	// unless AllowIPAddresses is true and the literal is explicitly listed.

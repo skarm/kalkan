@@ -10,22 +10,22 @@ import (
 
 func TestCloseContextStartsWithCanceledContext(t *testing.T) {
 	var calls atomic.Int32
-	client := &Client{library: &fakeNative{closeFunc: func() error {
+	client := &Client{session: newNativeBackend(&fakeSDK{closeFunc: func() error {
 		calls.Add(1)
 		return nil
-	}}}
-	_, gate, err := client.lockLibrary(context.Background())
+	}})}
+	_, gate, err := client.acquireBackend(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := sync.OnceFunc(func() { releaseLibraryGate(gate) })
+	release := sync.OnceFunc(func() { releaseCallGate(gate) })
 	t.Cleanup(release)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := client.CloseContext(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("CloseContext = %v, want canceled while gate is held", err)
 	}
-	if _, _, err := client.lockLibrary(context.Background()); !errors.Is(err, ErrClosed) {
+	if _, _, err := client.acquireBackend(context.Background()); !errors.Is(err, ErrClosed) {
 		t.Fatalf("new operation = %v, want ErrClosed", err)
 	}
 	if got := calls.Load(); got != 0 {
@@ -49,11 +49,11 @@ func TestCloseContextRetainsFailureAfterCanceledWait(t *testing.T) {
 	proceed := make(chan struct{})
 	release := sync.OnceFunc(func() { close(proceed) })
 	t.Cleanup(release)
-	client := &Client{library: &fakeNative{closeFunc: func() error {
+	client := &Client{session: newNativeBackend(&fakeSDK{closeFunc: func() error {
 		close(entered)
 		<-proceed
 		return want
-	}}}
+	}})}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	result := make(chan error, 1)

@@ -200,6 +200,84 @@ jobs:
       - name: Docker test
         run: make docker-test
 
+  java:
+    name: Java KalkanCrypt SDK (${{ matrix.os }}, JDK ${{ matrix.java }})
+    runs-on: ${{ matrix.os }}
+    needs: test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        java: ['17', '26']
+    env:
+      KALKANCRYPT_JAVA_PROVIDER: ${{ github.workspace }}/.local/kcsdk/java/knca_provider_jce_kalkan-0.7.5.jar
+      KALKANCRYPT_JAVA_XML_LIBRARIES: ${{ github.workspace }}/.local/kcsdk/java/kalkancrypt-xmldsig-0.5.jar:${{ github.workspace }}/.local/kcsdk/java/xmlsec-3.0.6.jar:${{ github.workspace }}/.local/kcsdk/java/slf4j-api-2.0.9.jar
+      KALKANCRYPT_SDK_ASSETS: ${{ github.workspace }}/testdata
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate SDK token
+        shell: bash
+        env:
+          KCSDK_TOKEN: ${{ secrets.KCSDK_TOKEN }}
+        run: |
+          if [ -z "${KCSDK_TOKEN}" ]; then
+            echo "::error::KCSDK_TOKEN secret is required to checkout ${KCSDK_REPOSITORY}"
+            exit 1
+          fi
+
+      - name: Checkout KalkanCrypt SDK
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.KCSDK_REPOSITORY }}
+          token: ${{ secrets.KCSDK_TOKEN }}
+          path: .local/kcsdk
+          lfs: true
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Set Java executable
+        shell: bash
+        run: echo "KALKANCRYPT_JAVA_EXECUTABLE=${JAVA_HOME}/bin/java" >> "${GITHUB_ENV}"
+
+      - name: Validate Java SDK JARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=: read -r -a xml_jars <<< "${KALKANCRYPT_JAVA_XML_LIBRARIES}"
+          for jar in "${KALKANCRYPT_JAVA_PROVIDER}" "${xml_jars[@]}"; do
+            if [ ! -f "${jar}" ] || [ ! -s "${jar}" ]; then
+              echo "::error::KalkanCrypt Java SDK JAR is missing or empty: ${jar}"
+              exit 1
+            fi
+            if grep -aqF "git-lfs.github.com/spec" "${jar}"; then
+              echo "::error::KalkanCrypt Java SDK JAR was checked out as a Git LFS pointer: ${jar}"
+              exit 1
+            fi
+          done
+
+      - name: Java SDK integration tests including XML and WS-Security
+        run: go test -count=1 ./...
+
+      - name: Java SDK race tests
+        if: matrix.os == 'ubuntu-latest' && matrix.java == '26'
+        run: go test -race -count=1 ./...
+
   windows:
     name: Windows Go tests
     runs-on: windows-latest
@@ -230,6 +308,7 @@ jobs:
       - lint
       - vulncheck
       - linux
+      - java
       - windows
     if: ${{ always() }}
 
@@ -246,6 +325,7 @@ jobs:
           lint_result="${{ needs.lint.result }}"
           vulncheck_result="${{ needs.vulncheck.result }}"
           linux_result="${{ needs.linux.result }}"
+          java_result="${{ needs.java.result }}"
           windows_result="${{ needs.windows.result }}"
 
           echo "Go tests: ${test_result}"
@@ -255,6 +335,7 @@ jobs:
           echo "golangci-lint: ${lint_result}"
           echo "govulncheck: ${vulncheck_result}"
           echo "Linux KalkanCrypto SDK: ${linux_result}"
+          echo "Java KalkanCrypt SDK: ${java_result}"
           echo "Windows Go tests: ${windows_result}"
 
           if [[ "${test_result}" != "success" ]]; then
@@ -295,10 +376,15 @@ jobs:
           is_fork_pr="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
 
           if [[ "${is_fork_pr}" == "true" ]]; then
-            echo "Fork PR detected: native SDK checks may be skipped because secrets are unavailable."
+            echo "Fork PR detected: private SDK checks may be skipped because secrets are unavailable."
 
             if [[ "${linux_result}" != "success" && "${linux_result}" != "skipped" ]]; then
               echo "::error::Linux KalkanCrypto SDK failed: ${linux_result}"
+              exit 1
+            fi
+
+            if [[ "${java_result}" != "success" && "${java_result}" != "skipped" ]]; then
+              echo "::error::Java KalkanCrypt SDK failed: ${java_result}"
               exit 1
             fi
 
@@ -307,5 +393,10 @@ jobs:
 
           if [[ "${linux_result}" != "success" ]]; then
             echo "::error::Linux KalkanCrypto SDK failed: ${linux_result}"
+            exit 1
+          fi
+
+          if [[ "${java_result}" != "success" ]]; then
+            echo "::error::Java KalkanCrypt SDK failed: ${java_result}"
             exit 1
           fi

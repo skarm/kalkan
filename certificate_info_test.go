@@ -108,9 +108,9 @@ func TestCertificateInfoDoesNotCacheClosedClient(t *testing.T) {
 		t.Run(strconv.FormatBool(initialized), func(t *testing.T) {
 			client := &Client{}
 			if initialized {
-				client.library = &fakeNative{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
+				client.session = newNativeBackend(&fakeSDK{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
 					return []byte("CN=test"), nil
-				}}
+				}})
 				if _, err := client.X509CertificateGetInfoFields(t.Context(), &x509.Certificate{Raw: []byte{1}}, CertificateInfoSubject); err != nil {
 					t.Fatal(err)
 				}
@@ -137,15 +137,15 @@ func TestCertificateInfoDoesNotCacheClosedClient(t *testing.T) {
 
 func TestQueuedCertificateInfoCannotRepopulateClosedCache(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		client := &Client{library: &fakeNative{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
+		client := &Client{session: newNativeBackend(&fakeSDK{certificateGetInfoFunc: func([]byte, ckalkan.CertProp) ([]byte, error) {
 			t.Error("queued certificate request reached the closed library")
 			return nil, nil
-		}}}
-		_, gate, err := client.lockLibrary(t.Context())
+		}})}
+		_, gate, err := client.acquireBackend(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
-		release := sync.OnceFunc(func() { releaseLibraryGate(gate) })
+		release := sync.OnceFunc(func() { releaseCallGate(gate) })
 		t.Cleanup(release)
 		done := make(chan error, 1)
 		go func() {
@@ -199,14 +199,14 @@ func TestCertificateInfoChecksExpandedPEMLimit(t *testing.T) {
 	der := testCertificateDER(t, "PEM size boundary")
 	expectedPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	calls := 0
-	native := &fakeNative{certificateGetInfoFunc: func(cert []byte, _ ckalkan.CertProp) ([]byte, error) {
+	native := &fakeSDK{certificateGetInfoFunc: func(cert []byte, _ ckalkan.CertProp) ([]byte, error) {
 		calls++
 		if !bytes.Equal(cert, expectedPEM) {
 			t.Fatal("native input differs from standard PEM encoding")
 		}
 		return []byte("subject"), nil
 	}}
-	client := &Client{library: native, config: runtimeConfig{maxInputSize: int64(len(expectedPEM) - 1)}}
+	client := &Client{session: newNativeBackend(native), config: runtimeConfig{maxInputSize: int64(len(expectedPEM) - 1)}}
 	cert := &x509.Certificate{Raw: der}
 	if _, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("PEM above limit = %v, want ErrInvalidInput", err)
@@ -244,7 +244,7 @@ func TestNativeListParsersPreserveDistinctNormalization(t *testing.T) {
 
 func TestX509ExportCertificateFromStoreParsesDERCertificate(t *testing.T) {
 	der := testCertificateDER(t, "store-cert")
-	native := &fakeNative{
+	native := &fakeSDK{
 		exportCertStoreFunc: func(alias string, format ckalkan.CertFormat) ([]byte, error) {
 			if alias != "" {
 				t.Fatalf("alias = %q, want default empty alias", alias)
@@ -256,7 +256,7 @@ func TestX509ExportCertificateFromStoreParsesDERCertificate(t *testing.T) {
 			return der, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cert, err := client.X509ExportCertificateFromStore(context.Background())
 	if err != nil {
@@ -420,7 +420,7 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	wantFrom := time.Date(2024, 1, 2, 15, 4, 5, 0, time.UTC)
 	wantUntil := time.Date(2025, 1, 3, 16, 5, 6, 0, time.UTC)
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		certificateGetInfoFunc: func(input []byte, prop ckalkan.CertProp) ([]byte, error) {
 			block, _ := pem.Decode(input)
 			if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, der) {
@@ -435,7 +435,7 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 			return []byte(value), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	info, err := client.X509CertificateGetInfo(context.Background(), cert)
 	if err != nil {
@@ -457,8 +457,8 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	if info.Issuer != "CN = Native Issuer" {
 		t.Fatalf("Issuer = %q", info.Issuer)
 	}
-	if info.AlgorithmSignCert != "GOST R 34.10-2015" {
-		t.Fatalf("AlgorithmSignCert = %q", info.AlgorithmSignCert)
+	if info.SignatureAlgorithm != "GOST R 34.10-2015" {
+		t.Fatalf("SignatureAlgorithm = %q", info.SignatureAlgorithm)
 	}
 	if info.OCSPURL != "OCSP=http://ocsp.example.test" {
 		t.Fatalf("OCSPURL = %q", info.OCSPURL)
@@ -499,7 +499,7 @@ func TestX509CertificateGetInfoFieldsReadsCStringPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 			if prop != ckalkan.CertPropSubjectDN {
 				t.Errorf("unexpected certificate property %#x", prop)
@@ -508,7 +508,7 @@ func TestX509CertificateGetInfoFieldsReadsCStringPrefix(t *testing.T) {
 			return []byte("CN = Native\x00ignored"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	info, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject)
 	if err != nil {
@@ -527,7 +527,7 @@ func TestX509CertificateGetInfoFieldsSelectsProperties(t *testing.T) {
 	}
 
 	var gotProps []ckalkan.CertProp
-	native := &fakeNative{
+	native := &fakeSDK{
 		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 			gotProps = append(gotProps, prop)
 			switch prop {
@@ -541,7 +541,7 @@ func TestX509CertificateGetInfoFieldsSelectsProperties(t *testing.T) {
 			}
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	info, err := client.X509CertificateGetInfoFields(context.Background(), cert, CertificateInfoSubject|CertificateInfoSerialNumber)
 	if err != nil {
@@ -570,7 +570,7 @@ func TestX509CertificateGetInfoFieldsKazakhstanSubject(t *testing.T) {
 	}
 
 	var gotProps []ckalkan.CertProp
-	native := &fakeNative{
+	native := &fakeSDK{
 		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 			gotProps = append(gotProps, prop)
 			switch prop {
@@ -588,7 +588,7 @@ func TestX509CertificateGetInfoFieldsKazakhstanSubject(t *testing.T) {
 			}
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	info, err := client.X509CertificateGetInfoFields(
 		context.Background(),
@@ -688,7 +688,7 @@ func TestX509CertificateGetInfoFieldsFixtures(t *testing.T) {
 				t.Fatalf("parse certificate fixture: %v", err)
 			}
 
-			native := &fakeNative{
+			native := &fakeSDK{
 				certificateGetInfoFunc: func(input []byte, prop ckalkan.CertProp) ([]byte, error) {
 					block, _ := pem.Decode(input)
 					if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, cert.Raw) {
@@ -724,7 +724,7 @@ func TestX509CertificateGetInfoFieldsFixtures(t *testing.T) {
 					}
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			info, err := client.X509CertificateGetInfoFields(
 				context.Background(),
@@ -892,7 +892,7 @@ func TestX509CertificateGetInfoFieldsOptionalSubjectProps(t *testing.T) {
 		t.Fatalf("parse test certificate: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 			switch prop {
 			case ckalkan.CertPropPoliciesID:
@@ -908,7 +908,7 @@ func TestX509CertificateGetInfoFieldsOptionalSubjectProps(t *testing.T) {
 			}
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	info, err := client.X509CertificateGetInfoFields(
 		context.Background(),
@@ -959,7 +959,7 @@ func TestX509CertificateGetInfoReturnsRequiredErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			props := validCertificateInfoProps()
-			native := &fakeNative{
+			native := &fakeSDK{
 				certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 					if prop == tt.prop {
 						return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
@@ -973,7 +973,7 @@ func TestX509CertificateGetInfoReturnsRequiredErrors(t *testing.T) {
 					return []byte(value), nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err = client.X509CertificateGetInfo(context.Background(), cert)
 			requireKalkanErrorCode(t, err, ckalkan.ErrorGetCertProp)
@@ -1007,7 +1007,7 @@ func TestX509CertificateGetInfoIgnoresOptionalErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			props := validCertificateInfoProps()
-			native := &fakeNative{
+			native := &fakeSDK{
 				certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
 					if prop == tt.prop {
 						return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorGetCertProp}
@@ -1021,7 +1021,7 @@ func TestX509CertificateGetInfoIgnoresOptionalErrors(t *testing.T) {
 					return []byte(value), nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			info, err := client.X509CertificateGetInfo(context.Background(), cert)
 			if err != nil {
@@ -1042,7 +1042,7 @@ func TestGetCertFromCMSExtractsAllSignerCertificates(t *testing.T) {
 	secondDER := testCertificateDER(t, "cms-signer-1")
 	var signIDs []int
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		getCertFromCMSFunc: func(cms []byte, signID int, flags ckalkan.Flag) ([]byte, error) {
 			if string(cms) != "cms-base64" {
 				t.Fatalf("CMS input = %q, want cms-base64", cms)
@@ -1063,7 +1063,7 @@ func TestGetCertFromCMSExtractsAllSignerCertificates(t *testing.T) {
 			}
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	certs, err := client.GetCertFromCMS(context.Background(), Base64([]byte("cms-base64")))
 	if err != nil {
@@ -1089,7 +1089,7 @@ func TestGetCertFromCMSReadsFileWithinInputLimit(t *testing.T) {
 	for _, limit := range []int64{0, 2, 3, math.MaxInt64} {
 		t.Run(strconv.FormatInt(limit, 10), func(t *testing.T) {
 			calls := 0
-			client := &Client{config: runtimeConfig{maxInputSize: limit}, library: &fakeNative{
+			client := &Client{config: runtimeConfig{maxInputSize: limit}, session: newNativeBackend(&fakeSDK{
 				getCertFromCMSFunc: func(cms []byte, signID int, flags ckalkan.Flag) ([]byte, error) {
 					calls++
 					if string(cms) != "CMS" || flags&ckalkan.InFile != 0 {
@@ -1100,7 +1100,7 @@ func TestGetCertFromCMSReadsFileWithinInputLimit(t *testing.T) {
 					}
 					return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorCertNotFound}
 				},
-			}}
+			})}
 			certs, err := client.GetCertFromCMS(context.Background(), File(path))
 			if limit == 2 {
 				if !errors.Is(err, ErrInvalidInput) || calls != 0 {
@@ -1119,7 +1119,7 @@ func TestGetCertFromXMLExtractsAllSignerCertificates(t *testing.T) {
 	der := testCertificateDER(t, "xml-signer")
 	var signIDs []int
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		getCertFromXMLFunc: func(xml []byte, signID int) ([]byte, error) {
 			if string(xml) != "<root/>" {
 				t.Fatalf("XML input = %q, want <root/>", xml)
@@ -1133,7 +1133,7 @@ func TestGetCertFromXMLExtractsAllSignerCertificates(t *testing.T) {
 			return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorIDAttrNotFound}
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	certs, err := client.GetCertFromXML(context.Background(), Bytes([]byte("<root/>")))
 	if err != nil {
@@ -1150,15 +1150,15 @@ func TestGetCertFromXMLExtractsAllSignerCertificates(t *testing.T) {
 func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 	tests := []struct {
 		name    string
-		library func(*testing.T) *fakeNative
+		session func(*testing.T) *fakeSDK
 		call    func(*Client) error
 	}{
 		{
 			name: "CMS",
-			library: func(t *testing.T) *fakeNative {
+			session: func(t *testing.T) *fakeSDK {
 				t.Helper()
 
-				return &fakeNative{
+				return &fakeSDK{
 					getCertFromCMSFunc: func(_ []byte, signID int, _ ckalkan.Flag) ([]byte, error) {
 						if signID != 1 {
 							t.Fatalf("signID = %d, want 1", signID)
@@ -1175,10 +1175,10 @@ func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 		},
 		{
 			name: "XML",
-			library: func(t *testing.T) *fakeNative {
+			session: func(t *testing.T) *fakeSDK {
 				t.Helper()
 
-				return &fakeNative{
+				return &fakeSDK{
 					getCertFromXMLFunc: func(_ []byte, signID int) ([]byte, error) {
 						if signID != 1 {
 							t.Fatalf("signID = %d, want 1", signID)
@@ -1197,7 +1197,7 @@ func TestGetCertFromSignedDataReturnsFirstCertNotFoundError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &Client{library: tt.library(t)}
+			client := &Client{session: newNativeBackend(tt.session(t))}
 
 			err := tt.call(client)
 			requireKalkanErrorCode(t, err, ckalkan.ErrorCertNotFound)
@@ -1220,7 +1220,7 @@ func TestGetCertFromXMLDoesNotSilentlyTruncateCertificates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			client := &Client{library: &fakeNative{getCertFromXMLFunc: func(_ []byte, id int) ([]byte, error) {
+			client := &Client{session: newNativeBackend(&fakeSDK{getCertFromXMLFunc: func(_ []byte, id int) ([]byte, error) {
 				calls++
 				if id != calls {
 					t.Fatalf("native signer ID = %d, want %d", id, calls)
@@ -1229,7 +1229,7 @@ func TestGetCertFromXMLDoesNotSilentlyTruncateCertificates(t *testing.T) {
 					return der, nil
 				}
 				return nil, &ckalkan.KalkanError{Code: tc.endCode}
-			}}}
+			}})}
 			certificates, err := client.GetCertFromXML(context.Background(), Bytes([]byte("<root/>")))
 			switch {
 			case tc.wantLimit:
@@ -1253,7 +1253,7 @@ func TestGetCertFromXMLDoesNotSilentlyTruncateCertificates(t *testing.T) {
 }
 
 func TestGetSigAlgFromXMLUsesXMLInput(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		getSigAlgFromXMLFunc: func(xml []byte) (string, error) {
 			if string(xml) != "<signed/>" {
 				t.Fatalf("XML input = %q, want <signed/>", xml)
@@ -1262,7 +1262,7 @@ func TestGetSigAlgFromXMLUsesXMLInput(t *testing.T) {
 			return "urn:test:signature-algorithm", nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	algorithm, err := client.GetSigAlgFromXML(context.Background(), Bytes([]byte("<signed/>")))
 	if err != nil {
@@ -1275,7 +1275,7 @@ func TestGetSigAlgFromXMLUsesXMLInput(t *testing.T) {
 
 func TestGetTimeFromSigUsesSignatureEncoding(t *testing.T) {
 	want := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
-	native := &fakeNative{
+	native := &fakeSDK{
 		getTimeFromSigFunc: func(data []byte, flags ckalkan.Flag, sigID int) (time.Time, error) {
 			if string(data) != "raw-cms" {
 				t.Fatalf("signature input = %q, want raw-cms", data)
@@ -1290,7 +1290,7 @@ func TestGetTimeFromSigUsesSignatureEncoding(t *testing.T) {
 			return want, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	got, err := client.GetTimeFromSig(context.Background(), Bytes([]byte("raw-cms")))
 	if err != nil {

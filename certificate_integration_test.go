@@ -6,11 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/skarm/kalkan/ckalkan"
 )
 
 func TestClientFixtureCMSCertificateExtraction(t *testing.T) {
@@ -28,6 +27,12 @@ func TestClientFixtureCMSCertificateExtraction(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCMSCertificateSources(t, client, first.Data, []*x509.Certificate{firstCert})
+	detachedFirst, err := client.SignCMS(ctx, SignCMSRequest{
+		Data: Bytes(payload), Detached: true, IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	assets := loadFixtureAssets(t)
 	if len(assets.P12) < 2 {
@@ -43,21 +48,63 @@ func TestClientFixtureCMSCertificateExtraction(t *testing.T) {
 	if bytes.Equal(firstCert.Raw, secondCert.Raw) {
 		t.Fatal("CMS extraction fixture keys have the same certificate")
 	}
-	// The low-level API can append a signer to an existing CMS. The public
-	// extraction method must return both embedded certificates, in native order.
-	native, ok := client.library.(*ckalkan.Client)
-	if !ok {
-		t.Fatalf("fixture library type = %T, want *ckalkan.Client", client.library)
+	// Append through the public API with independent payload/CMS encodings.
+	// Both original signers and the payload must survive every representation.
+	for _, original := range []struct {
+		cms      *CMS
+		detached bool
+	}{{first, false}, {detachedFirst, true}} {
+		for _, input := range []struct {
+			name      string
+			data, cms []byte
+			encoding  Encoding
+		}{
+			{"raw", payload, original.cms.Data, EncodingRaw},
+			{"base64", []byte(base64.StdEncoding.EncodeToString(payload)), []byte(base64.StdEncoding.EncodeToString(original.cms.Data)), EncodingBase64},
+			{"PEM", pem.EncodeToMemory(&pem.Block{Type: "DATA", Bytes: payload}), pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: original.cms.Data}), EncodingPEM},
+		} {
+			for _, file := range []bool{false, true} {
+				t.Run(fmt.Sprintf("append/%s/file=%t/detached=%t", input.name, file, original.detached), func(t *testing.T) {
+					data := Bytes(input.data).WithEncoding(input.encoding)
+					if file {
+						path := filepath.Join(t.TempDir(), "payload")
+						if err := os.WriteFile(path, input.data, 0o600); err != nil {
+							t.Fatal(err)
+						}
+						data = File(path).WithEncoding(input.encoding)
+					}
+					second, err := client.SignCMS(ctx, SignCMSRequest{
+						Data: data, ExistingSignature: Bytes(input.cms).WithEncoding(input.encoding), Detached: original.detached,
+						IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					verification := VerifyCMSRequest{Signature: DER(second.Data), Detached: original.detached, CertificateTimeCheck: SkipCertificateTimeCheck}
+					if original.detached {
+						verification.Data = Bytes(payload)
+					}
+					verified, err := client.VerifyCMS(ctx, verification)
+					if err != nil {
+						t.Fatalf("VerifyCMS appended signers: %v", err)
+					}
+					if !original.detached && !bytes.Equal(verified.Data, payload) {
+						t.Fatalf("appended CMS changed payload: %q", verified.Data)
+					}
+					certs, err := client.GetCertFromCMS(ctx, DER(second.Data))
+					if err != nil || len(certs) != 2 {
+						t.Fatalf("appended signer count = %d, err = %v; want two signers", len(certs), err)
+					}
+					if !bytes.Equal(certs[0].Raw, firstCert.Raw) || !bytes.Equal(certs[1].Raw, secondCert.Raw) {
+						t.Fatal("append replaced an original signer certificate")
+					}
+					if !original.detached {
+						assertCMSCertificateSources(t, client, second.Data, []*x509.Certificate{firstCert, secondCert})
+					}
+				})
+			}
+		}
 	}
-
-	second, err := native.SignData(ckalkan.SignDataRequest{
-		Data: payload, Signature: first.Data,
-		Flags: ckalkan.SignCMS | ckalkan.InDER | ckalkan.OutDER | ckalkan.WithCert | ckalkan.NoCheckCertTime,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertCMSCertificateSources(t, client, second, []*x509.Certificate{firstCert, secondCert})
 }
 
 func assertCMSCertificateSources(t *testing.T, client *Client, cms []byte, want []*x509.Certificate) {
