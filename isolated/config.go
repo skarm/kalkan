@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/skarm/kalkan"
 )
@@ -34,8 +35,15 @@ type Config struct {
 	// a pointer to an empty string explicitly sets an empty URL.
 	// See [kalkan.WithOCSPURL].
 	OCSPURL *string
-	// Proxy configures the native HTTP proxy during startup. Nil omits proxy
-	// configuration. See [kalkan.WithProxy].
+	// CustomOCSP enables Go OCSP requests and signature verification in the worker.
+	// False preserves native OCSP validation. See [kalkan.WithCustomOCSP].
+	CustomOCSP bool
+	// OCSPTimeout bounds each Go OCSP HTTP request, including reading its response.
+	// Zero uses [kalkan.DefaultOCSPTimeout]; negative values are invalid.
+	// Setting a timeout does not enable CustomOCSP or limit native OCSP calls.
+	OCSPTimeout time.Duration
+	// Proxy configures the native HTTP proxy and optional Go OCSP HTTP proxy
+	// during startup. Nil omits proxy configuration. See [kalkan.WithProxy].
 	Proxy *kalkan.Proxy
 	// TrustedCertificates are loaded during startup and retained until Close.
 	// See [kalkan.TrustedCertificate] for byte ownership and file lifetimes.
@@ -73,14 +81,19 @@ func (cfg Config) validate() error {
 		return fmt.Errorf("%w: isolated output buffer limit must be non-negative", kalkan.ErrInvalidInput)
 	}
 
+	if cfg.OCSPTimeout < 0 {
+		return fmt.Errorf("%w: OCSP timeout must be non-negative", kalkan.ErrInvalidInput)
+	}
+
 	return nil
 }
 
 func (cfg Config) libraryConfig() libraryConfig {
 	return libraryConfig{
 		CollectObservations: cfg.Observer != nil,
-		LibraryPath:         cfg.LibraryPath, TSAURL: cfg.TSAURL, OCSPURL: cfg.OCSPURL,
-		Proxy: cfg.Proxy, TrustedCertificates: cfg.TrustedCertificates,
+		LibraryPath:         cfg.LibraryPath, TSAURL: cfg.TSAURL, OCSPURL: cfg.OCSPURL, OCSPTimeout: cfg.OCSPTimeout,
+		CustomOCSP: cfg.CustomOCSP,
+		Proxy:      cfg.Proxy, TrustedCertificates: cfg.TrustedCertificates,
 		MaxInputSize: cfg.MaxInputSize, MaxOutputBufferSize: cfg.MaxOutputBufferSize,
 		AtomicZIPOutput: cfg.AtomicZIPOutput, EndpointPolicy: cfg.EndpointPolicy,
 	}

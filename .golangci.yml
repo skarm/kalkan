@@ -86,6 +86,8 @@ linters:
           - lll
         source: '^//go:generate '
     paths:
+      # Preserve the imported, licensed GoGOST subset without style rewrites.
+      - internal/certsig/internal/gogost/
       - third_party$
       - builtin$
       - examples$

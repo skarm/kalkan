@@ -407,6 +407,7 @@ func (d *payloadDecoder) signWSSERequest() kalkan.SignWSSERequest {
 
 func (e *payloadEncoder) validateCertificateRequest(v kalkan.ValidateCertificateRequest) {
 	e.source(v.Certificate)
+	e.source(v.Issuer)
 	e.integer(int(v.Mode))
 	e.text(v.RevocationSource)
 	e.timestamp(v.CheckTime)
@@ -417,6 +418,7 @@ func (e *payloadEncoder) validateCertificateRequest(v kalkan.ValidateCertificate
 func (d *payloadDecoder) validateCertificateRequest() kalkan.ValidateCertificateRequest {
 	return kalkan.ValidateCertificateRequest{
 		Certificate:          d.source(),
+		Issuer:               d.source(),
 		Mode:                 kalkan.CertificateValidationMode(d.integer()),
 		RevocationSource:     d.text(),
 		CheckTime:            d.timestamp(),

@@ -34,6 +34,10 @@ func (e *payloadEncoder) encodeError(err error, depth int) {
 		e.text(value.Operation)
 		e.uint64(value.Requested)
 		e.uint64(value.Limit)
+	case *kalkan.OCSPRevokedError:
+		e.uint32(3)
+		e.text(value.Endpoint)
+		e.timestamp(value.RevokedAt)
 	default:
 		e.uint32(0)
 	}
@@ -87,6 +91,8 @@ func (d *payloadDecoder) decodeError(depth int) error {
 		causes = append(causes, &ckalkan.KalkanError{Code: ckalkan.ErrorCode(d.uint64()), Message: d.text()})
 	case 2:
 		causes = append(causes, &ckalkan.OutputBufferLimitError{Operation: d.text(), Requested: d.uint64(), Limit: d.uint64()})
+	case 3:
+		causes = append(causes, &kalkan.OCSPRevokedError{Endpoint: d.text(), RevokedAt: d.timestamp()})
 	default:
 		d.err = malformedResult()
 		return nil

@@ -10,7 +10,7 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// CertificateValidationMode selects how KalkanCrypt checks certificate
+// CertificateValidationMode selects how the client checks certificate
 // revocation while validating a certificate.
 type CertificateValidationMode int
 
@@ -46,6 +46,12 @@ type ValidateCertificateRequest struct {
 	// Explicit DER, PEM, and base64 sources are normalized to the PEM encoding
 	// expected by the native validator. Raw and auto sources pass through unchanged.
 	Certificate Source
+	// Issuer optionally supplies the immediate issuer for Go OCSP verification.
+	// When omitted, the issuer is found among certificates loaded with
+	// LoadTrustedCertificate or WithTrustedCertificate. It does not add trust:
+	// KalkanCrypt still validates the certificate chain against its own store.
+	// Requires WithCustomOCSP and OCSP mode; file sources are rejected.
+	Issuer Source
 	// Mode selects the revocation check. The zero value is invalid.
 	Mode CertificateValidationMode
 	// RevocationSource is a CRL path or OCSP URL. An empty OCSP source uses the
@@ -54,7 +60,8 @@ type ValidateCertificateRequest struct {
 	// CheckTime is the validation time. Zero lets KalkanCrypt use its own
 	// default behavior.
 	CheckTime time.Time
-	// ReturnOCSPResponse requests the raw OCSP response from KalkanCrypt.
+	// ReturnOCSPResponse requests the raw OCSP response from the selected
+	// implementation. WithCustomOCSP verifies it before returning.
 	// It is valid only when Mode is CertificateValidationOCSP.
 	ReturnOCSPResponse bool
 	// CertificateTimeCheck controls KalkanCrypt certificate-time validation.
@@ -66,12 +73,18 @@ type ValidateCertificateRequest struct {
 type CertificateValidation struct {
 	// Info is KalkanCrypt's native validation information string.
 	Info string
-	// OCSPResponse contains the optional raw OCSP response returned by
-	// KalkanCrypt when ReturnOCSPResponse is set.
+	// OCSPResponse contains the raw OCSP response when ReturnOCSPResponse is set.
+	// WithCustomOCSP verifies this response in Go before returning it.
 	OCSPResponse []byte
 }
 
-// ValidateCertificate validates a certificate through KalkanCrypt.
+// ValidateCertificate validates a certificate chain through KalkanCrypt.
+// OCSP uses the native implementation unless WithCustomOCSP is enabled. WithCustomOCSP
+// checks the supplied certificate's status in Go after native chain validation,
+// with a context-aware HTTP timeout and signature verification. In that mode,
+// CheckTime applies to native chain validation and OCSP responses must be fresh
+// at the current time, even for historical checks. Native calls cannot be
+// interrupted by the context or WithOCSPTimeout.
 func (c *Client) ValidateCertificate(ctx context.Context, req ValidateCertificateRequest) (*CertificateValidation, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -95,6 +108,11 @@ func (c *Client) ValidateCertificate(ctx context.Context, req ValidateCertificat
 		return nil, fmt.Errorf("%w: ReturnOCSPResponse requires OCSP certificate validation mode", ErrInvalidInput)
 	}
 
+	customOCSP := c != nil && c.config.customOCSP
+	if !req.Issuer.isZero() && (req.Mode != CertificateValidationOCSP || !customOCSP) {
+		return nil, fmt.Errorf("%w: Issuer requires WithCustomOCSP and OCSP certificate validation mode", ErrInvalidInput)
+	}
+
 	revocationSource, err := c.revocationSource(req)
 	if err != nil {
 		return nil, err
@@ -105,8 +123,11 @@ func (c *Client) ValidateCertificate(ctx context.Context, req ValidateCertificat
 		return nil, err
 	}
 
-	flags := checkFlags
+	if req.Mode == CertificateValidationOCSP && customOCSP {
+		return c.validateCertificateOCSP(ctx, req, cert, revocationSource, checkFlags)
+	}
 
+	flags := checkFlags
 	if req.ReturnOCSPResponse {
 		flags |= ckalkan.GetOCSPResponse
 	}

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skarm/kalkan"
 )
@@ -15,6 +16,7 @@ func TestLibraryConfigRoundTripPreservesAllOpaqueStrings(t *testing.T) {
 	tsa, ocsp := "http://tsa/\xff", "http://ocsp/\xfe"
 	want := libraryConfig{
 		CollectObservations: true, LibraryPath: "/library/\xfd", TSAURL: &tsa, OCSPURL: &ocsp,
+		CustomOCSP: true, OCSPTimeout: 7*time.Second + 13*time.Nanosecond,
 		Proxy: &kalkan.Proxy{Enabled: true, Address: "addr\xfc", Port: "port\xfb", User: "user\xfa", Password: "secret\xf9"},
 		TrustedCertificates: []kalkan.TrustedCertificate{
 			{Path: "/cert\xf8", Type: kalkan.CertificateCA},
@@ -51,6 +53,7 @@ func TestLibraryConfigOptionsDelegateValidationToRoot(t *testing.T) {
 	}{
 		{"explicit empty TSA URL", libraryConfig{TSAURL: &empty}, "TSA URL"},
 		{"invalid output limit", libraryConfig{MaxOutputBufferSize: -1}, "maximum output buffer size"},
+		{"invalid OCSP timeout", libraryConfig{OCSPTimeout: -time.Nanosecond}, "OCSP timeout"},
 		{"empty endpoint policy", libraryConfig{EndpointPolicy: &kalkan.EndpointPolicy{}}, "endpoint policy"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -66,6 +69,43 @@ func TestLibraryConfigOptionsDelegateValidationToRoot(t *testing.T) {
 				t.Fatalf("root Open = %v, want root validation for %q", err, test.diagnostic)
 			}
 		})
+	}
+}
+
+func TestConfigCarriesCustomOCSPChoiceAndTimeoutToWorker(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		customOCSP bool
+		timeout    time.Duration
+	}{
+		{name: "native by default"},
+		{name: "timeout keeps native", timeout: 3*time.Second + time.Nanosecond},
+		{name: "Go OCSP with default timeout", customOCSP: true},
+		{name: "Go OCSP with timeout", customOCSP: true, timeout: 3*time.Second + time.Nanosecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := Config{
+				WorkerPath: filepath.Join(t.TempDir(), "worker"), LibraryPath: filepath.Join(t.TempDir(), "library.so"),
+				CustomOCSP: test.customOCSP, OCSPTimeout: test.timeout,
+			}
+			if err := config.validate(); err != nil {
+				t.Fatal(err)
+			}
+			got := roundTripConfig(t, config.libraryConfig())
+			if got.CustomOCSP != test.customOCSP || got.OCSPTimeout != test.timeout {
+				t.Fatalf("worker Go OCSP = %t with timeout %s, want %t with timeout %s", got.CustomOCSP, got.OCSPTimeout, test.customOCSP, test.timeout)
+			}
+		})
+	}
+}
+
+func TestConfigRejectsNegativeOCSPTimeout(t *testing.T) {
+	config := Config{
+		WorkerPath: filepath.Join(t.TempDir(), "worker"), LibraryPath: filepath.Join(t.TempDir(), "library.so"),
+		OCSPTimeout: -time.Nanosecond,
+	}
+	if err := config.validate(); !errors.Is(err, kalkan.ErrInvalidInput) {
+		t.Fatalf("negative timeout = %v, want ErrInvalidInput", err)
 	}
 }
 
