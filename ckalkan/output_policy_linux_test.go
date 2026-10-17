@@ -3,10 +3,64 @@
 package ckalkan
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
+
+func TestVerifyDataRejectsNativeLastErrorAfterSuccessfulStatus(t *testing.T) {
+	const nativeFailure = ErrorCode(0x0407008a)
+	ctx := &fakeNativeContext{
+		lastErrorFunc: func() uint64 { return uint64(nativeFailure) },
+		verifyDataFunc: func(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
+			return kalkancrypt.VerifyResult{Code: uint64(ErrorOK), Data: []byte("unverified"), DataLen: len("unverified")}, nil
+		},
+	}
+	client := &Client{ctx: ctx, config: defaultConfig()}
+	result, err := client.VerifyData(VerifyDataRequest{Flags: SignCMS})
+	if !errors.Is(err, &KalkanError{Code: nativeFailure}) || result.Data != nil {
+		t.Fatalf("VerifyData = %+v, %v, want typed native error without returned data", result, err)
+	}
+}
+
+func TestVerifyDataClearsLastErrorBeforeEveryAttempt(t *testing.T) {
+	lastError := uint64(ErrorVerifySign)
+	var attempts, clears int
+	ctx := &fakeNativeContext{
+		clearErrorFunc: func() { clears++; lastError = 0 },
+		lastErrorFunc:  func() uint64 { return lastError },
+		verifyDataFunc: func(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
+			attempts++
+			if lastError != 0 {
+				t.Fatal("native attempt inherited a stale error")
+			}
+			if attempts == 1 {
+				lastError = uint64(ErrorBufferTooSmall)
+				return kalkancrypt.VerifyResult{Code: uint64(ErrorBufferTooSmall), InfoLen: call.InfoCapacity + 1}, nil
+			}
+			return kalkancrypt.VerifyResult{Code: uint64(ErrorOK), Data: []byte("verified"), DataLen: len("verified")}, nil
+		},
+	}
+	client := &Client{ctx: ctx, config: defaultConfig()}
+	result, err := client.VerifyData(VerifyDataRequest{Flags: SignCMS})
+	if err != nil || string(result.Data) != "verified" || attempts != 2 || clears != 2 {
+		t.Fatalf("VerifyData = %+v, %v, attempts=%d clears=%d, want success after one bounded retry", result, err, attempts, clears)
+	}
+}
+
+func TestVerifyDataRejectsNegativeAttachedDataLength(t *testing.T) {
+	for _, length := range []int{-1, -2} {
+		ctx := &fakeNativeContext{verifyDataFunc: func(kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error) {
+			return kalkancrypt.VerifyResult{Code: uint64(ErrorOK), DataLen: length}, nil
+		}}
+		client := &Client{ctx: ctx, config: defaultConfig()}
+		if _, err := client.VerifyData(VerifyDataRequest{Flags: SignCMS}); err == nil || !strings.Contains(err.Error(), "negative") {
+			t.Fatalf("native data length %d: error = %v, want negative-length rejection", length, err)
+		}
+	}
+}
 
 func TestVerifyDataRetriesSaturatedAttachedData(t *testing.T) {
 	const (

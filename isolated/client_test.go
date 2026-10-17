@@ -94,8 +94,8 @@ func (s *helperSession) Close() error {
 	if s.mode == "close-hang" {
 		select {}
 	}
-	if strings.HasPrefix(s.mode, "close-wait:") {
-		if err := waitForRelease(strings.TrimPrefix(s.mode, "close-wait:")); err != nil {
+	if after, ok := strings.CutPrefix(s.mode, "close-wait:"); ok {
+		if err := waitForRelease(after); err != nil {
 			return err
 		}
 	}

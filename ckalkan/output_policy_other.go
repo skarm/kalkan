@@ -2,6 +2,10 @@
 
 package ckalkan
 
+func platformVerifyDataErrorCode(_ cmsContext) ErrorCode {
+	return ErrorOK
+}
+
 func platformVerifyDataOutputPolicy(req VerifyDataRequest) verifyDataOutputPolicy {
 	// These platforms allocate a data buffer for every verification mode but
 	// return its contents only for attached in-memory CMS. Exact saturation

@@ -335,24 +335,44 @@ func TestOCSPProxyUpdates(t *testing.T) {
 	defer proxyServer.Close()
 	u, _ := url.Parse(proxyServer.URL)
 	host, port, _ := net.SplitHostPort(u.Host)
-	proxy := Proxy{Enabled: true, Address: host, Port: port, User: "user", Password: "pass"}
-	client := ocspTestClient(t, "http://ocsp.invalid/check")
-	if err := client.SetProxy(t.Context(), proxy); err != nil {
-		t.Fatal(err)
-	}
-	req := ValidateCertificateRequest{Certificate: DER(pki.leaf.Raw), Issuer: DER(pki.ca.Raw), Mode: CertificateValidationOCSP}
-	if _, err := client.ValidateCertificate(t.Context(), req); err != nil {
-		t.Fatal(err)
-	}
-	ocspTestNative(t, client).setProxyFunc = func(ckalkan.ProxyRequest) error { return errors.New("native proxy failed") }
-	if err := client.SetProxy(t.Context(), Proxy{}); err == nil {
-		t.Fatal("expected native failure")
-	}
-	if _, err := client.ValidateCertificate(t.Context(), req); err != nil {
-		t.Fatalf("failed SetProxy changed Go proxy: %v", err)
-	}
-	if hits.Load() != 2 {
-		t.Fatalf("proxy requests=%d", hits.Load())
+	for _, test := range []struct{ name, port string }{
+		{"decimal port", port},
+		{"leading plus", "+" + port},
+		{"leading zeros", "00" + port},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := hits.Load()
+			proxy := Proxy{Enabled: true, Address: host, Port: test.port, User: "user", Password: "pass"}
+			client := ocspTestClient(t, "http://ocsp.invalid/check")
+			defer client.Close()
+			native := ocspTestNative(t, client)
+			native.setProxyFunc = func(req ckalkan.ProxyRequest) error {
+				if req.Port != test.port {
+					t.Fatalf("native proxy port=%q, want original %q", req.Port, test.port)
+				}
+				return nil
+			}
+			if err := client.SetProxy(t.Context(), proxy); err != nil {
+				t.Fatal(err)
+			}
+			req := ValidateCertificateRequest{Certificate: DER(pki.leaf.Raw), Issuer: DER(pki.ca.Raw), Mode: CertificateValidationOCSP}
+			if _, err := client.ValidateCertificate(t.Context(), req); err != nil {
+				t.Fatal(err)
+			}
+			if client.config.proxy.Port != test.port {
+				t.Fatalf("stored proxy port=%q, want original %q", client.config.proxy.Port, test.port)
+			}
+			native.setProxyFunc = func(ckalkan.ProxyRequest) error { return errors.New("native proxy failed") }
+			if err := client.SetProxy(t.Context(), Proxy{}); err == nil {
+				t.Fatal("expected native failure")
+			}
+			if _, err := client.ValidateCertificate(t.Context(), req); err != nil {
+				t.Fatalf("failed SetProxy changed Go proxy: %v", err)
+			}
+			if got := hits.Load() - before; got != 2 {
+				t.Fatalf("proxy requests=%d, want 2", got)
+			}
+		})
 	}
 }
 
@@ -466,5 +486,85 @@ func TestCustomOCSPOptionKeepsOtherValidationModesNative(t *testing.T) {
 		if err != nil || result.Info != "native validation" || calls != 1 {
 			t.Fatalf("mode %d = %+v, %v; calls=%d", mode, result, err, calls)
 		}
+	}
+}
+
+func TestValidateCertificateOCSPGOST2015Digest256(t *testing.T) {
+	issuer := readTestCertificate(t, "testdata/ocsp/gost2015_256/gost256-ca.der")
+	leaf := readTestCertificate(t, "testdata/ocsp/gost2015_256/gost256-leaf.der")
+	answer := readGOST256OCSPFixture(t, "gost256-ocsp-delegated-good.der")
+	id, err := kalkanOCSPCertID(leaf.SerialNumber, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRequest, err := kalkanOCSPRequest(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response ocspResponse
+	if _, err := asn1.Unmarshal(answer, &response); err != nil {
+		t.Fatal(err)
+	}
+	var basic ocspBasicResponse
+	if _, err := asn1.Unmarshal(response.Bytes.Response, &basic); err != nil {
+		t.Fatal(err)
+	}
+	basic.Signature.Bytes = bytes.Clone(basic.Signature.Bytes)
+	basic.Signature.Bytes[0] ^= 1
+	response.Bytes.Response = ocspTestMarshal(t, basic)
+	tampered := ocspTestMarshal(t, response)
+
+	// SDK fixtures are valid from 2019 to 2050. Their fixed signed response
+	// interval covers the HTTP client's real clock as well as the status test's
+	// fixed 2030 clock; no SDK or private key is needed to run either test.
+	for _, test := range []struct {
+		name  string
+		body  []byte
+		valid bool
+	}{
+		{name: "delegated good", body: answer, valid: true},
+		{name: "altered response signature", body: tampered},
+		{name: "responder without OCSP signing usage", body: readGOST256OCSPFixture(t, "gost256-ocsp-without-eku.der")},
+		{name: "responder issued by another CA", body: readGOST256OCSPFixture(t, "gost256-ocsp-foreign-issuer.der")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/ocsp-request" {
+					t.Error("invalid GOST-256 OCSP HTTP request")
+				}
+				body, err := io.ReadAll(r.Body)
+				if err != nil || !bytes.Equal(body, wantRequest) {
+					t.Error("GOST-256 request identifies the wrong certificate")
+				}
+				w.Header().Set("Content-Type", "application/ocsp-response")
+				_, _ = w.Write(test.body)
+			}))
+			defer server.Close()
+			client := ocspTestClient(t, server.URL)
+			defer client.Close()
+			native := ocspTestNative(t, client)
+			validateNative := native.validateCertificateFunc
+			nativeCalls := 0
+			native.validateCertificateFunc = func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+				nativeCalls++
+				return validateNative(req)
+			}
+			result, err := client.ValidateCertificate(t.Context(), ValidateCertificateRequest{
+				Certificate: DER(leaf.Raw), Issuer: DER(issuer.Raw),
+				Mode: CertificateValidationOCSP, ReturnOCSPResponse: true,
+			})
+			if test.valid {
+				if err != nil || result == nil || result.Info != "chain ok" || !bytes.Equal(result.OCSPResponse, answer) {
+					t.Fatalf("independently signed GOST-256 response: result=%+v, error=%v", result, err)
+				}
+			} else if result != nil || err == nil || !strings.Contains(err.Error(), "signed neither") {
+				t.Fatalf("unauthenticated or unauthorized GOST-256 response: result=%+v, error=%v", result, err)
+			}
+			if hits.Load() != 1 || nativeCalls != 1 {
+				t.Fatalf("GOST-256 validation calls: HTTP=%d, native=%d; want one chain validation and one OCSP request", hits.Load(), nativeCalls)
+			}
+		})
 	}
 }

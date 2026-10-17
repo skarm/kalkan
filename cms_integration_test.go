@@ -3,6 +3,7 @@ package kalkan
 import (
 	"bytes"
 	"context"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
@@ -12,6 +13,56 @@ import (
 
 	"github.com/skarm/kalkan/ckalkan"
 )
+
+func TestVerifyCMSRejectsChangedSignatureValue(t *testing.T) {
+	client := openFixtureSigningClient(t)
+	if err := client.LoadKeyStore(t.Context(), KeyStore{
+		Path: filepath.Join("testdata", "p12", "GOST512_10f5125fb9e52f84c42cbad8e451c68f10a5e869.p12"), Password: fixturePassword,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("CMS signer signature rejection control")
+	for _, detached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("detached=%t", detached), func(t *testing.T) {
+			signed, err := client.SignCMS(t.Context(), SignCMSRequest{
+				Data: Bytes(payload), Detached: detached, IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := VerifyCMSRequest{Signature: DER(signed.Data), Detached: detached, CertificateTimeCheck: SkipCertificateTimeCheck}
+			if detached {
+				request.Data = Bytes(payload)
+			}
+			valid, err := client.VerifyCMS(t.Context(), request)
+			if err != nil || valid == nil {
+				t.Fatalf("positive VerifyCMS control: result=%+v error=%v", valid, err)
+			}
+			if !detached && !bytes.Equal(valid.Data, payload) {
+				t.Fatal("positive VerifyCMS control returned different attached data")
+			}
+
+			var envelope signHashCMSEnvelope
+			if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != 1 {
+				t.Fatalf("decode generated CMS signer: error=%v trailing bytes=%d", err, len(rest))
+			}
+			signature := envelope.Content.SignerInfos[0].Signature
+			if len(signature) == 0 || bytes.Count(signed.Data, signature) != 1 {
+				t.Fatal("generated CMS must contain one unambiguous SignerInfo.signature")
+			}
+			tampered := bytes.Clone(signed.Data)
+			tampered[bytes.Index(tampered, signature)+len(signature)/2] ^= 1
+			request.Signature = DER(tampered)
+			result, err := client.VerifyCMS(t.Context(), request)
+			// SDK 2.0.13 may return KCR_OK while reporting this actual
+			// GOST signature failure through GetLastError alone.
+			requireNativeErrorCode(t, "changed CMS signer signature", err, ckalkan.ErrorCode(0x8006E07B))
+			if result != nil {
+				t.Fatalf("failed CMS verification returned a result: %+v", result)
+			}
+		})
+	}
+}
 
 // These checks require the real SDK: mocks cannot prove whether native code
 // interprets an input buffer as a filename. Existing files provide controls.

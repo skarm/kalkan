@@ -68,6 +68,7 @@ type hashContext interface {
 }
 
 type cmsContext interface {
+	LastError() uint64
 	SignData(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error)
 	VerifyData(call kalkancrypt.VerifyDataCall) (kalkancrypt.VerifyResult, error)
 	GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64)

@@ -220,6 +220,48 @@ func TestRandom(t *testing.T) {
 	}
 }
 
+func TestUnmarshalBinaryCopiesBufferedInput(t *testing.T) {
+	original := New(64)
+	original.Write([]byte("message with an incomplete final block"))
+	state, err := original.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := New(64)
+	if err := restored.UnmarshalBinary(state); err != nil {
+		t.Fatal(err)
+	}
+	clear(state)
+	if got, want := restored.Sum(nil), original.Sum(nil); !bytes.Equal(got, want) {
+		t.Fatalf("reusing serialized input changed restored digest: %x != %x", got, want)
+	}
+}
+
+func TestUnmarshalBinaryRejectsInvalidState(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func([]byte) []byte
+	}{
+		{"invalid digest size", func(state []byte) []byte { state[len(MarshalledName)] = 0; return state }},
+		{"full unprocessed block", func(state []byte) []byte { return append(state, make([]byte, BlockSize)...) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hash := New(64)
+			state, err := hash.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := hash.Sum(nil)
+			if err := hash.UnmarshalBinary(test.change(state)); err == nil {
+				t.Fatal("accepted an invalid hash state")
+			}
+			if got := hash.Sum(nil); !bytes.Equal(got, want) {
+				t.Fatal("failed restore changed the existing digest")
+			}
+		})
+	}
+}
+
 func BenchmarkHash(b *testing.B) {
 	h := New(64)
 	src := make([]byte, BlockSize+1)

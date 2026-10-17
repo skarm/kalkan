@@ -10,30 +10,30 @@ import (
 // in raw blocks, including invalid UTF-8. Validation and default values are
 // supplied by kalkan.Open when the worker applies [libraryConfig.Options].
 type libraryConfig struct {
-	// CollectObservations enables native-call observations in responses.
-	CollectObservations bool
-	// LibraryPath is the absolute path to the native shared library.
-	LibraryPath string
 	// TSAURL overrides the timestamp endpoint; nil omits the option.
 	TSAURL *string
 	// OCSPURL overrides the default OCSP endpoint; nil omits the option.
 	OCSPURL *string
-	// CustomOCSP enables [kalkan.WithCustomOCSP]; false preserves native OCSP.
-	CustomOCSP bool
-	// OCSPTimeout limits optional Go OCSP via [kalkan.WithOCSPTimeout].
-	OCSPTimeout time.Duration
 	// Proxy configures native and optional Go OCSP HTTP proxies; nil omits it.
 	Proxy *kalkan.Proxy
+	// EndpointPolicy restricts explicit TSA and OCSP URLs; nil omits the policy.
+	EndpointPolicy *kalkan.EndpointPolicy
+	// LibraryPath is the absolute path to the native shared library.
+	LibraryPath string
 	// TrustedCertificates are loaded into the worker's trust store at startup.
 	TrustedCertificates []kalkan.TrustedCertificate
+	// OCSPTimeout limits optional Go OCSP via [kalkan.WithOCSPTimeout].
+	OCSPTimeout time.Duration
 	// MaxInputSize is passed to [kalkan.WithMaxInputSize].
 	MaxInputSize int64
 	// MaxOutputBufferSize is passed to [kalkan.WithMaxOutputBufferSize].
 	MaxOutputBufferSize int
+	// CollectObservations enables native-call observations in responses.
+	CollectObservations bool
+	// CustomOCSP enables [kalkan.WithCustomOCSP]; false preserves native OCSP.
+	CustomOCSP bool
 	// AtomicZIPOutput enables [kalkan.WithAtomicZIPOutput].
 	AtomicZIPOutput bool
-	// EndpointPolicy restricts explicit TSA and OCSP URLs; nil omits the policy.
-	EndpointPolicy *kalkan.EndpointPolicy
 }
 
 func encodeConfig(config libraryConfig) (wirePayload, error) {

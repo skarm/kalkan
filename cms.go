@@ -191,6 +191,9 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 }
 
 // VerifyCMS verifies an attached or detached CMS signature.
+// Linux SDK 2.0.13 cannot reliably verify empty CMS payloads. This binding
+// rejects its negative output length for attached empty CMS; detached empty
+// verification returns ckalkan.ErrorVerifyNoData, including for valid signatures.
 func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verification, error) {
 	if ctx == nil {
 		ctx = context.Background()

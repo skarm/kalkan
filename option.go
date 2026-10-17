@@ -36,19 +36,19 @@ type runtimeConfig struct {
 }
 
 type config struct {
+	proxy               *Proxy
+	logger              *slog.Logger
+	endpointPolicy      *EndpointPolicy
+	observer            Observer
 	libraryPath         string
 	tsaURL              string
 	ocspURL             string
-	customOCSP          bool
-	ocspTimeout         time.Duration
-	proxy               *Proxy
 	trusted             []TrustedCertificate
+	ocspTimeout         time.Duration
 	maxInputSize        int64
 	maxOutputBufferSize int
-	logger              *slog.Logger
+	customOCSP          bool
 	atomicZIPOutput     bool
-	endpointPolicy      *EndpointPolicy
-	observer            Observer
 }
 
 // Option configures Open.
@@ -118,9 +118,9 @@ func WithTrustedCertificate(cert TrustedCertificate) Option {
 }
 
 // WithMaxInputSize sets a byte limit for high-level in-memory byte inputs
-// before native calls. It also bounds CMS files read by GetCertFromCMS, whose
-// native operation requires in-memory contents. Values less than or equal to
-// zero disable this limit.
+// before native calls. It also bounds CMS files read by GetCertFromCMS and
+// GetTimeFromSig, whose native operations require in-memory contents. Values
+// less than or equal to zero disable this limit.
 func WithMaxInputSize(size int64) Option {
 	return func(c *config) {
 		c.maxInputSize = max(size, 0)

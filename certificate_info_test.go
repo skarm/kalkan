@@ -1301,6 +1301,56 @@ func TestGetTimeFromSigUsesSignatureEncoding(t *testing.T) {
 	}
 }
 
+func TestGetTimeFromSigReadsCMSFileWithinInputLimit(t *testing.T) {
+	for _, encoding := range []struct {
+		name   string
+		source Source
+		flags  ckalkan.Flag
+	}{
+		{"DER", DER([]byte("CMS bytes")), ckalkan.InDER},
+		{"PEM", PEM([]byte("-----BEGIN CMS-----\nQ01T\n-----END CMS-----\n")), ckalkan.InPEM},
+		{"base64", Base64([]byte("Q01T")), ckalkan.InBase64},
+	} {
+		t.Run(encoding.name, func(t *testing.T) {
+			path := writeTestFile(t, t.TempDir(), "timestamp.cms", encoding.source.data)
+			calls := 0
+			want := time.Unix(1_700_000_000, 0)
+			client := &Client{config: runtimeConfig{maxInputSize: int64(len(encoding.source.data))}, library: &fakeNative{getTimeFromSigFunc: func(data []byte, flags ckalkan.Flag, signerID int) (time.Time, error) {
+				calls++
+				if !bytes.Equal(data, encoding.source.data) || flags != encoding.flags || signerID != 0 {
+					t.Fatalf("native timestamp input: data=%q flags=%#x signer=%d; want CMS contents, flags=%#x, signer=0", data, flags, signerID, encoding.flags)
+				}
+				return want, nil
+			}}}
+			source := File(path).WithEncoding(encoding.source.encoding)
+			got, err := client.GetTimeFromSig(t.Context(), source)
+			if err != nil || !got.Equal(want) || calls != 1 {
+				t.Fatalf("timestamp file exactly at limit: got=%v error=%v calls=%d", got, err, calls)
+			}
+			client.config.maxInputSize--
+			if _, err := client.GetTimeFromSig(t.Context(), source); !errors.Is(err, ErrInvalidInput) || calls != 1 {
+				t.Fatalf("oversized timestamp file: error=%v calls=%d", err, calls)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.GetTimeFromSig(t.Context(), source); !errors.Is(err, os.ErrNotExist) || calls != 1 {
+				t.Fatalf("missing timestamp file: error=%v calls=%d", err, calls)
+			}
+		})
+	}
+	t.Run("unknown encoding is rejected before reading the file", func(t *testing.T) {
+		client := &Client{library: &fakeNative{getTimeFromSigFunc: func([]byte, ckalkan.Flag, int) (time.Time, error) {
+			t.Fatal("unknown encoding reached native timestamp extraction")
+			return time.Time{}, nil
+		}}}
+		missing := File(filepath.Join(t.TempDir(), "missing.cms")).WithEncoding(Encoding(99))
+		if _, err := client.GetTimeFromSig(t.Context(), missing); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("unknown file encoding: error=%v, want input error before reading the missing file", err)
+		}
+	})
+}
+
 func testCertificateDER(t *testing.T, commonName string) []byte {
 	t.Helper()
 

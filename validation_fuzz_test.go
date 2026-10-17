@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode"
@@ -19,6 +20,8 @@ func FuzzNormalizeNativeHTTPURL(f *testing.F) {
 		"http://example.test/path#fragment",
 		"http://example.test/bad path",
 		"http://example.test\x00/ocsp",
+		"http://:80/ocsp",
+		"https://example.test:65536/ocsp",
 	} {
 		f.Add(value)
 	}
@@ -40,8 +43,13 @@ func FuzzNormalizeNativeHTTPURL(f *testing.F) {
 		if parsed.Scheme != "http" && parsed.Scheme != "https" {
 			t.Fatalf("accepted URL scheme = %q", parsed.Scheme)
 		}
-		if parsed.Host == "" {
+		if parsed.Hostname() == "" {
 			t.Fatalf("accepted URL violates endpoint invariants: %q", normalized)
+		}
+		if port := parsed.Port(); port != "" {
+			if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+				t.Fatalf("accepted URL has an invalid transport port: %q", normalized)
+			}
 		}
 		if strings.ContainsRune(normalized, '\x00') || strings.ContainsFunc(normalized, unicode.IsSpace) {
 			t.Fatalf("accepted URL contains NUL or whitespace: %q", normalized)

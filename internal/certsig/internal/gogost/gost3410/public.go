@@ -33,9 +33,11 @@ func NewPublicKeyLE(c *Curve, raw []byte) (*PublicKey, error) {
 	if len(raw) != len(key) {
 		return nil, fmt.Errorf("gogost/gost3410: len(key) != %d", len(key))
 	}
+
 	for i := range len(key) {
 		key[i] = raw[len(raw)-i-1]
 	}
+
 	return &PublicKey{
 		c,
 		bytes2big(key[pointSize : 2*pointSize]),
@@ -49,6 +51,7 @@ func NewPublicKeyBE(c *Curve, raw []byte) (*PublicKey, error) {
 	if len(raw) != 2*pointSize {
 		return nil, fmt.Errorf("gogost/gost3410: len(key) != %d", 2*pointSize)
 	}
+
 	return &PublicKey{
 		c,
 		bytes2big(raw[:pointSize]),
@@ -69,6 +72,7 @@ func (pub *PublicKey) RawLE() []byte {
 		pad(pub.X.Bytes(), pointSize)...,
 	)
 	reverse(raw)
+
 	return raw
 }
 
@@ -91,19 +95,24 @@ func (pub *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	if len(signature) != 2*pointSize {
 		return false, fmt.Errorf("gogost/gost3410: len(signature)=%d != %d", len(signature), 2*pointSize)
 	}
+
 	s := bytes2big(signature[:pointSize])
 	r := bytes2big(signature[pointSize:])
+
 	if r.Cmp(zero) <= 0 ||
 		r.Cmp(pub.C.Q) >= 0 ||
 		s.Cmp(zero) <= 0 ||
 		s.Cmp(pub.C.Q) >= 0 {
 		return false, nil
 	}
+
 	e := bytes2big(digest)
 	e.Mod(e, pub.C.Q)
+
 	if e.Cmp(zero) == 0 {
 		e = big.NewInt(1)
 	}
+
 	v := big.NewInt(0)
 	v.ModInverse(e, pub.C.Q)
 	z1 := big.NewInt(0)
@@ -113,33 +122,24 @@ func (pub *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	z2.Mul(r, v)
 	z2.Mod(z2, pub.C.Q)
 	z2.Sub(pub.C.Q, z2)
+
 	p1x, p1y, err := pub.C.Exp(z1, pub.C.X, pub.C.Y)
 	if err != nil {
 		return false, err
 	}
+
 	q1x, q1y, err := pub.C.Exp(z2, pub.X, pub.Y)
 	if err != nil {
 		return false, err
 	}
-	lm := big.NewInt(0)
-	lm.Sub(q1x, p1x)
-	if lm.Cmp(zero) < 0 {
-		lm.Add(lm, pub.C.P)
+	// Equal points require doubling; opposite points sum to infinity and
+	// cannot verify a signature. The distinct-point slope has no inverse
+	// when the x coordinates match.
+	if !pub.C.add(p1x, p1y, q1x, q1y) {
+		return false, nil
 	}
-	lm.ModInverse(lm, pub.C.P)
-	z1.Sub(q1y, p1y)
-	lm.Mul(lm, z1)
-	lm.Mod(lm, pub.C.P)
-	lm.Mul(lm, lm)
-	lm.Mod(lm, pub.C.P)
-	lm.Sub(lm, p1x)
-	lm.Sub(lm, q1x)
-	lm.Mod(lm, pub.C.P)
-	if lm.Cmp(zero) < 0 {
-		lm.Add(lm, pub.C.P)
-	}
-	lm.Mod(lm, pub.C.Q)
-	return lm.Cmp(r) == 0, nil
+	p1x.Mod(p1x, pub.C.Q)
+	return p1x.Cmp(r) == 0, nil
 }
 
 func (our *PublicKey) Equal(theirKey crypto.PublicKey) bool {
@@ -147,6 +147,7 @@ func (our *PublicKey) Equal(theirKey crypto.PublicKey) bool {
 	if !ok {
 		return false
 	}
+
 	return our.X.Cmp(their.X) == 0 && our.Y.Cmp(their.Y) == 0 && our.C.Equal(their.C)
 }
 
@@ -154,13 +155,12 @@ type PublicKeyReverseDigest struct {
 	Pub *PublicKey
 }
 
-func (pub PublicKeyReverseDigest) VerifyDigest(
-	digest, signature []byte,
-) (bool, error) {
+func (pub PublicKeyReverseDigest) VerifyDigest(digest, signature []byte) (bool, error) {
 	dgst := make([]byte, len(digest))
 	for i := range len(digest) {
 		dgst[i] = digest[len(digest)-i-1]
 	}
+
 	return pub.Pub.VerifyDigest(dgst, signature)
 }
 
@@ -172,17 +172,19 @@ type PublicKeyReverseDigestAndSignature struct {
 	Pub *PublicKey
 }
 
-func (pub PublicKeyReverseDigestAndSignature) VerifyDigest(
-	digest, signature []byte,
-) (bool, error) {
+func (pub PublicKeyReverseDigestAndSignature) VerifyDigest(digest, signature []byte) (bool, error) {
 	dgst := make([]byte, len(digest))
+
 	for i := range len(digest) {
 		dgst[i] = digest[len(digest)-i-1]
 	}
+
 	sign := make([]byte, len(signature))
+
 	for i := range len(signature) {
 		sign[i] = signature[len(signature)-i-1]
 	}
+
 	return pub.Pub.VerifyDigest(dgst, sign)
 }
 

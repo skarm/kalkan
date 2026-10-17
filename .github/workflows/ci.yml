@@ -16,8 +16,14 @@ env:
 
 jobs:
   test:
-    name: Go tests
+    name: Go tests (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.26.x', '1.27.x']
 
     steps:
       - name: Checkout
@@ -26,7 +32,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go-version }}
           cache: true
 
       - name: Test
@@ -53,8 +59,14 @@ jobs:
         run: go vet ./...
 
   race:
-    name: Go race tests
+    name: Go race tests (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.26.x', '1.27.x']
 
     steps:
       - name: Checkout
@@ -63,7 +75,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go-version }}
           cache: true
 
       - name: Race tests
@@ -85,6 +97,7 @@ jobs:
 
       - name: Fuzz
         run: |
+          go test -run=^$ -fuzz=^FuzzXMLCertificateInput$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzValidateXMLSOAPBinding$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzValidateXMLStructure$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzNormalizeNativeHTTPURL$ -fuzztime=5s .
@@ -92,6 +105,9 @@ jobs:
           go test -run=^$ -fuzz=^FuzzValidateZIPPath$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzCertificateValidationInput$ -fuzztime=5s .
           go test -run=^$ -fuzz=^FuzzValidateBytesSize$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzOCSPStatus$ -fuzztime=5s .
+          go test -run=^$ -fuzz=^FuzzCheckGostSignature$ -fuzztime=5s ./internal/certsig
+          go test -run=^$ -fuzz=^FuzzCheckGostCertificate$ -fuzztime=5s ./internal/certsig
           go test -run=^$ -fuzz=^FuzzOutputCapacityBounds$ -fuzztime=5s ./ckalkan
           go test -run=^$ -fuzz=^FuzzReadMessage$ -fuzztime=5s ./isolated
 
@@ -104,6 +120,7 @@ jobs:
             testdata/fuzz/**
             ckalkan/testdata/fuzz/**
             isolated/testdata/fuzz/**
+            internal/certsig/testdata/fuzz/**
           if-no-files-found: ignore
 
   lint:
@@ -123,7 +140,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.2
+          version: v2.15.0
           args: --config .golangci.yml ./...
 
   vulncheck:
@@ -201,9 +218,15 @@ jobs:
         run: make docker-test
 
   windows:
-    name: Windows Go tests
+    name: Windows Go tests (Go ${{ matrix.go-version }})
     runs-on: windows-latest
     needs: test
+    env:
+      GOTOOLCHAIN: local
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.26.x', '1.27.x']
 
     steps:
       - name: Checkout
@@ -212,7 +235,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go-version }}
           cache: true
 
       - name: Test

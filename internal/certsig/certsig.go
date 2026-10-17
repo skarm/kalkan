@@ -1,13 +1,15 @@
 // Package certsig verifies certificate and OCSP signatures using the issuer's key, including
-// Kazakhstan's 512-bit ST RK GOST R 34.10-2015 (NCA RK 2022), absent from crypto/x509.
+// Kazakhstan's 256-bit and 512-bit ST RK GOST R 34.10-2015, absent from crypto/x509.
+//
+// Concurrent calls may share certificates and input slices if callers leave them unchanged.
 //
 // Algorithms known to crypto/x509 are verified by crypto/x509 with its SHA-1 and MD5 policy.
 // Signatures that cannot be verified are rejected with x509.ErrUnsupportedAlgorithm because
-// authenticity has not been established. This includes legacy Kazakhstan GOST 34.310-2004
-// and 256-bit ST RK GOST R 34.10-2015.
+// authenticity has not been established. This includes legacy Kazakhstan GOST 34.310-2004.
 package certsig
 
 import (
+	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -17,6 +19,10 @@ import (
 // CheckCertificateSignature verifies that certificate is signed by issuer and that issuer
 // is authorized to sign certificates, like (*x509.Certificate).CheckSignatureFrom.
 func CheckCertificateSignature(certificate, issuer *x509.Certificate) error {
+	if certificate == nil || issuer == nil {
+		return errors.New("certsig: missing certificate or issuer")
+	}
+
 	if certificate.SignatureAlgorithm != x509.UnknownSignatureAlgorithm {
 		return certificate.CheckSignatureFrom(issuer)
 	}
@@ -31,8 +37,15 @@ func CheckCertificateSignature(certificate, issuer *x509.Certificate) error {
 		return errors.New("certsig: malformed certificate")
 	}
 
-	if !signed.Algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest512) {
+	if !signed.Algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest256) &&
+		!signed.Algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest512) {
 		return certificate.CheckSignatureFrom(issuer)
+	}
+
+	if !matchesASN1Encoding(certificate.Raw, signed) || signed.Signature.BitLength%8 != 0 ||
+		!bytes.Equal(signed.TBS.FullBytes, certificate.RawTBSCertificate) ||
+		!bytes.Equal(signed.Signature.Bytes, certificate.Signature) || !gostCertificateAlgorithmsMatch(signed.TBS, signed.Algorithm) {
+		return errors.New("certsig: malformed GOST certificate")
 	}
 
 	// Match crypto/x509's issuer constraints before verifying the custom algorithm.
@@ -44,7 +57,7 @@ func CheckCertificateSignature(certificate, issuer *x509.Certificate) error {
 		return x509.ConstraintViolationError{}
 	}
 
-	return verifyKazakhGost2015(issuer, certificate.RawTBSCertificate, certificate.Signature)
+	return CheckSignature(issuer, signed.Algorithm, certificate.RawTBSCertificate, certificate.Signature)
 }
 
 // CheckSignature verifies signature over signed using algorithm and signer, like
@@ -54,8 +67,16 @@ func CheckCertificateSignature(certificate, issuer *x509.Certificate) error {
 // ECDSA, and Ed25519. RSASSA-PSS, whose hash is specified in its parameters, is rejected with
 // x509.ErrUnsupportedAlgorithm.
 func CheckSignature(signer *x509.Certificate, algorithm pkix.AlgorithmIdentifier, signed, signature []byte) error {
-	if algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest512) {
-		return verifyKazakhGost2015(signer, signed, signature)
+	if signer == nil {
+		return errors.New("certsig: missing signer")
+	}
+
+	if algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest256) || algorithm.Algorithm.Equal(oidSignatureKazakhGost2015Digest512) {
+		if !validGostSignatureParameters(algorithm.Parameters) {
+			return errors.New("certsig: malformed GOST signature parameters")
+		}
+
+		return verifyKazakhGost2015(signer, algorithm.Algorithm, signed, signature)
 	}
 
 	known := x509Algorithm(algorithm.Algorithm)
@@ -64,6 +85,43 @@ func CheckSignature(signer *x509.Certificate, algorithm pkix.AlgorithmIdentifier
 	}
 
 	return signer.CheckSignature(known, signed, signature)
+}
+
+// matchesASN1Encoding checks the closed SPKI and outer Certificate structures.
+// Re-encoding preserves opaque TBS/parameter RawValues but exposes extra fields
+// that encoding/asn1 deliberately ignores when decoding a struct SEQUENCE.
+func matchesASN1Encoding(encoded []byte, value any) bool {
+	canonical, err := asn1.Marshal(value)
+	return err == nil && bytes.Equal(encoded, canonical)
+}
+
+func validGostSignatureParameters(parameters asn1.RawValue) bool {
+	if parameters.Class == 0 && parameters.Tag == 0 && !parameters.IsCompound && len(parameters.Bytes) == 0 && len(parameters.FullBytes) == 0 {
+		return true
+	}
+
+	return matchesASN1Encoding(asn1.NullBytes, parameters)
+}
+
+// Inspect only the signed TBS prefix here; x509 parsed the remaining fields.
+// SerialNumber stays opaque so legacy negative serial numbers remain supported.
+func gostCertificateAlgorithmsMatch(tbs asn1.RawValue, outer pkix.AlgorithmIdentifier) bool {
+	if tbs.Class != asn1.ClassUniversal || tbs.Tag != asn1.TagSequence || !tbs.IsCompound {
+		return false
+	}
+
+	var prefix struct {
+		Version      int `asn1:"optional,explicit,default:0,tag:0"`
+		SerialNumber asn1.RawValue
+		Algorithm    asn1.RawValue
+	}
+
+	if rest, err := asn1.Unmarshal(tbs.FullBytes, &prefix); err != nil || len(rest) != 0 ||
+		prefix.SerialNumber.Class != asn1.ClassUniversal || prefix.SerialNumber.Tag != asn1.TagInteger || prefix.SerialNumber.IsCompound {
+		return false
+	}
+
+	return matchesASN1Encoding(prefix.Algorithm.FullBytes, outer)
 }
 
 // x509Algorithm returns the crypto/x509 signature algorithm for this OID (RFC 3279, 5758, and 8410),

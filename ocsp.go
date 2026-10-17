@@ -152,7 +152,7 @@ func kalkanOCSPStatus(raw []byte, id ocspCertID, issuer *x509.Certificate, now t
 	}
 
 	var response ocspResponse
-	if rest, err := asn1.Unmarshal(raw, &response); err != nil || len(rest) != 0 {
+	if rest, err := asn1.Unmarshal(raw, &response); err != nil || len(rest) != 0 || !kalkanOCSPResponseStructure(raw) {
 		return time.Time{}, false, errors.New("the answer is not an OCSP response")
 	}
 
@@ -165,7 +165,7 @@ func kalkanOCSPStatus(raw []byte, id ocspCertID, issuer *x509.Certificate, now t
 	}
 
 	var basic ocspBasicResponse
-	if rest, err := asn1.Unmarshal(response.Bytes.Response, &basic); err != nil || len(rest) != 0 {
+	if rest, err := asn1.Unmarshal(response.Bytes.Response, &basic); err != nil || len(rest) != 0 || !kalkanOCSPBasicStructure(response.Bytes.Response) {
 		return time.Time{}, false, errors.New("the basic OCSP response is malformed")
 	}
 
@@ -317,4 +317,321 @@ func kalkanCertificateValidAt(certificate *x509.Certificate, now time.Time) bool
 // interpret any OCSP response extensions.
 func kalkanCriticalExtension(extensions []pkix.Extension) bool {
 	return slices.ContainsFunc(extensions, func(extension pkix.Extension) bool { return extension.Critical })
+}
+
+// encoding/asn1 ignores extra fields at the end of a struct's SEQUENCE and
+// EXPLICIT wrappers. Check the fixed schemas without re-encoding signed data:
+// accepted time representations and explicitly encoded defaults remain intact.
+func kalkanOCSPResponseStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 1, 2)
+	if !ok || len(fields) == 1 {
+		return ok
+	}
+
+	responseBytes, ok := kalkanOCSPExplicit(fields[1], 0)
+	if !ok {
+		return false
+	}
+
+	_, ok = kalkanOCSPSequence(responseBytes.FullBytes, 2, 2)
+
+	return ok
+}
+
+func kalkanOCSPBasicStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 3, 4)
+	if !ok || !kalkanOCSPResponseDataStructure(fields[0].FullBytes) {
+		return false
+	}
+
+	if _, ok := kalkanOCSPSequence(fields[1].FullBytes, 1, 2); !ok {
+		return false
+	}
+
+	if len(fields) == 4 {
+		certificates, ok := kalkanOCSPExplicit(fields[3], 0)
+		if !ok {
+			return false
+		}
+
+		children, ok := kalkanOCSPSequence(certificates.FullBytes, 0, -1)
+		if !ok {
+			return false
+		}
+
+		for _, certificate := range children {
+			if !kalkanOCSPCertificateStructure(certificate.FullBytes) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func kalkanOCSPCertificateStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 3, 3)
+	if !ok || !kalkanOCSPCertificateTBSStructure(fields[0].FullBytes) {
+		return false
+	}
+
+	if _, ok := kalkanOCSPSequence(fields[1].FullBytes, 1, 2); !ok {
+		return false
+	}
+
+	var algorithm pkix.AlgorithmIdentifier
+
+	if rest, err := asn1.Unmarshal(fields[1].FullBytes, &algorithm); err != nil || len(rest) != 0 {
+		return false
+	}
+
+	var signature asn1.BitString
+
+	if rest, err := asn1.Unmarshal(fields[2].FullBytes, &signature); err != nil || len(rest) != 0 || signature.BitLength%8 != 0 {
+		return false
+	}
+
+	_, err := parseOCSPDERCertificate(raw)
+
+	return err == nil
+}
+
+func kalkanOCSPCertificateTBSStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 6, 10)
+	if !ok {
+		return false
+	}
+
+	version := 0
+
+	if fields[0].Class == asn1.ClassContextSpecific && fields[0].Tag == 0 {
+		value, ok := kalkanOCSPExplicit(fields[0], 0)
+		if rest, err := asn1.Unmarshal(value.FullBytes, &version); !ok || err != nil || len(rest) != 0 {
+			return false
+		}
+
+		fields = fields[1:]
+	}
+
+	if len(fields) < 6 {
+		return false
+	}
+
+	if _, ok := kalkanOCSPSequence(fields[1].FullBytes, 1, 2); !ok {
+		return false
+	}
+
+	if _, ok := kalkanOCSPSequence(fields[3].FullBytes, 2, 2); !ok {
+		return false
+	}
+
+	spki, ok := kalkanOCSPSequence(fields[5].FullBytes, 2, 2)
+	if !ok {
+		return false
+	}
+
+	if _, ok := kalkanOCSPSequence(spki[0].FullBytes, 1, 2); !ok {
+		return false
+	}
+
+	var publicKey asn1.BitString
+
+	if rest, err := asn1.Unmarshal(spki[1].FullBytes, &publicKey); err != nil || len(rest) != 0 || publicKey.BitLength%8 != 0 {
+		return false
+	}
+
+	fields = fields[6:]
+
+	if version > 0 {
+		for _, tag := range []int{1, 2} {
+			if len(fields) != 0 && fields[0].Class == asn1.ClassContextSpecific && fields[0].Tag == tag {
+				var id asn1.BitString
+
+				if rest, err := asn1.UnmarshalWithParams(fields[0].FullBytes, &id, fmt.Sprintf("tag:%d", tag)); err != nil || len(rest) != 0 {
+					return false
+				}
+
+				fields = fields[1:]
+			}
+		}
+	}
+
+	if version != 2 {
+		return len(fields) == 0
+	}
+
+	return kalkanOCSPExtensionsStructure(fields, 3)
+}
+
+func kalkanOCSPResponseDataStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 3, 5)
+	if !ok {
+		return false
+	}
+
+	if fields[0].Class == asn1.ClassContextSpecific && fields[0].Tag == 0 {
+		version, ok := kalkanOCSPExplicit(fields[0], 0)
+
+		var value int
+
+		if rest, err := asn1.Unmarshal(version.FullBytes, &value); !ok || err != nil || len(rest) != 0 {
+			return false
+		}
+
+		fields = fields[1:]
+	}
+
+	if len(fields) < 3 || !kalkanOCSPGeneralizedTime(fields[1]) {
+		return false
+	}
+
+	if fields[0].Tag != 1 && fields[0].Tag != 2 {
+		return false
+	}
+
+	if _, ok := kalkanOCSPExplicit(fields[0], fields[0].Tag); !ok {
+		return false
+	}
+
+	responses, ok := kalkanOCSPSequence(fields[2].FullBytes, 0, -1)
+	if !ok {
+		return false
+	}
+
+	for _, response := range responses {
+		if !kalkanOCSPSingleStructure(response.FullBytes) {
+			return false
+		}
+	}
+
+	return kalkanOCSPExtensionsStructure(fields[3:], 1)
+}
+
+func kalkanOCSPSingleStructure(raw []byte) bool {
+	fields, ok := kalkanOCSPSequence(raw, 3, 5)
+	if !ok || !kalkanOCSPGeneralizedTime(fields[2]) {
+		return false
+	}
+
+	id, ok := kalkanOCSPSequence(fields[0].FullBytes, 4, 4)
+	if !ok {
+		return false
+	}
+
+	hash, ok := kalkanOCSPSequence(id[0].FullBytes, 1, 2)
+	if !ok || len(hash) == 2 && (hash[1].Class != asn1.ClassUniversal || hash[1].Tag != asn1.TagNull || hash[1].IsCompound || len(hash[1].Bytes) != 0) {
+		return false
+	}
+
+	status := fields[1]
+	if status.Class != asn1.ClassContextSpecific {
+		return false
+	}
+
+	switch status.Tag {
+	case 0, 2:
+		if status.IsCompound || len(status.Bytes) != 0 {
+			return false
+		}
+	case 1:
+		if !kalkanOCSPRevokedStructure(status) {
+			return false
+		}
+	default:
+		return false
+	}
+
+	fields = fields[3:]
+	if len(fields) != 0 && fields[0].Class == asn1.ClassContextSpecific && fields[0].Tag == 0 {
+		expires, ok := kalkanOCSPExplicit(fields[0], 0)
+
+		var value time.Time
+
+		if rest, err := asn1.UnmarshalWithParams(expires.FullBytes, &value, "generalized"); !ok || err != nil || len(rest) != 0 || !kalkanOCSPGeneralizedTime(expires) {
+			return false
+		}
+
+		fields = fields[1:]
+	}
+
+	return kalkanOCSPExtensionsStructure(fields, 1)
+}
+
+func kalkanOCSPRevokedStructure(status asn1.RawValue) bool {
+	var info ocspRevokedInfo
+
+	if rest, err := asn1.UnmarshalWithParams(status.FullBytes, &info, "tag:1"); err != nil || len(rest) != 0 {
+		return false
+	}
+
+	var revoked []asn1.RawValue
+
+	if rest, err := asn1.UnmarshalWithParams(status.FullBytes, &revoked, "tag:1"); err != nil || len(rest) != 0 || len(revoked) < 1 || len(revoked) > 2 || !kalkanOCSPGeneralizedTime(revoked[0]) {
+		return false
+	}
+
+	if len(revoked) == 2 {
+		reason, ok := kalkanOCSPExplicit(revoked[1], 0)
+
+		var value asn1.Enumerated
+
+		if rest, err := asn1.Unmarshal(reason.FullBytes, &value); !ok || err != nil || len(rest) != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func kalkanOCSPExtensionsStructure(fields []asn1.RawValue, tag int) bool {
+	if len(fields) == 0 {
+		return true
+	}
+
+	if len(fields) != 1 {
+		return false
+	}
+
+	sequence, ok := kalkanOCSPExplicit(fields[0], tag)
+	if !ok {
+		return false
+	}
+
+	extensions, ok := kalkanOCSPSequence(sequence.FullBytes, 0, -1)
+	if !ok {
+		return false
+	}
+
+	for _, extension := range extensions {
+		values, ok := kalkanOCSPSequence(extension.FullBytes, 2, 3)
+		if !ok || len(values) == 3 && (values[1].Class != asn1.ClassUniversal || values[1].Tag != asn1.TagBoolean || values[1].IsCompound) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func kalkanOCSPSequence(raw []byte, minFields, maxFields int) ([]asn1.RawValue, bool) {
+	var fields []asn1.RawValue
+
+	rest, err := asn1.Unmarshal(raw, &fields)
+
+	return fields, err == nil && len(rest) == 0 && len(fields) >= minFields && (maxFields < 0 || len(fields) <= maxFields)
+}
+
+func kalkanOCSPGeneralizedTime(value asn1.RawValue) bool {
+	return value.Class == asn1.ClassUniversal && value.Tag == asn1.TagGeneralizedTime && !value.IsCompound
+}
+
+func kalkanOCSPExplicit(value asn1.RawValue, tag int) (asn1.RawValue, bool) {
+	if value.Class != asn1.ClassContextSpecific || value.Tag != tag || !value.IsCompound {
+		return asn1.RawValue{}, false
+	}
+
+	var child asn1.RawValue
+
+	rest, err := asn1.Unmarshal(value.Bytes, &child)
+
+	return child, err == nil && len(rest) == 0
 }

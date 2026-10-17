@@ -26,7 +26,7 @@ const MarshalledName = "STREEBOG"
 
 func (h *Hash) MarshalBinary() (data []byte, err error) {
 	data = make([]byte, len(MarshalledName)+1+8+2*BlockSize+len(h.buf))
-	copy(data, []byte(MarshalledName))
+	copy(data, MarshalledName)
 	idx := len(MarshalledName)
 	data[idx] = byte(h.size)
 	idx += 1
@@ -37,6 +37,7 @@ func (h *Hash) MarshalBinary() (data []byte, err error) {
 	copy(data[idx:], h.chk)
 	idx += BlockSize
 	copy(data[idx:], h.buf)
+
 	return
 }
 
@@ -45,11 +46,22 @@ func (h *Hash) UnmarshalBinary(data []byte) error {
 	if len(data) < expectedLen {
 		return fmt.Errorf("gogost/internal/gost34112012: len(data)=%d != %d", len(data), expectedLen)
 	}
+
 	if !bytes.HasPrefix(data, []byte(MarshalledName)) {
 		return errors.New("gogost/internal/gost34112012: no hash name prefix")
 	}
+
+	if len(data)-expectedLen >= BlockSize {
+		return errors.New("gogost/internal/gost34112012: invalid buffered data length")
+	}
+
 	idx := len(MarshalledName)
-	h.size = int(data[idx])
+	size := int(data[idx])
+	if size != 32 && size != 64 {
+		return errors.New("gogost/internal/gost34112012: invalid digest size")
+	}
+
+	h.size = size
 	idx += 1
 	h.n = binary.BigEndian.Uint64(data[idx : idx+8])
 	idx += 8
@@ -57,6 +69,7 @@ func (h *Hash) UnmarshalBinary(data []byte) error {
 	idx += BlockSize
 	copy(h.chk, data[idx:])
 	idx += BlockSize
-	h.buf = data[idx:]
+	h.buf = append([]byte(nil), data[idx:]...)
+
 	return nil
 }

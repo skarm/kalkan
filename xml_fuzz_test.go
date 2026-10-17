@@ -1,11 +1,38 @@
 package kalkan
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
 )
+
+func FuzzXMLCertificateInput(f *testing.F) {
+	document := []byte(`<root><Signature xmlns="` + xmlnsDSig + `" title="日本語 😀" Id="2"/><Signature xmlns="` + xmlnsDSig + `" Id="1"/></root>`)
+	f.Add(document)
+	f.Add(encodeTestXMLUTF16(document, binary.LittleEndian, true))
+	f.Add(encodeTestXMLUTF16(document, binary.BigEndian, true))
+	f.Add([]byte{0xff, 0xfe, '<', 0, 0})
+	f.Add([]byte{0xfe, 0xff, 0xd8, 0})
+	f.Fuzz(func(t *testing.T, document []byte) {
+		if len(document) > 64<<10 {
+			t.Skip()
+		}
+		original := bytes.Clone(document)
+		cleaned := xmlCertificateInput(document)
+		if !bytes.Equal(document, original) {
+			t.Fatal("certificate extraction changed its input")
+		}
+		if len(cleaned) > len(document) {
+			t.Fatal("removing signature selectors grew the document")
+		}
+		if !bytes.Equal(xmlCertificateInput(cleaned), cleaned) {
+			t.Fatal("removing signature selectors is not idempotent")
+		}
+	})
+}
 
 func FuzzValidateXMLSOAPBinding(f *testing.F) {
 	f.Add([]byte("seed"), uint8(0))

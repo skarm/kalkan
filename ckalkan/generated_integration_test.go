@@ -2,18 +2,163 @@ package ckalkan_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
+
+func TestVerifyDataRejectsTamperedSignerSignature(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the native last-error fallback is verified only for the Linux SDK")
+	}
+	client := newIntegrationClient(t)
+	fixture := generatePKCS12Fixture(t)
+	assets := loadFixtureAssets(t)
+	payload := []byte("native signer-signature validation")
+	for _, profile := range []struct{ name, password, store string }{
+		{name: "RSA", password: fixture.Password, store: fixture.P12Path},
+		{name: "GOST", password: fixturePassword, store: chooseStore(t, assets.P12)},
+	} {
+		if err := client.LoadKeyStore(ckalkan.StorePKCS12, profile.password, profile.store, ""); err != nil {
+			t.Fatal(err)
+		}
+		for _, detached := range []bool{false, true} {
+			flags := ckalkan.SignCMS | ckalkan.NoCheckCertTime
+			if detached {
+				flags |= ckalkan.DetachedData
+			}
+			signed, err := client.SignData(ckalkan.SignDataRequest{Flags: flags | ckalkan.OutDER | ckalkan.WithCert, Data: payload})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tampered := tamperEmptyCMSSignature(t, signed)
+			for _, format := range []struct {
+				name   string
+				flag   ckalkan.Flag
+				encode func([]byte) []byte
+			}{
+				{name: "DER", flag: ckalkan.InDER, encode: func(data []byte) []byte { return data }},
+				{name: "PEM", flag: ckalkan.InPEM, encode: func(data []byte) []byte { return pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: data}) }},
+				{name: "Base64", flag: ckalkan.InBase64, encode: func(data []byte) []byte { return []byte(base64.StdEncoding.EncodeToString(data)) }},
+			} {
+				t.Run(fmt.Sprintf("%s/detached_%v/%s", profile.name, detached, format.name), func(t *testing.T) {
+					request := ckalkan.VerifyDataRequest{Flags: flags | format.flag, Data: payload, Signature: format.encode(signed)}
+					result, err := client.VerifyData(request)
+					if err != nil || !strings.Contains(result.VerifyInfo, "Verify - OK") {
+						t.Fatalf("valid CMS = %+v, %v, want successful positive control", result, err)
+					}
+					request.Signature = format.encode(tampered)
+					_, err = client.VerifyData(request)
+					requireKalkanError(t, "VerifyData(tampered signer signature)", err)
+					// A new verification must clear the preceding signature error.
+					request.Signature = format.encode(signed)
+					if _, err := client.VerifyData(request); err != nil {
+						t.Fatalf("valid CMS after failure: %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestEmptyAttachedCMSRemainsRejected(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the negative empty-content output length is verified only for the Linux SDK")
+	}
+	client := newIntegrationClient(t)
+	fixture := generatePKCS12Fixture(t)
+	if err := client.LoadKeyStore(ckalkan.StorePKCS12, fixture.Password, fixture.P12Path, fixture.Alias); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := client.SignData(ckalkan.SignDataRequest{Alias: fixture.Alias, Flags: ckalkan.SignCMS | ckalkan.OutDER | ckalkan.WithCert | ckalkan.NoCheckCertTime})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		data  []byte
+		valid bool
+	}{
+		{name: "valid signature", data: signed, valid: true},
+		{name: "tampered signer signature", data: tamperEmptyCMSSignature(t, signed)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "signed.der")
+			if err := os.WriteFile(path, test.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			out, opensslErr := exec.CommandContext(ctx, requireOpenSSL(t), "cms", "-verify", "-noverify", "-binary", "-inform", "DER", "-in", path).CombinedOutput()
+			if (opensslErr == nil) != test.valid {
+				t.Fatalf("OpenSSL validation = %v, want valid=%v: %s", opensslErr, test.valid, out)
+			}
+			_, err := client.VerifyData(ckalkan.VerifyDataRequest{Flags: ckalkan.SignCMS | ckalkan.InDER | ckalkan.NoCheckCertTime, Signature: test.data})
+			if test.valid {
+				// Valid empty content remains unsupported because the SDK reports
+				// the negative output length -1. Do not normalize that length.
+				if err == nil || !strings.Contains(err.Error(), "negative") {
+					t.Fatalf("VerifyData = %v, want negative-length rejection of unsupported empty CMS", err)
+				}
+			} else {
+				requireKalkanError(t, "VerifyData(tampered empty CMS)", err)
+			}
+		})
+	}
+}
+
+func tamperEmptyCMSSignature(t *testing.T, der []byte) []byte {
+	t.Helper()
+	var envelope struct {
+		OID     asn1.ObjectIdentifier
+		Content asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+	if _, err := asn1.Unmarshal(der, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var signed struct {
+		Version      int
+		Digests      asn1.RawValue
+		Content      asn1.RawValue
+		Certificates asn1.RawValue   `asn1:"optional,tag:0"`
+		Revocations  asn1.RawValue   `asn1:"optional,tag:1"`
+		Signers      []asn1.RawValue `asn1:"set"`
+	}
+	if _, err := asn1.Unmarshal(envelope.Content.Bytes, &signed); err != nil || len(signed.Signers) != 1 {
+		t.Fatalf("decode CMS signer: %v", err)
+	}
+	var signer struct {
+		Version    int
+		Identifier asn1.RawValue
+		Digest     asn1.RawValue
+		Attributes asn1.RawValue `asn1:"optional,tag:0"`
+		Algorithm  asn1.RawValue
+		Signature  []byte
+	}
+	if _, err := asn1.Unmarshal(signed.Signers[0].FullBytes, &signer); err != nil {
+		t.Fatal(err)
+	}
+	if len(signer.Signature) == 0 || bytes.Count(der, signer.Signature) != 1 {
+		t.Fatal("generated CMS must contain one unambiguous signature value")
+	}
+	result := bytes.Clone(der)
+	result[bytes.Index(result, signer.Signature)+len(signer.Signature)/2] ^= 1
+	return result
+}
 
 func TestGeneratedCertificateAPI(t *testing.T) {
 	client := newIntegrationClient(t)

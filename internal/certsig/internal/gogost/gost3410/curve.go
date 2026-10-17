@@ -21,11 +21,13 @@ import (
 )
 
 var (
-	zero    *big.Int = big.NewInt(0)
-	bigInt1 *big.Int = big.NewInt(1)
-	bigInt2 *big.Int = big.NewInt(2)
-	bigInt3 *big.Int = big.NewInt(3)
-	bigInt4 *big.Int = big.NewInt(4)
+	errInfinitePoint = errors.New("gogost/gost3410: point at infinity")
+
+	zero    = big.NewInt(0)
+	bigInt1 = big.NewInt(1)
+	bigInt2 = big.NewInt(2)
+	bigInt3 = big.NewInt(3)
+	bigInt4 = big.NewInt(4)
 )
 
 type Curve struct {
@@ -53,28 +55,34 @@ type Curve struct {
 	Name string // Just simple identifier
 }
 
+// NewCurve copies its parameters. A curve can be read concurrently as long as
+// callers do not mutate its exported fields.
 func NewCurve(p, q, a, b, x, y, e, d, co *big.Int) (*Curve, error) {
 	c := Curve{
 		Name: "unknown",
-		P:    p,
-		Q:    q,
-		A:    a,
-		B:    b,
-		X:    x,
-		Y:    y,
+		P:    new(big.Int).Set(p),
+		Q:    new(big.Int).Set(q),
+		A:    new(big.Int).Set(a),
+		B:    new(big.Int).Set(b),
+		X:    new(big.Int).Set(x),
+		Y:    new(big.Int).Set(y),
 	}
+
 	if !c.Contains(c.X, c.Y) {
 		return nil, errors.New("gogost/gost3410: invalid curve parameters")
 	}
+
 	if e != nil && d != nil {
-		c.E = e
-		c.D = d
+		c.E = new(big.Int).Set(e)
+		c.D = new(big.Int).Set(d)
 	}
+
 	if co == nil {
-		c.Co = bigInt1
+		c.Co = new(big.Int).Set(bigInt1)
 	} else {
-		c.Co = co
+		c.Co = new(big.Int).Set(co)
 	}
+
 	return &c, nil
 }
 
@@ -90,10 +98,27 @@ func (c *Curve) Contains(x, y *big.Int) bool {
 	r2.Add(r2, c.B)
 	r2.Mod(r2, c.P)
 	c.pos(r2)
+
 	return r1.Cmp(r2) == 0
 }
 
-// Get the size of the point's coordinate in bytes.
+// IsInSubgroup checks canonical coordinates and membership in the subgroup of order Q.
+func (c *Curve) IsInSubgroup(x, y *big.Int) bool {
+	if x == nil || y == nil || x.Sign() < 0 || y.Sign() < 0 ||
+		x.Cmp(c.P) >= 0 || y.Cmp(c.P) >= 0 || !c.Contains(x, y) {
+		return false
+	}
+
+	if c.Co.Cmp(bigInt1) == 0 {
+		return true
+	}
+
+	_, _, err := c.Exp(c.Q, x, y)
+
+	return errors.Is(err, errInfinitePoint)
+}
+
+// PointSize get the size of the point's coordinate in bytes.
 // 32 for 256-bit curves, 64 for 512-bit ones.
 func (c *Curve) PointSize() int {
 	return pointSize(c.P)
@@ -105,15 +130,21 @@ func (c *Curve) pos(v *big.Int) {
 	}
 }
 
-func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) {
+// add writes a finite sum to p1 and returns false if the sum is infinity.
+func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) bool {
 	var t, tx, ty big.Int
-	if p1x.Cmp(p2x) == 0 && p1y.Cmp(p2y) == 0 {
+	if p1x.Cmp(p2x) == 0 {
+		if p1y.Cmp(p2y) != 0 || p1y.Sign() == 0 {
+			return false
+		}
 		// double
 		t.Mul(p1x, p1x)
 		t.Mul(&t, bigInt3)
 		t.Add(&t, c.A)
 		tx.Mul(bigInt2, p1y)
-		tx.ModInverse(&tx, c.P)
+		if tx.ModInverse(&tx, c.P) == nil {
+			return false
+		}
 		t.Mul(&t, &tx)
 		t.Mod(&t, c.P)
 	} else {
@@ -123,10 +154,13 @@ func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) {
 		ty.Sub(p2y, p1y)
 		ty.Mod(&ty, c.P)
 		c.pos(&ty)
-		t.ModInverse(&tx, c.P)
+		if t.ModInverse(&tx, c.P) == nil {
+			return false
+		}
 		t.Mul(&t, &ty)
 		t.Mod(&t, c.P)
 	}
+
 	tx.Mul(&t, &t)
 	tx.Sub(&tx, p1x)
 	tx.Sub(&tx, p2x)
@@ -139,24 +173,38 @@ func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) {
 	c.pos(&ty)
 	p1x.Set(&tx)
 	p1y.Set(&ty)
+
+	return true
 }
 
 func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
-	if degree.Cmp(zero) == 0 {
-		return nil, nil, errors.New("gogost/gost3410: zero degree value")
+	if degree.Sign() <= 0 {
+		return nil, nil, errors.New("gogost/gost3410: nonpositive degree value")
 	}
-	dg := big.NewInt(0).Sub(degree, bigInt1)
-	tx := big.NewInt(0).Set(xS)
-	ty := big.NewInt(0).Set(yS)
-	cx := big.NewInt(0).Set(xS)
-	cy := big.NewInt(0).Set(yS)
-	for dg.Cmp(zero) != 0 {
-		if dg.Bit(0) == 1 {
-			c.add(tx, ty, cx, cy)
+
+	tx, ty := new(big.Int), new(big.Int)
+	infinity := true
+
+	for i := degree.BitLen() - 1; i >= 0; i-- {
+		if !infinity {
+			infinity = !c.add(tx, ty, tx, ty)
 		}
-		dg.Rsh(dg, 1)
-		c.add(cx, cy, cx, cy)
+
+		if degree.Bit(i) == 1 {
+			if infinity {
+				tx.Set(xS)
+				ty.Set(yS)
+				infinity = false
+			} else {
+				infinity = !c.add(tx, ty, xS, yS)
+			}
+		}
 	}
+
+	if infinity {
+		return nil, nil, errInfinitePoint
+	}
+
 	return tx, ty, nil
 }
 
@@ -167,9 +215,17 @@ func (our *Curve) Equal(their *Curve) bool {
 		our.B.Cmp(their.B) == 0 &&
 		our.X.Cmp(their.X) == 0 &&
 		our.Y.Cmp(their.Y) == 0 &&
-		((our.E == nil && their.E == nil) || our.E.Cmp(their.E) == 0) &&
-		((our.D == nil && their.D == nil) || our.D.Cmp(their.D) == 0) &&
+		optionalIntEqual(our.E, their.E) &&
+		optionalIntEqual(our.D, their.D) &&
 		our.Co.Cmp(their.Co) == 0
+}
+
+func optionalIntEqual(our, their *big.Int) bool {
+	if our == nil || their == nil {
+		return our == their
+	}
+
+	return our.Cmp(their) == 0
 }
 
 func (c *Curve) String() string {

@@ -233,7 +233,10 @@ func (c *Client) fetchOCSP(ctx context.Context, endpoint string, body []byte) ([
 	c.mu.Unlock()
 
 	if proxy.Enabled {
-		address := &url.URL{Scheme: "http", Host: net.JoinHostPort(strings.Trim(strings.TrimSpace(proxy.Address), "[]"), strings.TrimSpace(proxy.Port))}
+		// Proxy validation permits a leading plus, but URL ports contain digits only.
+		port := strings.TrimPrefix(strings.TrimSpace(proxy.Port), "+")
+		address := &url.URL{Scheme: "http", Host: net.JoinHostPort(strings.Trim(strings.TrimSpace(proxy.Address), "[]"), port)}
+
 		if proxy.User != "" || proxy.Password != "" {
 			address.User = url.UserPassword(proxy.User, proxy.Password)
 		}
