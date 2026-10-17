@@ -25,12 +25,14 @@ const (
 	endpointPurposeOCSP endpointPurpose = "OCSP"
 )
 
-// EndpointPolicy restricts TSA and OCSP destinations. Its zero value is
-// invalid because AllowedHosts must contain at least one host. Host matching is
-// exact and case-insensitive after removing a trailing DNS dot. The policy is a
-// local validation boundary only. Optional Go OCSP rejects redirects; native
-// TSA and OCSP perform their own HTTP requests. An egress firewall is still needed
-// to prevent DNS rebinding and native redirect-based bypasses.
+// EndpointPolicy restricts native TSA/OCSP and Java revocation destinations.
+// Its zero value is invalid: AllowedHosts must contain at least one host.
+// Host matching is exact and case-insensitive after removing a trailing DNS dot.
+// The policy is a local validation boundary. Optional Go OCSP rejects redirects;
+// native TSA and OCSP perform their own HTTP requests. The Java backend validates
+// each destination, including certificate-derived CRL URLs, and rejects redirects.
+// An egress firewall or proxy is still needed to prevent DNS rebinding and native
+// redirect-based bypasses.
 type EndpointPolicy struct {
 	// AllowedHosts is the exact allowlist of DNS names. IP literals are rejected
 	// unless AllowIPAddresses is true and the literal is explicitly listed.

@@ -50,6 +50,7 @@ type ExtractZIPSignerCertificateRequest struct {
 	// until ExtractZIPSignerCertificate returns.
 	Path string
 	// SignerID selects a signer certificate from multi-signer containers.
+	// Use 1 for the first signer; the SDK uses one-based certificate indices.
 	SignerID int
 	// CertificateTimeCheck controls KalkanCrypt certificate-time validation.
 	CertificateTimeCheck CertificateTimeCheck
@@ -101,12 +102,12 @@ func (c *Client) SignZIP(ctx context.Context, req SignZIPRequest) (*SignedZIP, e
 		defer cleanup()
 	}
 
-	if err := withLockedLibrary(c, ctx, "SignZIP", func(native zipContainers) error {
+	if err := withOperations(c, ctx, "SignZIP", func(operations zipOperations) error {
 		if err := ensureZIPOutputAbsent(activePlan); err != nil {
 			return err
 		}
 
-		return native.ZipConSign(ckalkan.ZipConSignRequest{
+		return operations.ZipConSign(ckalkan.ZipConSignRequest{
 			Alias:    req.Alias,
 			FilePath: inputPath,
 			Name:     activePlan.nativeName,
@@ -152,8 +153,8 @@ func (c *Client) VerifyZIP(ctx context.Context, req VerifyZIPRequest) (*Verifica
 		return nil, err
 	}
 
-	info, err := withLockedLibraryResult(c, ctx, "VerifyZIP", func(native zipContainers) (string, error) {
-		return native.ZipConVerify(zipPath, flags)
+	info, err := withOperationsResult(c, ctx, "VerifyZIP", func(operations zipOperations) (string, error) {
+		return operations.ZipConVerify(zipPath, flags)
 	})
 	if err != nil {
 		return nil, err
@@ -189,8 +190,8 @@ func (c *Client) ExtractZIPSignerCertificate(ctx context.Context, req ExtractZIP
 		return nil, err
 	}
 
-	cert, err := withLockedLibraryResult(c, ctx, "ExtractZIPSignerCertificate", func(native zipContainers) ([]byte, error) {
-		return native.GetCertFromZipFile(zipPath, flags, req.SignerID)
+	cert, err := withOperationsResult(c, ctx, "ExtractZIPSignerCertificate", func(operations zipOperations) ([]byte, error) {
+		return operations.GetCertFromZipFile(zipPath, flags, req.SignerID)
 	})
 	if err != nil {
 		return nil, err

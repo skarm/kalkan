@@ -272,7 +272,7 @@ func (e *payloadEncoder) certificateInfo(v kalkan.CertificateInfo) {
 	e.text(v.ExtKeyUsage)
 	e.text(v.AuthKeyID)
 	e.text(v.SubjKeyID)
-	e.text(v.AlgorithmSignCert)
+	e.text(v.SignatureAlgorithm)
 	e.text(v.PublicKey)
 	e.text(v.OCSPURL)
 	e.text(v.CRLURL)
@@ -302,7 +302,7 @@ func (d *payloadDecoder) certificateInfo() kalkan.CertificateInfo {
 		ExtKeyUsage:               d.text(),
 		AuthKeyID:                 d.text(),
 		SubjKeyID:                 d.text(),
-		AlgorithmSignCert:         d.text(),
+		SignatureAlgorithm:        d.text(),
 		PublicKey:                 d.text(),
 		OCSPURL:                   d.text(),
 		CRLURL:                    d.text(),

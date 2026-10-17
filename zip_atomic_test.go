@@ -29,7 +29,7 @@ func TestSignZIPAtomicOutput(t *testing.T) {
 			inputPath := writeTestZIPInput(t, outDir, "payload.txt")
 			outputPath := filepath.Join(outDir, "signed.zip")
 			var stagedDir string
-			native := &fakeNative{zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
+			native := &fakeSDK{zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
 				stagedDir = req.OutDir
 				if stagedDir == outDir || filepath.Dir(stagedDir) != outDir {
 					t.Fatalf("staging directory = %q, want private sibling of output", stagedDir)
@@ -60,9 +60,9 @@ func TestSignZIPAtomicOutput(t *testing.T) {
 				}
 				return nil
 			}}
-			client, err := openWithLibraryFactory(context.Background(), []Option{
+			client, err := openWithBackendFactory(context.Background(), []Option{
 				WithLibraryPath(testLibraryPath()), WithAtomicZIPOutput(),
-			}, func(config) (closer, error) { return native, nil })
+			}, func(config) (backend, error) { return newNativeBackend(native), nil })
 			if err != nil {
 				t.Fatal(err)
 			}

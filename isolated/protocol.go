@@ -411,6 +411,17 @@ func readMessage(reader io.Reader) (message, error) {
 		result.Payload.blocks = make([]binaryBlock, int(count))
 	}
 
+	// Validate the bounded details and their block references before reading
+	// any unbounded raw data. Empty block slots suffice for structural checks;
+	// error text is decoded again once its referenced bytes have arrived.
+	details := payloadDecoder{metadataReader: metadataReader{data: tail}, blocks: result.Payload.blocks}
+	result.Error = details.decodeError(0)
+	result.Observations = details.observations()
+
+	if err := details.finish(); err != nil {
+		return message{}, err
+	}
+
 	for i := range result.Payload.blocks {
 		length := binary.BigEndian.Uint64(lengths[i*8:])
 
@@ -422,12 +433,9 @@ func readMessage(reader io.Reader) (message, error) {
 		result.Payload.blocks[i].data = data
 	}
 
-	details := payloadDecoder{metadataReader: metadataReader{data: tail}, blocks: result.Payload.blocks}
-	result.Error = details.decodeError(0)
-
-	result.Observations = details.observations()
-	if err := details.finish(); err != nil {
-		return message{}, err
+	if result.Error != nil {
+		details = payloadDecoder{metadataReader: metadataReader{data: tail}, blocks: result.Payload.blocks}
+		result.Error = details.decodeError(0)
 	}
 
 	return result, nil

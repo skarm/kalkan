@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func BenchmarkWithLockedLibraryDiagnosticsDisabled(b *testing.B) {
-	client := &Client{library: &fakeNative{}}
+func BenchmarkWithOperationsDiagnosticsDisabled(b *testing.B) {
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := withLockedLibrary(client, ctx, "Init", func(native initializer) error {
+		if err := withOperations(client, ctx, "Init", func(native sessionInitializer) error {
 			return native.Init()
 		}); err != nil {
 			b.Fatal(err)
@@ -18,12 +18,12 @@ func BenchmarkWithLockedLibraryDiagnosticsDisabled(b *testing.B) {
 	}
 }
 
-func BenchmarkWithLockedLibraryResultDiagnosticsDisabled(b *testing.B) {
-	client := &Client{library: &fakeNative{}}
+func BenchmarkWithOperationsResultDiagnosticsDisabled(b *testing.B) {
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err := withLockedLibraryResult(client, ctx, "Init", func(native initializer) (int, error) {
+		_, err := withOperationsResult(client, ctx, "Init", func(native sessionInitializer) (int, error) {
 			return 1, native.Init()
 		})
 		if err != nil {

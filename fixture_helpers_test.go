@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -15,30 +14,24 @@ import (
 )
 
 const (
-	fixturePassword  = "Qwerty12"
-	defaultAssetDir  = "testdata"
-	assetEnvironment = "KALKANCRYPT_SDK_ASSETS"
-	testTSAURL       = "http://test.pki.gov.kz/tsp/"
-	testOCSPURL      = "http://test.pki.gov.kz/ocsp/"
+	fixturePassword = "Qwerty12"
+	defaultAssetDir = "testdata"
+	testTSAURL      = "http://test.pki.gov.kz/tsp/"
+	testOCSPURL     = "http://test.pki.gov.kz/ocsp/"
 )
 
-type fixtureAssets struct {
-	P12      []string
-	ZIPs     []string
-	Examples map[string]string
-	Certs    map[string]string
-}
+type fixtureAssets = testfixture.SDKAssets
 
 func openFixtureClient(t *testing.T, assets fixtureAssets) *Client {
 	t.Helper()
 
-	library := strings.TrimSpace(os.Getenv("KALKANCRYPT_LIBRARY"))
-	if library == "" {
+	session := strings.TrimSpace(os.Getenv("KALKANCRYPT_LIBRARY"))
+	if session == "" {
 		t.Skip("set KALKANCRYPT_LIBRARY to run native-backed root API tests")
 	}
 
 	client, err := Open(context.Background(),
-		WithLibraryPath(library),
+		WithLibraryPath(session),
 		WithTSAURL(testTSAURL),
 		WithOCSPURL(testOCSPURL),
 		WithTrustedCertificate(TrustedCertificate{
@@ -116,88 +109,7 @@ func certificateSource(data []byte) Source {
 
 func loadFixtureAssets(t *testing.T) fixtureAssets {
 	t.Helper()
-
-	roots := assetRoots(t)
-	assets := collectFixtureAssets(t, roots)
-	if len(assets.P12) == 0 {
-		t.Skip("no usable KalkanCrypt fixture assets found in " + strings.Join(roots, string(os.PathListSeparator)))
-	}
-
-	return assets
-}
-
-func assetRoots(t *testing.T) []string {
-	t.Helper()
-
-	assetSpec := strings.TrimSpace(os.Getenv(assetEnvironment))
-	if assetSpec == "" {
-		assetSpec = filepath.FromSlash(defaultAssetDir)
-	}
-
-	var roots []string
-	for _, raw := range filepath.SplitList(assetSpec) {
-		path := strings.TrimSpace(raw)
-		if path == "" {
-			continue
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-
-		if info.IsDir() {
-			roots = append(roots, path)
-			continue
-		}
-
-		if strings.EqualFold(filepath.Ext(path), ".zip") {
-			roots = append(roots, testfixture.ExtractZIP(t, path, testfixture.RejectDuplicates))
-			continue
-		}
-
-		roots = append(roots, filepath.Dir(path))
-	}
-	if len(roots) == 0 {
-		t.Skip("no usable KalkanCrypt fixture assets found in " + assetSpec)
-	}
-
-	return roots
-}
-
-func collectFixtureAssets(t *testing.T, roots []string) fixtureAssets {
-	t.Helper()
-
-	assets := fixtureAssets{Examples: make(map[string]string), Certs: make(map[string]string)}
-	testfixture.WalkFiles(t, roots, func(path string) {
-		ext := strings.ToLower(filepath.Ext(path))
-		base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		switch ext {
-		case ".p12", ".pfx":
-			assets.P12 = append(assets.P12, path)
-		case ".txt", ".xml", ".pem", ".cer", ".crt", ".der":
-			testfixture.RegisterExample(assets.Examples, base, path)
-			registerCertificate(assets.Certs, base, path)
-		case ".zip":
-			if strings.HasPrefix(base, "zip_") || base == "sign" {
-				assets.ZIPs = append(assets.ZIPs, path)
-			}
-		}
-	})
-	sort.Strings(assets.P12)
-	sort.Strings(assets.ZIPs)
-
-	return assets
-}
-
-func registerCertificate(certs map[string]string, base, path string) {
-	lowerBase := strings.ToLower(strings.TrimSpace(base))
-	switch lowerBase {
-	case "root_test_gost_2022", "nca_gost2022_test":
-		if certs[lowerBase] == "" || strings.EqualFold(filepath.Ext(path), ".pem") {
-			certs[lowerBase] = path
-		}
-	}
+	return testfixture.LoadSDK(t, defaultAssetDir)
 }
 
 func requireContains(t *testing.T, name, value, substr string) {
