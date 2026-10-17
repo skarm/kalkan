@@ -43,10 +43,16 @@ func openLibrary(ctx context.Context, cfg libraryConfig, observer kalkan.Observe
 	}
 
 	closed := make(chan struct{})
+	sawInit := false
 
 	var once sync.Once
 
 	options := append(cfg.Options(), kalkan.WithObserver(func(ctx context.Context, value kalkan.OperationObservation) {
+		if value.Operation == "Init" {
+			// Init reports synchronously before kalkan.Open can return.
+			sawInit = true
+		}
+
 		observer(ctx, value)
 
 		if value.Operation == opClose {
@@ -56,6 +62,15 @@ func openLibrary(ctx context.Context, cfg libraryConfig, observer kalkan.Observe
 
 	client, err := kalkan.Open(ctx, options...)
 	if err != nil {
+		if sawInit {
+			// A failed Open cleans up its initialized session, but Close can
+			// return before reporting. Drain that observation before execute
+			// snapshots the collector and the worker exits. execute uses a
+			// background context, so any created session reaches Init. Failures
+			// before Init need not have a Close callback and must not wait.
+			<-closed
+		}
+
 		return nil, err
 	}
 

@@ -2,6 +2,10 @@
 
 package ckalkan
 
+func platformVerifyDataErrorCode(ctx cmsContext) ErrorCode {
+	return ErrorCode(ctx.LastError())
+}
+
 func platformVerifyDataOutputPolicy(req VerifyDataRequest) verifyDataOutputPolicy {
 	returnsDecodedData := verifyDataReturnsDecodedData(req)
 	policy := verifyDataOutputPolicy{

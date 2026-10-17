@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -147,6 +148,17 @@ func TestClientFixtureXMLCertificateExtraction(t *testing.T) {
 		t.Fatalf("positive two-signer VerifyXML: %v", err)
 	}
 	requireContains(t, "two-signer XML verification", verified.Info, "Signature is OK")
+	t.Run("duplicate Signature attributes preserve native parsing errors", func(t *testing.T) {
+		document := bytes.Replace(second.XML, []byte(`Id="1"`), []byte(`Id="1" Id="2"`), 1)
+		native, ok := client.library.(*ckalkan.Client)
+		if !ok {
+			t.Fatalf("fixture library type = %T, want *ckalkan.Client", client.library)
+		}
+		_, nativeErr := native.GetCertFromXML(document, 1)
+		requireKalkanErrorCode(t, nativeErr, ckalkan.ErrorXMLParse)
+		_, err := client.GetCertFromXML(ctx, Bytes(document))
+		requireKalkanErrorCode(t, err, ckalkan.ErrorXMLParse)
+	})
 	for _, tc := range []struct {
 		name string
 		xml  []byte
@@ -161,6 +173,27 @@ func TestClientFixtureXMLCertificateExtraction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assertXMLCertificates(t, client, tc.xml, []*x509.Certificate{firstCertificate, secondCertificate})
 		})
+	}
+	for _, encoding := range []struct {
+		name  string
+		order binary.ByteOrder
+	}{
+		{"UTF-16LE", binary.LittleEndian},
+		{"UTF-16BE", binary.BigEndian},
+	} {
+		for _, bom := range []bool{false, true} {
+			for _, collidingIDs := range []bool{false, true} {
+				name := encoding.name + map[bool]string{false: "/without BOM", true: "/with BOM"}[bom] + map[bool]string{false: "/sequential IDs", true: "/colliding IDs"}[collidingIDs]
+				t.Run(name, func(t *testing.T) {
+					document := second.XML
+					if collidingIDs {
+						document = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(document, []byte(`Id="1"`), []byte(`Id="9"`)), []byte(`Id="2"`), []byte(`Id="1"`)), []byte(`Id="9"`), []byte(`Id="2"`))
+					}
+					document = bytes.Replace(document, []byte(`encoding="UTF-8"`), []byte(`encoding="`+encoding.name+`"`), 1)
+					assertXMLCertificates(t, client, encodeTestXMLUTF16(document, encoding.order, bom), []*x509.Certificate{firstCertificate, secondCertificate})
+				})
+			}
+		}
 	}
 }
 
@@ -181,5 +214,37 @@ func assertXMLCertificates(t *testing.T, client *Client, xml []byte, want []*x50
 	}
 	if !bytes.Equal(xml, original) {
 		t.Fatal("certificate extraction changed the caller's XML")
+	}
+}
+
+func TestClientFixtureCMSTimestampFileSources(t *testing.T) {
+	client := openFixtureSigningClient(t)
+	cms, err := client.SignCMS(t.Context(), SignCMSRequest{
+		Data: Bytes([]byte("timestamp file source")), IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := client.VerifyCMS(t.Context(), VerifyCMSRequest{Signature: DER(cms.Data), CertificateTimeCheck: SkipCertificateTimeCheck})
+	if err != nil {
+		t.Fatalf("positive VerifyCMS: %v", err)
+	}
+	requireContains(t, "CMS verification", verified.Info, "Verify - OK")
+	for _, encoding := range []struct {
+		name     string
+		data     []byte
+		encoding Encoding
+	}{
+		{"DER", cms.Data, EncodingDER},
+		{"PEM", pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: cms.Data}), EncodingPEM},
+		{"base64", []byte(base64.StdEncoding.EncodeToString(cms.Data)), EncodingBase64},
+	} {
+		t.Run(encoding.name, func(t *testing.T) {
+			path := writeTestFile(t, t.TempDir(), "timestamp.cms", encoding.data)
+			for _, source := range []Source{Bytes(encoding.data), File(path)} {
+				_, err := client.GetTimeFromSig(t.Context(), source.WithEncoding(encoding.encoding))
+				requireKalkanErrorCode(t, err, ckalkan.ErrorNoTSAToken)
+			}
+		})
 	}
 }

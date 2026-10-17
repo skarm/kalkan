@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/skarm/kalkan"
+	"github.com/skarm/kalkan/ckalkan"
 )
 
 type lifecycleClient struct {
@@ -346,6 +347,111 @@ func TestRunWorkerReturnsSDKValidationError(t *testing.T) {
 	}
 	if !errors.Is(err, kalkan.ErrInvalidInput) {
 		t.Fatalf("Open = %v, want SDK validation error returned by RunWorker", err)
+	}
+}
+
+func TestOpenLibraryFailuresBeforeInitDoNotWaitForClose(t *testing.T) {
+	emptyTSA := ""
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		cfg  libraryConfig
+		want error
+	}{
+		{"configuration", t.Context(), libraryConfig{TSAURL: &emptyTSA}, kalkan.ErrInvalidInput},
+		{"library loading", t.Context(), libraryConfig{LibraryPath: filepath.Join(t.TempDir(), "missing-library")}, nil},
+		{"cancellation", canceled, libraryConfig{}, context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			go func() {
+				client, err := openLibrary(test.ctx, test.cfg, func(context.Context, kalkan.OperationObservation) {
+					t.Error("pre-Init failure unexpectedly produced a native observation")
+				})
+				if client != nil {
+					_ = client.Close()
+					t.Error("invalid Open returned a session")
+				}
+				done <- err
+			}()
+			select {
+			case err := <-done:
+				if err == nil || (test.want != nil && !errors.Is(err, test.want)) {
+					t.Fatalf("Open = %v, want startup failure %v", err, test.want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Open waited for a Close observation without an initialized session")
+			}
+		})
+	}
+}
+
+func TestSDKOpenFailureWaitsForCleanupObservation(t *testing.T) {
+	library := os.Getenv("KALKANCRYPT_LIBRARY")
+	if library == "" {
+		t.Skip("set KALKANCRYPT_LIBRARY to test native startup cleanup observations")
+	}
+
+	collector := &observations{}
+	closing := make(chan struct{})
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	cfg := libraryConfig{
+		LibraryPath: library, CollectObservations: true,
+		TrustedCertificates: []kalkan.TrustedCertificate{{
+			Path: filepath.Join(t.TempDir(), "missing.cer"), Type: kalkan.CertificateCA,
+		}},
+	}
+	payload, err := encodeConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan operationResult, 1)
+	go func() {
+		done <- execute(message{ID: 1, Operation: opOpen, Payload: payload}, nil,
+			func(ctx context.Context, cfg libraryConfig, observer kalkan.Observer) (workerSession, error) {
+				return openLibrary(ctx, cfg, func(ctx context.Context, event kalkan.OperationObservation) {
+					if event.Operation == opClose {
+						// Pause the cleanup callback after the root Close result is
+						// published, before the worker records its observation.
+						close(closing)
+						<-release
+					}
+					observer(ctx, event)
+				})
+			}, collector)
+	}()
+	select {
+	case <-closing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("failed Open did not reach cleanup Close")
+	}
+	select {
+	case result := <-done:
+		t.Fatalf("failed Open returned before recording cleanup Close: %+v", result.message.Observations)
+	case <-time.After(100 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case result := <-done:
+		code, ok := ckalkan.ErrorCodeOf(result.message.Error)
+		if !ok || code != ckalkan.ErrorOpenFile || result.client != nil || !result.quit {
+			t.Fatalf("failed Open = client %v, error %v, quit %t", result.client, result.message.Error, result.quit)
+		}
+		want := []string{"Init", "SetTSAURL", "LoadTrustedCertificate", "Close"}
+		if len(result.message.Observations) != len(want) {
+			t.Fatalf("failed Open observations = %+v, want %v", result.message.Observations, want)
+		}
+		for i, event := range result.message.Observations {
+			if event.Operation != want[i] {
+				t.Fatalf("observation %d = %q, want %q", i, event.Operation, want[i])
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("failed Open did not finish after cleanup observation completed")
 	}
 }
 

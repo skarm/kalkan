@@ -557,7 +557,7 @@ func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
 
 // GetTimeFromSig returns the timestamp embedded for CMS signer 0 (the first
 // signer). The low-level ckalkan.Client.GetTimeFromSig method accepts a signer
-// index.
+// index. File sources are read into memory by Go and obey WithMaxInputSize.
 func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Time, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -573,7 +573,12 @@ func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Tim
 	}
 
 	if signature.file {
-		flags |= ckalkan.InFile
+		// Like KC_GetCertFromCMS, KC_GetTimeFromSig expects CMS contents
+		// rather than a file path, even when KC_IN_FILE is set.
+		value, err = readCMSCertificateFile(string(value), c.configuredMaxInputSize())
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 
 	return withLockedLibraryResult(c, ctx, "GetTimeFromSig", func(native cmsSignatures) (time.Time, error) {

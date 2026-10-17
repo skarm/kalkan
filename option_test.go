@@ -283,6 +283,11 @@ func TestNormalizeNativeHTTPURLPolicy(t *testing.T) {
 		{name: "internal whitespace", value: "https://example.test/bad path", err: "whitespace"},
 		{name: "scheme", value: "ftp://example.test/ocsp", err: "http or https"},
 		{name: "host", value: "https:/example.test/ocsp", err: "host is empty"},
+		{name: "port without host", value: "http://:80/ocsp", err: "host is empty"},
+		{name: "userinfo without host", value: "https://user@:443/ocsp", err: "host is empty"},
+		{name: "port overflow", value: "https://example.test:65536/ocsp", err: "port"},
+		{name: "large port overflow", value: "https://example.test:99999999999999999999/ocsp", err: "port"},
+		{name: "maximum port", value: "https://example.test:65535/ocsp", want: "https://example.test:65535/ocsp"},
 	}
 
 	for _, test := range tests {
@@ -319,6 +324,10 @@ func TestOpenRejectsInvalidURLs(t *testing.T) {
 		{name: "TSA unsupported scheme", option: WithTSAURL("ftp://tsa.example/path"), want: "http or https"},
 		{name: "OCSP missing scheme", option: WithOCSPURL("ocsp.example/path"), want: "http or https"},
 		{name: "TSA missing host", option: WithTSAURL("https:/tsa.example/path"), want: "host"},
+		{name: "TSA port without host", option: WithTSAURL("http://:80/path"), want: "host"},
+		{name: "OCSP userinfo without host", option: WithOCSPURL("https://user@:443/path"), want: "host"},
+		{name: "TSA port overflow", option: WithTSAURL("http://tsa.example:65536/path"), want: "port"},
+		{name: "OCSP port overflow", option: WithOCSPURL("https://ocsp.example:65536/path"), want: "port"},
 		{name: "OCSP malformed", option: WithOCSPURL("http://[::1"), want: "invalid"},
 	}
 

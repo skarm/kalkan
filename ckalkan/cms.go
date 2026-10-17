@@ -41,6 +41,8 @@ func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, err
 
 // GetTimeFromSig returns the timestamp embedded for CMS signer sigID.
 // The index is zero-based; a native failure returns the zero time and an error.
+// Linux SDK 2.0.13 expects CMS contents and ignores InFile for this operation;
+// callers using that SDK must read file contents before calling it.
 func (c *Client) GetTimeFromSig(data []byte, flags Flag, sigID int) (time.Time, error) {
 	if err := validateNativeSignerID("sigID", sigID); err != nil {
 		return time.Time{}, err

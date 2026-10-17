@@ -8,7 +8,8 @@
 // SDK operations accept kalkan request types and return kalkan result types.
 // Their input and result contracts follow the corresponding kalkan.Client
 // methods; this package adds the process lifetime and cancellation behavior
-// described below.
+// described below. OCSP remains native by default; [Config.CustomOCSP] enables Go
+// HTTP requests and OCSP signature verification in the worker.
 //
 // Each client has its own SDK address space, loaded keys and trust store. Calls
 // in one client are sequential; multiple clients can run in parallel using one
@@ -24,8 +25,9 @@
 // or credential file is used.
 // Native code can crash or hang without corrupting the parent process's memory.
 //
-// Open, operation calls and CloseContext use only their caller's context; there
-// are no internal timeouts. An operation's context includes its queue wait.
+// Open, operation calls and CloseContext have no internal IPC timeouts; their
+// caller's context includes queue waiting. When [Config.CustomOCSP] is enabled,
+// [Config.OCSPTimeout] separately bounds the worker's Go OCSP HTTP exchange.
 // Canceling the startup context after Open succeeds leaves the client alive.
 // A queued cancellation leaves the worker alive; cancellation after transmission
 // starts kills it. A killed or crashed client returns [ErrWorkerFailed] on

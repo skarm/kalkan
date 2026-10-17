@@ -1,31 +1,39 @@
 package isolated
 
-import "github.com/skarm/kalkan"
+import (
+	"time"
+
+	"github.com/skarm/kalkan"
+)
 
 // libraryConfig carries the worker's [kalkan.Open] options. String bytes travel
 // in raw blocks, including invalid UTF-8. Validation and default values are
 // supplied by kalkan.Open when the worker applies [libraryConfig.Options].
 type libraryConfig struct {
-	// CollectObservations enables native-call observations in responses.
-	CollectObservations bool
-	// LibraryPath is the absolute path to the native shared library.
-	LibraryPath string
 	// TSAURL overrides the timestamp endpoint; nil omits the option.
 	TSAURL *string
 	// OCSPURL overrides the default OCSP endpoint; nil omits the option.
 	OCSPURL *string
-	// Proxy configures the native HTTP proxy; nil omits the option.
+	// Proxy configures native and optional Go OCSP HTTP proxies; nil omits it.
 	Proxy *kalkan.Proxy
+	// EndpointPolicy restricts explicit TSA and OCSP URLs; nil omits the policy.
+	EndpointPolicy *kalkan.EndpointPolicy
+	// LibraryPath is the absolute path to the native shared library.
+	LibraryPath string
 	// TrustedCertificates are loaded into the worker's trust store at startup.
 	TrustedCertificates []kalkan.TrustedCertificate
+	// OCSPTimeout limits optional Go OCSP via [kalkan.WithOCSPTimeout].
+	OCSPTimeout time.Duration
 	// MaxInputSize is passed to [kalkan.WithMaxInputSize].
 	MaxInputSize int64
 	// MaxOutputBufferSize is passed to [kalkan.WithMaxOutputBufferSize].
 	MaxOutputBufferSize int
+	// CollectObservations enables native-call observations in responses.
+	CollectObservations bool
+	// CustomOCSP enables [kalkan.WithCustomOCSP]; false preserves native OCSP.
+	CustomOCSP bool
 	// AtomicZIPOutput enables [kalkan.WithAtomicZIPOutput].
 	AtomicZIPOutput bool
-	// EndpointPolicy restricts explicit TSA and OCSP URLs; nil omits the policy.
-	EndpointPolicy *kalkan.EndpointPolicy
 }
 
 func encodeConfig(config libraryConfig) (wirePayload, error) {
@@ -34,6 +42,8 @@ func encodeConfig(config libraryConfig) (wirePayload, error) {
 	e.text(config.LibraryPath)
 	encodeOptional(&e, config.TSAURL, (*payloadEncoder).text)
 	encodeOptional(&e, config.OCSPURL, (*payloadEncoder).text)
+	e.boolean(config.CustomOCSP)
+	e.int64(int64(config.OCSPTimeout))
 	encodeOptional(&e, config.Proxy, (*payloadEncoder).proxy)
 
 	if e.length(len(config.TrustedCertificates), config.TrustedCertificates != nil) {
@@ -55,7 +65,8 @@ func decodeConfig(payload wirePayload) (libraryConfig, error) {
 	config := libraryConfig{
 		CollectObservations: d.boolean(),
 		LibraryPath:         d.text(), TSAURL: decodeOptional(&d, (*payloadDecoder).text),
-		OCSPURL: decodeOptional(&d, (*payloadDecoder).text), Proxy: decodeOptional(&d, (*payloadDecoder).proxy),
+		OCSPURL: decodeOptional(&d, (*payloadDecoder).text), CustomOCSP: d.boolean(), OCSPTimeout: time.Duration(d.int64()),
+		Proxy: decodeOptional(&d, (*payloadDecoder).proxy),
 	}
 
 	count := d.length(24)
@@ -116,6 +127,7 @@ func (config libraryConfig) Options() []kalkan.Option {
 		kalkan.WithLibraryPath(config.LibraryPath),
 		kalkan.WithMaxInputSize(config.MaxInputSize),
 		kalkan.WithMaxOutputBufferSize(config.MaxOutputBufferSize),
+		kalkan.WithOCSPTimeout(config.OCSPTimeout),
 	}
 
 	if config.TSAURL != nil {
@@ -124,6 +136,10 @@ func (config libraryConfig) Options() []kalkan.Option {
 
 	if config.OCSPURL != nil {
 		options = append(options, kalkan.WithOCSPURL(*config.OCSPURL))
+	}
+
+	if config.CustomOCSP {
+		options = append(options, kalkan.WithCustomOCSP())
 	}
 
 	if config.Proxy != nil {

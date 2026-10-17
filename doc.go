@@ -16,6 +16,9 @@
 // Context cancellation stops waiting for the Client call gate, but cannot
 // interrupt low-level process mutex waits or active KalkanCrypt calls. Open also
 // cannot cancel library loading or cleanup; hard deadlines require process isolation.
+// WithCustomOCSP optionally runs OCSP HTTP requests and response verification in Go
+// after native chain validation. Its HTTP exchange honors cancellation and
+// WithOCSPTimeout. By default, OCSP also uses KalkanCrypt's native implementation.
 //
 // [Open] requires [WithLibraryPath] with an absolute path to the native KalkanCrypt
 // library. Passwords passed as Go strings cannot be zeroized by this package.

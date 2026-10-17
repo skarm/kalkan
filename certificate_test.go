@@ -3,9 +3,11 @@ package kalkan
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -656,6 +658,11 @@ func TestXMLCertificateInputPreservesBytesOutsideSignatureIDs(t *testing.T) {
 			`<root Id="1"><child title="Id='2' >"/></root>`,
 		},
 		{
+			"duplicate signature attributes retain native error handling",
+			`<root><Signature xmlns="` + xmlnsDSig + `" Id="1" Id="2"/></root>`,
+			`<root><Signature xmlns="` + xmlnsDSig + `" Id="1" Id="2"/></root>`,
+		},
+		{
 			"legacy namespace prefixes remain distinct",
 			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe0='" + xmlnsDSig + "' xmlns:\xe1='urn:other'><\xe0:Signature Id='2'/><\xe1:Signature Id='keep'/><\xe0:Signature Id='1'/></scope></root>",
 			"<?xml version='1.0' encoding='windows-1251'?><root><scope xmlns:\xe0='" + xmlnsDSig + "' xmlns:\xe1='urn:other'><\xe0:Signature /><\xe1:Signature Id='keep'/><\xe0:Signature /></scope></root>",
@@ -677,4 +684,83 @@ func TestXMLCertificateInputPreservesBytesOutsideSignatureIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestXMLCertificateInputPreservesUTF16(t *testing.T) {
+	for _, encoding := range []struct {
+		name  string
+		order binary.ByteOrder
+	}{
+		{"UTF-16LE", binary.LittleEndian},
+		{"UTF-16BE", binary.BigEndian},
+	} {
+		for _, bom := range []bool{false, true} {
+			t.Run(encoding.name+map[bool]string{false: "/without BOM", true: "/with BOM"}[bom], func(t *testing.T) {
+				declaration := `<?xml version="1.0" encoding="` + encoding.name + `"?>`
+				input := encodeTestXMLUTF16([]byte(declaration+`<root>Привет 😀<Signature xmlns="`+xmlnsDSig+`" title="日本語 > Id='1'" Id="2"/><Signature xmlns="`+xmlnsDSig+`" Id='1'/></root>`), encoding.order, bom)
+				want := encodeTestXMLUTF16([]byte(declaration+`<root>Привет 😀<Signature xmlns="`+xmlnsDSig+`" title="日本語 > Id='1'" /><Signature xmlns="`+xmlnsDSig+`" /></root>`), encoding.order, bom)
+				original := bytes.Clone(input)
+				if got := xmlCertificateInput(input); !bytes.Equal(got, want) {
+					t.Fatalf("UTF-16 extraction changed bytes outside Signature Id attributes:\ngot  %x\nwant %x", got, want)
+				}
+				if !bytes.Equal(input, original) {
+					t.Fatal("certificate extraction changed the caller's UTF-16 XML")
+				}
+				var surrogate [2]byte
+				encoding.order.PutUint16(surrogate[:], 0xd800)
+				var lowSurrogate [2]byte
+				encoding.order.PutUint16(lowSurrogate[:], 0xdc00)
+				for _, invalid := range [][]byte{
+					input[:len(input)-1],
+					append(bytes.Clone(input), surrogate[:]...),
+					append(bytes.Clone(input), lowSurrogate[:]...),
+					append(append(bytes.Clone(input), surrogate[:]...), input[:2]...),
+				} {
+					if got := xmlCertificateInput(invalid); !bytes.Equal(got, invalid) {
+						t.Fatal("malformed UTF-16 must retain native error handling and its original bytes")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGetCertFromXMLUTF16InputLimit(t *testing.T) {
+	input := encodeTestXMLUTF16([]byte(`<?xml version="1.0" encoding="UTF-16"?><root><Signature xmlns="`+xmlnsDSig+`" Id="2"/></root>`), binary.LittleEndian, true)
+	want := encodeTestXMLUTF16([]byte(`<?xml version="1.0" encoding="UTF-16"?><root><Signature xmlns="`+xmlnsDSig+`" /></root>`), binary.LittleEndian, true)
+	certificate := testCertificateDER(t, "UTF-16 certificate")
+	calls := 0
+	client := &Client{config: runtimeConfig{maxInputSize: int64(len(input) - 1)}, library: &fakeNative{getCertFromXMLFunc: func(document []byte, signID int) ([]byte, error) {
+		calls++
+		if !bytes.Equal(document, want) {
+			t.Fatal("native extraction did not receive the preserved UTF-16 document")
+		}
+		if signID == 1 {
+			return certificate, nil
+		}
+		return nil, &ckalkan.KalkanError{Code: ckalkan.ErrorIDAttrNotFound}
+	}}}
+	if _, err := client.GetCertFromXML(t.Context(), Bytes(input)); err == nil || calls != 0 {
+		t.Fatalf("oversized UTF-16 XML: error=%v native calls=%d", err, calls)
+	}
+	client.config.maxInputSize = int64(len(input))
+	certificates, err := client.GetCertFromXML(t.Context(), Bytes(input))
+	if err != nil || len(certificates) != 1 || calls != 2 {
+		t.Fatalf("UTF-16 exactly at limit: certificates=%d error=%v native calls=%d", len(certificates), err, calls)
+	}
+}
+
+func encodeTestXMLUTF16(document []byte, order binary.ByteOrder, bom bool) []byte {
+	units := utf16.Encode([]rune(string(document)))
+	output := make([]byte, 0, 2*len(units)+2)
+	var encoded [2]byte
+	if bom {
+		order.PutUint16(encoded[:], 0xfeff)
+		output = append(output, encoded[:]...)
+	}
+	for _, unit := range units {
+		order.PutUint16(encoded[:], unit)
+		output = append(output, encoded[:]...)
+	}
+	return output
 }

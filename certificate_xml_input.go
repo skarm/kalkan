@@ -2,9 +2,11 @@ package kalkan
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"io"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -28,7 +30,7 @@ func xmlCertificateInput(document []byte) []byte {
 	keptFrom := 0
 
 	for {
-		start := sourceOffset(decoder.InputOffset())
+		start := decoder.InputOffset()
 
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
@@ -45,20 +47,25 @@ func xmlCertificateInput(document []byte) []byte {
 			continue
 		}
 
+		if validateUniqueXMLAttributes(element) != nil {
+			return document
+		}
+
 		for _, attribute := range element.Attr {
 			if attribute.Name.Space != "" || attribute.Name.Local != "Id" {
 				continue
 			}
 
-			end := sourceOffset(decoder.InputOffset())
-
-			from, until := xmlSignatureIDAttribute(document[start:end])
+			from, until := xmlSignatureIDAttribute(view[start:decoder.InputOffset()])
 			if until == 0 {
 				continue
 			}
 
-			out = append(out, document[keptFrom:start+from]...)
-			keptFrom = start + until
+			attributeStart := sourceOffset(start + int64(from))
+			attributeEnd := sourceOffset(start + int64(until))
+
+			out = append(out, document[keptFrom:attributeStart]...)
+			keptFrom = attributeEnd
 
 			break
 		}
@@ -76,6 +83,15 @@ func xmlCertificateInput(document []byte) []byte {
 // three-byte CJK rune, valid in XML names. Only the scan view changes; the
 // monotonic offset mapper locates the corresponding bytes in the original.
 func xmlCertificateScanView(document []byte) ([]byte, func(int64) int) {
+	if len(document) >= 2 {
+		switch {
+		case bytes.HasPrefix(document, []byte{0xff, 0xfe}), document[0] == '<' && document[1] == 0:
+			return xmlUTF16CertificateScanView(document, binary.LittleEndian)
+		case bytes.HasPrefix(document, []byte{0xfe, 0xff}), document[0] == 0 && document[1] == '<':
+			return xmlUTF16CertificateScanView(document, binary.BigEndian)
+		}
+	}
+
 	if utf8.Valid(document) {
 		return document, func(offset int64) int { return int(offset) }
 	}
@@ -99,6 +115,51 @@ func xmlCertificateScanView(document []byte) ([]byte, func(int64) int) {
 			}
 
 			consumed++
+		}
+
+		return consumed
+	}
+}
+
+// xmlUTF16CertificateScanView decodes only the scanner's view. The mapper
+// accounts for surrogate pairs so edits still use the original UTF-16 bytes,
+// including the BOM, declaration, and all non-Id attributes and text.
+func xmlUTF16CertificateScanView(document []byte, order binary.ByteOrder) ([]byte, func(int64) int) {
+	unchanged := func(offset int64) int { return int(offset) }
+	if len(document)%2 != 0 {
+		return document, unchanged
+	}
+
+	view := make([]byte, 0, len(document))
+	for index := 0; index < len(document); index += 2 {
+		value := rune(order.Uint16(document[index:]))
+		if utf16.IsSurrogate(value) {
+			if index+4 > len(document) {
+				return document, unchanged
+			}
+
+			value = utf16.DecodeRune(value, rune(order.Uint16(document[index+2:])))
+			if value == utf8.RuneError {
+				return document, unchanged
+			}
+
+			index += 2
+		}
+
+		view = utf8.AppendRune(view, value)
+	}
+
+	scanned, consumed := 0, 0
+
+	return view, func(offset int64) int {
+		for scanned < int(offset) {
+			value, size := utf8.DecodeRune(view[scanned:])
+			scanned += size
+
+			consumed += 2
+			if value > 0xffff {
+				consumed += 2
+			}
 		}
 
 		return consumed

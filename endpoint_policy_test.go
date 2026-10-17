@@ -23,6 +23,31 @@ func TestEndpointPolicyAllowsExactConfiguredEndpoints(t *testing.T) {
 	}
 }
 
+func TestEndpointPolicyComparesNumericPorts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		ports []string
+		url   string
+	}{
+		{name: "default HTTPS", url: "https://trusted.example:0443/ocsp"},
+		{name: "default HTTP", url: "http://trusted.example:00080/ocsp"},
+		{name: "allowlist leading zeros", ports: []string{"08443"}, url: "https://trusted.example:8443/ocsp"},
+		{name: "endpoint leading zeros", ports: []string{"8443"}, url: "https://trusted.example:08443/ocsp"},
+		{name: "allowlist plus sign", ports: []string{"+443"}, url: "https://trusted.example/ocsp"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := EndpointPolicy{AllowedHosts: []string{"trusted.example"}, AllowedPorts: test.ports}
+			if err := policy.validate(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := normalizeNativeHTTPURLWithPolicy("OCSP URL", test.url, endpointPurposeOCSP, &policy)
+			if err != nil || got != test.url {
+				t.Fatalf("allowed numeric port rejected: URL = %q, error = %v", got, err)
+			}
+		})
+	}
+}
+
 func TestEndpointPolicyRejectsUnsafeEndpointShapes(t *testing.T) {
 	policy := EndpointPolicy{
 		AllowedHosts: []string{"trusted.example"},
@@ -68,7 +93,10 @@ func TestEndpointPolicyAddressForms(t *testing.T) {
 		{name: "unlisted IPv6", host: "2001:db8::1", value: "https://[2001:db8::2]:8443/path", allowIP: true, wantReason: "not in the endpoint allowlist"},
 		{name: "IPv6 zone", host: "2001:db8::1", value: "https://[2001:db8::1%25eth0]:8443/path", allowIP: true, wantReason: "IPv6 zone identifiers are not allowed"},
 		{name: "Punycode", host: "xn--bcher-kva.example", value: " https://XN--BCHER-KVA.example:8443/path ", wantURL: "https://XN--BCHER-KVA.example:8443/path"},
+		{name: "ASCII case and trailing dot", host: " TRUSTED.EXAMPLE. ", value: " https://TRUSTED.example.:8443/path ", wantURL: "https://TRUSTED.example.:8443/path"},
 		{name: "Unicode URL host", host: "xn--bcher-kva.example", value: "https://bücher.example:8443/path", wantReason: "must use an ASCII DNS form"},
+		{name: "Kelvin sign URL host", host: "k.example", value: "https://K.example:8443/path", wantReason: "must use an ASCII DNS form"},
+		{name: "dotted I URL host", host: "i.example", value: "https://İ.example:8443/path", wantReason: "must use an ASCII DNS form"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			policy := EndpointPolicy{
@@ -165,6 +193,9 @@ func TestEndpointPolicyRejectsInvalidConfigurationBeforeNative(t *testing.T) {
 		{name: "IPv6 not enabled", policy: EndpointPolicy{AllowedHosts: []string{"2001:db8::1"}}, want: "AllowIPAddresses is false"},
 		{name: "bracketed IPv6 host", policy: EndpointPolicy{AllowedHosts: []string{"[2001:db8::1]"}, AllowIPAddresses: true}, want: "must not include URL syntax"},
 		{name: "Unicode host", policy: EndpointPolicy{AllowedHosts: []string{"bücher.example"}}, want: "must use an ASCII DNS form"},
+		{name: "Kelvin sign host", policy: EndpointPolicy{AllowedHosts: []string{"K.example"}}, want: "must use an ASCII DNS form"},
+		{name: "dotted I host", policy: EndpointPolicy{AllowedHosts: []string{"İ.example"}}, want: "must use an ASCII DNS form"},
+		{name: "embedded host whitespace", policy: EndpointPolicy{AllowedHosts: []string{"trusted. example"}}, want: "contains whitespace"},
 		{name: "invalid port", policy: EndpointPolicy{AllowedHosts: []string{"example.com"}, AllowedPorts: []string{"65536"}}, want: "must be in range 1..65535"},
 		{name: "TSA override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, tsaURL: "https://outside.example", want: "not in the endpoint allowlist"},
 		{name: "OCSP override", policy: EndpointPolicy{AllowedHosts: []string{"tsp.pki.gov.kz", "ocsp.pki.gov.kz"}}, ocspURL: "https://outside.example", want: "not in the endpoint allowlist"},

@@ -10,6 +10,7 @@ type fakeNativeContext struct {
 	getCertificatesListFunc kalkancrypt.ListBufferFunc
 	hashDataFunc            func(kalkancrypt.HashDataCall) (kalkancrypt.BufferResult, error)
 	lastErrorStringFunc     kalkancrypt.OutputBufferFunc
+	lastErrorFunc           func() uint64
 	signHashFunc            func(kalkancrypt.SignHashCall) (kalkancrypt.BufferResult, error)
 	signDataFunc            func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error)
 	signXMLFunc             func(kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error)
@@ -58,6 +59,10 @@ func (f *fakeNativeContext) XMLFinalize() {
 }
 
 func (f *fakeNativeContext) LastError() uint64 {
+	if f.lastErrorFunc != nil {
+		return f.lastErrorFunc()
+	}
+
 	return uint64(ErrorOK)
 }
 

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<root><Signature xmlns=\"http://www.w3.org/2000/09/xmldsig#\"A0000=\"\"Id=\"\"Id=\"\"/></root>")

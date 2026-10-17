@@ -160,7 +160,7 @@ const (
 	CertificateBase64
 )
 
-// Proxy configures KalkanCrypt's native HTTP proxy.
+// Proxy configures the native HTTP proxy and the Go OCSP HTTP proxy.
 // Its zero value disables proxy use; the remaining fields are ignored when
 // Enabled is false.
 type Proxy struct {
@@ -355,7 +355,7 @@ func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertifi
 	})
 }
 
-// SetProxy configures KalkanCrypt's native HTTP proxy for the open session.
+// SetProxy configures the native and optional Go OCSP HTTP proxy for the open session.
 func (c *Client) SetProxy(ctx context.Context, proxy Proxy) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -370,6 +370,14 @@ func (c *Client) SetProxy(ctx context.Context, proxy Proxy) error {
 	}
 
 	return withLockedLibrary(c, ctx, "SetProxy", func(native network) error {
-		return native.SetProxy(proxy.native())
+		if err := native.SetProxy(proxy.native()); err != nil {
+			return err
+		}
+
+		c.mu.Lock()
+		c.config.proxy = proxy
+		c.mu.Unlock()
+
+		return nil
 	})
 }

@@ -186,6 +186,8 @@ func TestValidateCertificateRejectsInvalidOCSPURL(t *testing.T) {
 		{name: "internal whitespace", revocationSource: "http://ocsp.example.test/bad path", want: "whitespace"},
 		{name: "malformed URL", revocationSource: "http://[::1", want: "invalid"},
 		{name: "missing host", revocationSource: "http:///ocsp", want: "host is empty"},
+		{name: "port without host", revocationSource: "http://:80/ocsp", want: "host is empty"},
+		{name: "port overflow", revocationSource: "https://ocsp.example.test:65536/ocsp", want: "port"},
 	}
 
 	for _, test := range tests {

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/skarm/kalkan"
 	"github.com/skarm/kalkan/ckalkan"
@@ -84,6 +85,28 @@ func TestErrorRoundTripPreservesFilesystemMembershipAndOpaqueText(t *testing.T) 
 	}
 }
 
+func TestErrorRoundTripPreservesOCSPRevocation(t *testing.T) {
+	revoked := &kalkan.OCSPRevokedError{
+		Endpoint:  "https://ocsp.example/\xff",
+		RevokedAt: time.Date(2025, 3, 4, 5, 6, 7, 8, time.FixedZone("responder", 3*60*60)),
+	}
+	original := fmt.Errorf("certificate validation: %w", revoked)
+	got := roundTripError(t, original)
+	var decoded *kalkan.OCSPRevokedError
+	if !errors.As(got, &decoded) || decoded.Endpoint != revoked.Endpoint || !decoded.RevokedAt.Equal(revoked.RevokedAt) {
+		t.Fatalf("OCSP revocation = %+v, want %+v", decoded, revoked)
+	}
+	if got.Error() != original.Error() {
+		t.Fatalf("error text = %q, want %q", got.Error(), original.Error())
+	}
+	if code, ok := ckalkan.ErrorCodeOf(got); !ok || code != ckalkan.ErrorCertStatusRevoked {
+		t.Fatalf("native code = %v/%v, want ErrorCertStatusRevoked", code, ok)
+	}
+	if !errors.Is(got, &ckalkan.KalkanError{Code: ckalkan.ErrorCertStatusRevoked}) {
+		t.Fatal("OCSP revocation did not preserve native error membership")
+	}
+}
+
 func roundTripError(t *testing.T, err error) error {
 	t.Helper()
 	var stream bytes.Buffer
@@ -113,7 +136,8 @@ func TestMalformedErrorsAreRejected(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"unknown native type", []byte{1, 0, 0, 0, 3}},
+		{"unknown native type", []byte{1, 0, 0, 0, 4}},
+		{"truncated OCSP revocation", []byte{1, 0, 0, 0, 3}},
 		{"truncated native code", []byte{1, 0, 0, 0, 1, 0}},
 		{"invalid cause count", []byte{1, 0, 0, 0, 0, 255, 255, 255, 255}},
 		{"truncated nested error", []byte{1, 0, 0, 0, 0, 0, 0, 0, 2, 1}},

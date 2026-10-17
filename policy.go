@@ -3,6 +3,7 @@ package kalkan
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -54,8 +55,14 @@ func normalizeNativeHTTPURLWithPolicy(field, value string, purpose endpointPurpo
 		return "", fmt.Errorf("%w: %s must use http or https", ErrInvalidInput, field)
 	}
 
-	if parsedURL.Host == "" {
+	if parsedURL.Hostname() == "" {
 		return "", fmt.Errorf("%w: %s host is empty", ErrInvalidInput, field)
+	}
+
+	if port := parsedURL.Port(); port != "" {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return "", fmt.Errorf("%w: %s port must be in range 0..65535", ErrInvalidInput, field)
+		}
 	}
 
 	if policy != nil {

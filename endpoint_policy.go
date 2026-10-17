@@ -11,7 +11,7 @@ import (
 	"unicode"
 )
 
-// endpointPurpose identifies the native network operation that will use an
+// endpointPurpose identifies the network operation that will use an
 // endpoint. It is provided to diagnostics so applications can distinguish TSA
 // and OCSP policy failures.
 type endpointPurpose string
@@ -25,12 +25,12 @@ const (
 	endpointPurposeOCSP endpointPurpose = "OCSP"
 )
 
-// EndpointPolicy restricts native TSA and OCSP destinations. Its zero value is
+// EndpointPolicy restricts TSA and OCSP destinations. Its zero value is
 // invalid because AllowedHosts must contain at least one host. Host matching is
 // exact and case-insensitive after removing a trailing DNS dot. The policy is a
-// local validation boundary only: KalkanCrypt performs DNS resolution and HTTP
-// requests itself, so production deployments still need an egress firewall or
-// proxy to prevent DNS rebinding and redirect-based bypasses.
+// local validation boundary only. Optional Go OCSP rejects redirects; native
+// TSA and OCSP perform their own HTTP requests. An egress firewall is still needed
+// to prevent DNS rebinding and native redirect-based bypasses.
 type EndpointPolicy struct {
 	// AllowedHosts is the exact allowlist of DNS names. IP literals are rejected
 	// unless AllowIPAddresses is true and the literal is explicitly listed.
@@ -42,6 +42,7 @@ type EndpointPolicy struct {
 	AllowedHosts []string
 	// AllowedPorts contains allowed effective ports. When empty, only the
 	// scheme-default port is accepted (80 for HTTP and 443 for HTTPS).
+	// Port numbers are compared numerically, including any leading zeros.
 	AllowedPorts []string
 	// RequireHTTPS rejects HTTP endpoints.
 	RequireHTTPS bool
@@ -134,8 +135,13 @@ func (p EndpointPolicy) validateEndpoint(field string, purpose endpointPurpose, 
 		effectivePort = defaultPort
 	}
 
+	portNumber, err := strconv.Atoi(effectivePort)
+	if err != nil || portNumber < 0 || portNumber > 65535 {
+		return fmt.Errorf("%w: %s port %q is invalid", ErrInvalidInput, field, effectivePort)
+	}
+
 	if len(p.AllowedPorts) == 0 {
-		if effectivePort != defaultPort {
+		if strconv.Itoa(portNumber) != defaultPort {
 			return fmt.Errorf("%w: %s port %q is not the default for %s", ErrInvalidInput, field, effectivePort, endpoint.Scheme)
 		}
 
@@ -143,7 +149,8 @@ func (p EndpointPolicy) validateEndpoint(field string, purpose endpointPurpose, 
 	}
 
 	for _, allowedPort := range p.AllowedPorts {
-		if strings.TrimSpace(allowedPort) == effectivePort {
+		allowedNumber, err := strconv.Atoi(strings.TrimSpace(allowedPort))
+		if err == nil && allowedNumber == portNumber {
 			return nil
 		}
 	}
@@ -152,7 +159,7 @@ func (p EndpointPolicy) validateEndpoint(field string, purpose endpointPurpose, 
 }
 
 func normalizePolicyHost(value string) (string, error) {
-	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+	host := strings.TrimSuffix(strings.TrimSpace(value), ".")
 	if host == "" {
 		return "", errors.New("endpoint policy host is empty")
 	}
@@ -171,7 +178,7 @@ func normalizePolicyHost(value string) (string, error) {
 		}
 	}
 
-	return host, nil
+	return strings.ToLower(host), nil
 }
 
 func defaultHTTPPort(scheme string) string {

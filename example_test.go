@@ -233,7 +233,7 @@ func ExampleClient_ExtractZIPSignerCertificate() {
 
 func ExampleClient_ValidateCertificate() {
 	ctx := context.Background()
-	client := openExampleClient(ctx)
+	client := openExampleClient(ctx, kalkan.WithCustomOCSP())
 
 	certPEM, err := os.ReadFile("/etc/kalkan/certs/user.pem")
 	if err != nil {
@@ -241,8 +241,15 @@ func ExampleClient_ValidateCertificate() {
 		log.Fatal(err)
 	}
 
+	issuerPEM, err := os.ReadFile("/etc/kalkan/certs/issuer.pem")
+	if err != nil {
+		_ = client.Close()
+		log.Fatal(err)
+	}
+
 	validation, err := client.ValidateCertificate(ctx, kalkan.ValidateCertificateRequest{
 		Certificate:        kalkan.PEM(certPEM),
+		Issuer:             kalkan.PEM(issuerPEM),
 		Mode:               kalkan.CertificateValidationOCSP,
 		ReturnOCSPResponse: true,
 	})
@@ -255,12 +262,15 @@ func ExampleClient_ValidateCertificate() {
 	_ = validation.OCSPResponse
 }
 
-func openExampleClient(ctx context.Context) *kalkan.Client {
-	client, err := kalkan.Open(ctx,
+func openExampleClient(ctx context.Context, options ...kalkan.Option) *kalkan.Client {
+	opts := make([]kalkan.Option, 0, 3+len(options))
+	opts = append(opts,
 		kalkan.WithLibraryPath("/usr/local/lib/libkalkancryptwr-64.so"),
 		kalkan.WithTSAURL(testTSAURL),
 		kalkan.WithOCSPURL(testOCSPURL),
 	)
+	opts = append(opts, options...)
+	client, err := kalkan.Open(ctx, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
