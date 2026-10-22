@@ -47,13 +47,16 @@ type SignDataRequest struct {
 	Alias string
 	// Flags contains SignData/KalkanCrypt flags.
 	Flags Flag
-	// Data contains the input bytes to sign. With InFile it contains the path to
-	// the primary input file. On Linux, InBase64 decodes these bytes, including
-	// file contents; InPEM does not decode PEM data.
+	// Data contains the input bytes to sign.
+	// With InFile, it contains the primary input path.
+	// On Linux, InBase64 decodes these bytes, including file contents.
+	// InPEM does not decode PEM data.
 	Data []byte
 	// Signature contains an existing in-memory signature when the selected mode
-	// appends to it. On Linux, InDER, InPEM, and InBase64 select its encoding;
-	// In2Base64 does not. InFile applies only to Data.
+	// adds a signer to it.
+	// On Linux, InDER, InPEM, and InBase64 select its encoding.
+	// In2Base64 does not select its encoding.
+	// InFile applies only to Data.
 	Signature []byte
 	// OutputCapacity overrides the estimated first signature output buffer size.
 	OutputCapacity int
@@ -85,26 +88,28 @@ type VerifyDataRequest struct {
 	Alias string
 	// Flags contains VerifyData/KalkanCrypt flags.
 	Flags Flag
-	// Data contains the signed or detached input data, depending on Flags.
-	// In2Base64 marks it as Base64 text; InFile applies only to Signature.
+	// Data contains the signed or detached input data, as selected by Flags.
+	// In2Base64 marks it as base64 text.
+	// InFile applies only to Signature.
 	Data []byte
 	// Signature contains the CMS/signature bytes. With InFile it contains the
 	// path to the signature file. InDER, InPEM, and InBase64 select its encoding.
 	Signature []byte
 	// CertID selects a signer certificate from multi-signer data.
 	CertID int
-	// DataCapacity overrides the first native data output buffer size. Decoded
-	// data is returned only for an attached CMS passed in memory. On Linux the
-	// value is ignored for detached, draft, and InFile verification; unverified
-	// platforms retain the native buffer for ABI compatibility.
+	// DataCapacity overrides the initial capacity for native data output.
+	// The method returns decoded data only for an attached CMS in memory.
+	// Linux ignores this field for detached, draft, and InFile verification.
+	// Other platforms retain the native buffer for ABI compatibility.
 	DataCapacity int
-	// VerifyInfoCapacity overrides the first verification-info output buffer size.
-	// Linux requires at least 4 KiB before entering the SDK; smaller requests
-	// are retried within the configured hard limit.
+	// VerifyInfoCapacity overrides the initial verification diagnostic capacity.
+	// Linux requires at least 4 KiB before the native call.
+	// Smaller requests trigger retries within the configured hard limit.
 	VerifyInfoCapacity int
-	// CertCapacity overrides the first signer-certificate output buffer size.
-	// Linux requires at least 8 KiB before entering the SDK; smaller requests
-	// are retried within the configured hard limit.
+	// CertCapacity overrides the initial output capacity for the signer
+	// certificate.
+	// Linux requires at least 8 KiB before the native call.
+	// Smaller requests trigger retries within the configured hard limit.
 	CertCapacity int
 }
 
@@ -154,9 +159,10 @@ type ProxyRequest struct {
 type ZipConSignRequest struct {
 	// Alias identifies the loaded key alias used for signing.
 	Alias string
-	// FilePath is the input path passed to KalkanCrypt. The Linux adapter
-	// requires an existing directory; other inputs return ErrorParam before
-	// the SDK can create a container that omits a regular-file input.
+	// FilePath identifies the input path for KalkanCrypt.
+	// The Linux adapter requires an existing directory.
+	// Other input types return ErrorParam before the SDK can create a container
+	// that omits a regular file.
 	FilePath string
 	// Name is the output ZIP container name.
 	Name string

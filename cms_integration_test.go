@@ -122,8 +122,8 @@ func TestVerifyCMSRejectsChangedSignatureValue(t *testing.T) {
 			tampered[bytes.Index(tampered, signature)+len(signature)/2] ^= 1
 			request.Signature = DER(tampered)
 			result, err := client.VerifyCMS(t.Context(), request)
-			// The SDK may return KCR_OK while reporting this actual
-			// GOST signature failure through GetLastError alone.
+			// The SDK can return KCR_OK and report this GOST signature failure through
+			// GetLastError only.
 			requireNativeErrorCode(t, "changed CMS signer signature", err, ckalkan.ErrorCode(0x8006E07B))
 			if result != nil {
 				t.Fatalf("failed CMS verification returned a result: %+v", result)
@@ -132,6 +132,9 @@ func TestVerifyCMSRejectsChangedSignatureValue(t *testing.T) {
 	}
 }
 
+// TestVerifyCMSDistinguishesBytesFromFileSources checks byte inputs and file
+// sources with the real SDK.
+//
 // These checks require the real SDK: mocks cannot prove whether native code
 // interprets an input buffer as a filename. Existing files provide controls.
 func TestVerifyCMSDistinguishesBytesFromFileSources(t *testing.T) {

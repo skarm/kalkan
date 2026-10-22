@@ -13,15 +13,20 @@ import (
 	"github.com/skarm/kalkan"
 )
 
-// Client owns one worker process and its SDK session. Calls are serialized per
-// client; independent clients run in parallel in separate processes. Each call
-// uses only its caller's context, including the queue wait, with no internal
-// timeout. A call canceled after transmission starts kills the worker and
-// permanently fails the client. Cancellation while queued leaves the worker
-// intact. No operation is retried. Callers must synchronize multi-call
-// load-and-sign sequences.
-// A Client is safe for concurrent use, subject to the observer requirements in
-// [Config]. Its zero value is not ready for use; create clients with [Open].
+// Client owns one worker process and its SDK session.
+// It serializes calls within that client.
+// Independent clients can run in parallel in separate processes.
+// Each caller's context limits the call and queue wait without an internal timeout.
+//
+// Cancellation after transmission starts kills the worker and permanently
+// fails the client.
+// Cancellation during a queue wait leaves the worker alive.
+// The client never retries an operation.
+// Synchronize sequences that load a key store and then sign with it.
+//
+// A Client is safe for concurrent use under the observer requirements in [Config].
+// Create clients with [Open].
+// The zero value is not ready for use.
 type Client struct {
 	mu           sync.Mutex
 	gate         chan struct{}
@@ -88,16 +93,17 @@ func (c *Client) stop(cause error) error {
 	return err
 }
 
-// waitProcess reaps the child exactly once and publishes its exit status.
-// It waits for the call gate before closing pipes so a final response can drain.
+// waitProcess waits for child exit exactly once and publishes the exit status.
+// It acquires the call gate before it closes pipes so a reader can consume
+// the final response.
 func (c *Client) waitProcess() {
 	err := c.cmd.Wait()
 	c.mu.Lock()
 	c.waitErr = err
 	close(c.exited)
 	c.mu.Unlock()
-	// Let an in-flight reader consume a complete final response before closing
-	// our pipes. The peer's exit itself terminates incomplete reads with EOF.
+	// Wait for the reader to consume a complete final response before the pipes close.
+	// The peer's exit ends incomplete reads with EOF.
 	<-c.gate
 	c.mu.Lock()
 	if c.terminal == nil && c.closing == nil {
@@ -142,9 +148,10 @@ func (c *Client) acquire(ctx context.Context) error {
 	return nil
 }
 
-// exchange sends one request and validates its matching response. The caller
-// must hold the call gate. A response may contain observations alongside an
-// operation error; transport failures return a zero message and stop the worker.
+// exchange sends one request and validates the corresponding response.
+// The caller must hold the call gate.
+// A response can contain observations alongside an operation error.
+// Transport failures return a zero message and stop the worker.
 func (c *Client) exchange(ctx context.Context, operation string, payload wirePayload) (message, error) {
 	c.nextID++
 	request := message{ID: c.nextID, Operation: operation, Payload: payload}
@@ -173,8 +180,9 @@ func (c *Client) exchange(ctx context.Context, operation string, payload wirePay
 		case result = <-done:
 		default:
 			_ = c.stop(ctx.Err())
-			// The sender borrows caller bytes. Closing the pipes and killing the
-			// child interrupts I/O; join the sender before returning ownership.
+			// The sender borrows the caller's bytes.
+			// Pipe closure and child termination interrupt I/O.
+			// Wait for the sender before the caller receives ownership again.
 			<-done
 
 			return message{}, ctx.Err()
@@ -183,7 +191,7 @@ func (c *Client) exchange(ctx context.Context, operation string, payload wirePay
 
 	if result.err != nil {
 		if errors.Is(result.err, errMetadataTooLarge) {
-			// Header encoding failed before any request bytes were written.
+			// Header encoding failed before the sender wrote any request bytes.
 			c.nextID--
 			return message{}, result.err
 		}
@@ -286,12 +294,16 @@ func (c *Client) report(ctx context.Context, operation string, started time.Time
 // Use [Client.CloseContext] to cancel a shutdown that may be stuck in native code.
 func (c *Client) Close() error { return c.CloseContext(context.Background()) }
 
-// CloseContext always starts closing and rejects new operations, even when ctx
-// is already canceled. Cancellation of any waiting CloseContext forcibly stops
-// the worker and ends shutdown with that context's error. Without cancellation,
-// shutdown waits for the active call and graceful worker exit. Concurrent and
-// repeated calls share the shutdown result; a completed result takes precedence
-// over cancellation. There is no internal timeout.
+// CloseContext starts shutdown and rejects new operations even if ctx is already canceled.
+// A nil ctx uses [context.Background].
+// Cancellation of any active CloseContext wait kills the worker and ends
+// shutdown with that context's error.
+// Without cancellation, shutdown waits for the active call and a normal worker exit.
+//
+// Concurrent and repeated calls share the shutdown result.
+// A completed result takes precedence over cancellation.
+// There is no internal timeout.
+// CloseContext returns nil for a nil client.
 func (c *Client) CloseContext(ctx context.Context) error {
 	if c == nil || c.gate == nil {
 		return nil

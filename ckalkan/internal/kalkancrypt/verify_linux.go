@@ -18,10 +18,14 @@ import "C"
 
 import "runtime"
 
+// VerifyData returns the native verification status, decoded data, diagnostics,
+// and certificate for call.
 func (h *linuxDriver) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, false)
 }
 
+// UVerifyData returns native verification outputs for call through the
+// universal verifier.
 func (h *linuxDriver) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, true)
 }
@@ -33,10 +37,10 @@ func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyRes
 		}
 	}
 
-	// The SDK can corrupt output lengths when both diagnostic and signer
-	// certificate buffers are tiny (reproduced with CertID=1 and capacities=1).
-	// Require the tested default sizes before entering native code. Report a
-	// retry without allocating, so the public layer can enforce its hard cap.
+	// The SDK can corrupt output lengths when diagnostic and certificate
+	// capacities are both 1 with CertID=1.
+	// Require the tested default sizes before the native call.
+	// Report a retry without an allocation so the public layer can enforce its hard limit.
 	const (
 		minimumInfoCapacity = 4 << 10
 		minimumCertCapacity = 8 << 10

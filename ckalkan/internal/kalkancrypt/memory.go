@@ -65,8 +65,8 @@ func boundedBytes(buf []byte, length int) []byte {
 	return buf[:length:length]
 }
 
-// bufferResult bounds the exposed data while preserving the native status and
-// reported length, including lengths that require a retry by the caller.
+// bufferResult bounds the exposed data and preserves the native status and reported length.
+// The reported length can require a retry by the caller.
 func bufferResult(code uint64, buf []byte, length int) BufferResult {
 	return BufferResult{Code: code, Data: boundedBytes(buf, length), OutLen: length}
 }

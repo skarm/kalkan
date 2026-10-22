@@ -1,31 +1,33 @@
 // Package ckalkan provides a low-level Go binding for libkalkancryptwr.
 //
-// KalkanCrypt keeps loaded keys, XML state, network configuration, and error
-// state in the native library. The package allows one active Client per process
-// and serializes public method calls. Client values must not be copied; share
-// the pointer returned by New.
+// KalkanCrypt stores keys, XML state, network configuration, and errors in the native library.
+// The package allows one active [Client] per process and serializes public method calls.
+// Share the pointer from [New].
+// Do not copy Client values.
 //
-// Application code should prefer the root kalkan package. Use ckalkan when an
-// integration needs native-level control over flags, buffer behavior, and
-// KalkanCrypt status codes.
+// Use the root kalkan package for application code.
+// Use ckalkan for direct control over native flags, buffers, and status codes.
 //
-// [New] requires [WithLibrary]. Methods do not accept context.Context, so
-// cancellation cannot stop a lock wait or an active native call.
-// Callers must keep byte-slice inputs unchanged until a method returns.
+// [New] requires [WithLibrary].
+// Methods do not accept context.Context.
+// Cancellation cannot stop a lock wait or active native call.
+// Keep input byte slices unchanged until the method returns.
 //
-// Length-aware output buffers retry with geometric capacity growth, bounded by
-// [WithMaxBufferSize]. Signature output estimates select the initial capacity and
-// are capped at the hard limit; they do not establish the required output size.
+// For APIs with output capacities, the client retries with geometric buffer
+// growth under [WithMaxBufferSize].
+// Signature estimates select the initial capacity within that limit.
+// Estimates do not establish the required output size.
 //
-// KC_GetTokens and KC_GetCertificatesList do not receive output-buffer
-// capacity. WithListBufferSize and retries cannot bound their native writes.
+// KC_GetTokens and KC_GetCertificatesList receive no output capacity.
+// [WithListBufferSize] and retries cannot bound their native writes.
 //
-// Native operation failures are represented by [KalkanError]; [ErrorCodeOf]
-// extracts their status through wrapped errors. [OutputBufferLimitError]
-// reports an output that cannot fit within the configured hard limit.
+// [KalkanError] reports native operation failures.
+// [ErrorCodeOf] extracts native status codes through wrapped errors.
+// [OutputBufferLimitError] reports output that cannot fit within the
+// configured hard limit.
 //
-// Real native calls require a platform driver. Builds without a native loader
-// compile stubs; New returns ErrUnavailable after a library path is provided,
-// and zero-value Client methods return ErrUnavailable on builds that have no
-// native loader.
+// Real native calls require a platform driver.
+// Builds without a native loader compile stubs.
+// On those builds, New returns [ErrUnavailable] after the caller supplies a library path.
+// Zero-value Client methods also return ErrUnavailable on those builds.
 package ckalkan

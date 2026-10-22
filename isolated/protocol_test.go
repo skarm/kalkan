@@ -150,8 +150,8 @@ func TestProtocolRejectsInvalidFrames(t *testing.T) {
 	}
 }
 
-// The body declares three bytes, while its table declares length bytes.
-// No block bytes follow, so even a matching table is truncated.
+// testBlockLengths returns a truncated frame with length in its block table.
+// The body declares three bytes, but no block bytes follow.
 func testBlockLengths(length uint64) []byte {
 	h := metadataWriter{}
 	h.uint64(1)
@@ -223,8 +223,8 @@ func TestReadBlockReportsPartialChunks(t *testing.T) {
 }
 
 func TestFrameLengthsExceed32Bits(t *testing.T) {
-	// Reusing one input block keeps this test small while sending over 4 GiB
-	// to a writer that counts bytes without retaining the body.
+	// One reused input block keeps this test small.
+	// The test sends over 4 GiB to a writer that counts bytes and discards the body.
 	data := make([]byte, 8<<20)
 	payload := wirePayload{blocks: make([]binaryBlock, 513)}
 	for i := range payload.blocks {

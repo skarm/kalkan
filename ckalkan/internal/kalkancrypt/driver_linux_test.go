@@ -45,8 +45,9 @@ func TestLinuxZIPSignRejectsNonDirectoryBeforeNativeCall(t *testing.T) {
 			t.Fatalf("ZipConSign(%q) = %#x, want parameter error before native call", input, code)
 		}
 	}
-	// A valid directory must reach the native bridge; its nil function table
-	// returns LibraryNotInitialized, distinguishing it from the input guard.
+	// A valid directory must reach the native bridge.
+	// Its nil function table returns LibraryNotInitialized, which distinguishes
+	// it from the input guard.
 	if code := driver.ZipConSign(ZipConSignCall{FilePath: dir, Name: "signed", OutDir: dir}); code != errorLibraryNotInitialized {
 		t.Fatalf("ZipConSign(directory) = %#x, want native bridge call", code)
 	}

@@ -1,62 +1,94 @@
-// Package isolated provides an opt-in Kalkan client backed by a dedicated local
-// worker process. The application supplies its own worker entry point by calling
-// [RunWorker] in a child process and exiting when it returns. Pass os.Executable
-// as [Config.WorkerPath] and a worker-mode argument as [Config.WorkerArgs] to
-// [Open]; no separate worker binary is required. Check the worker argument before
-// starting application services, and keep init functions free of application
-// startup side effects because they also run in each child.
-// SDK operations accept kalkan request types and return kalkan result types.
-// Their input and result contracts follow the corresponding kalkan.Client
-// methods; this package adds the process lifetime and cancellation behavior
-// described below. OCSP remains native by default; [Config.CustomOCSP] enables Go
-// HTTP requests and OCSP signature verification in the worker.
+// Package isolated provides a Kalkan client with a dedicated local worker
+// process.
+// SDK operations accept kalkan requests and return kalkan results.
+// The corresponding kalkan.Client methods define their input and result
+// contracts.
 //
-// Each client has its own SDK address space, loaded keys and trust store. Calls
-// in one client are sequential; multiple clients can run in parallel using one
-// shared-library file. Isolation does not restrict the worker's filesystem,
-// environment, network access, or external SDK resources such as hardware tokens.
+// Use the application's own executable as the worker:
 //
-// Two anonymous pipes carry length-prefixed frames with a binary header and raw
-// data blocks. Operation fields, configuration, errors and observations are
-// encoded explicitly in binary. Byte inputs and results are sent directly.
-// File sources transfer the path, without reading the file in the parent.
-// Before loading the SDK, the worker duplicates the protocol handles and
-// redirects its standard streams to null. No listening socket, token, shell,
-// or credential file is used.
-// Native code can crash or hang without corrupting the parent process's memory.
+//  1. Set Config.WorkerPath to the path from os.Executable.
+//  2. Set Config.WorkerArgs to an argument that selects the worker entry point.
+//  3. Check that argument before application services start.
+//  4. Call [RunWorker] in the child process.
+//  5. Exit the child process when RunWorker returns.
 //
-// Open, operation calls and CloseContext have no internal IPC timeouts; their
-// caller's context includes queue waiting. When [Config.CustomOCSP] is enabled,
-// [Config.OCSPTimeout] separately bounds the worker's Go OCSP HTTP exchange.
-// Canceling the startup context after Open succeeds leaves the client alive.
-// A queued cancellation leaves the worker alive; cancellation after transmission
-// starts kills it. A killed or crashed client returns [ErrWorkerFailed] on
-// subsequent operations and must be replaced.
-// There is no automatic restart or retry. A failure after transmission does not
-// prove the operation had no effect: files or timestamp requests may already
-// exist. Forced exit skips deferred cleanup, including ZIP staging-directory
-// cleanup. Applications remain responsible for output paths and recovery.
+// Each child also runs init functions.
+// Keep application startup actions outside init functions.
 //
-// [Client.Close] waits without a timeout. Canceling any waiting
-// [Client.CloseContext] forcibly terminates the worker and ends the shared
-// shutdown with that context's error. Subsequent close calls return the saved
-// result. A supervisor calls Wait exactly once to reap each started child.
-// Metadata encoding and application observers cannot be preempted by context
-// cancellation. Frame and block lengths use 64-bit integers; IPC adds no raw
-// data size limit. The receiver reads bounded chunks as bytes arrive and joins
-// them once after the complete block is received. Small blocks need no join.
-// This avoids allocating the declared size of a truncated frame, but operations
-// still require a complete byte slice; this is not a streaming SDK API.
-// Metadata is capped at 64 KiB and each frame at 1024 blocks.
-// MaxInputSize rejects oversized byte inputs in the
-// parent when explicitly configured. Input/output options are passed to the
-// worker's kalkan client; these do not bound total process memory.
+// Each client has its own SDK memory, loaded keys, and trust store.
+// The client executes calls sequentially.
+// Multiple clients can run in parallel with the same shared-library file.
+// Isolation does not restrict filesystem, environment, network, or external
+// SDK resources such as hardware tokens.
+// Native code can crash or hang without damage to the parent process's
+// memory.
 //
-// Source bytes must remain unchanged until the method returns. The sender
-// borrows them directly and joins its I/O goroutine on cancellation before
-// returning ownership; the receiver allocates storage for the raw blocks. File
-// paths use the worker's inherited startup working directory; keep files
-// unchanged while operations use them. Trusted certificate files must remain
-// unchanged and available for later key-store loads. Passwords and request bytes
-// are copied into process memory and cannot be zeroized here.
+// Two anonymous pipes carry frames with a length prefix, a binary header, and
+// raw data blocks.
+// The header encodes operation fields, configuration, errors, and
+// observations.
+// The protocol sends byte inputs and results directly.
+// File sources transfer paths without a file read in the parent.
+// Before the SDK loads, the worker duplicates protocol handles and redirects
+// standard streams to null.
+// The protocol requires no network listener, token, shell, or credential
+// file.
+//
+// [Open], operations, and [Client.CloseContext] have no internal IPC
+// timeouts.
+// Each caller's context also limits the queue wait.
+// Cancellation of the startup context after Open succeeds leaves the client
+// alive.
+// Cancellation during a queue wait leaves the worker alive.
+// Cancellation after transmission starts kills the worker and permanently
+// fails the client.
+// Create a new client after a failure that returns [ErrWorkerFailed].
+//
+// The client does not restart workers or retry operations automatically.
+// A failure after transmission does not prove that the operation had no
+// effect.
+// Output files or remote timestamps can already exist.
+// A forced exit skips deferred cleanup, including cleanup of temporary ZIP
+// directories.
+// The application controls output paths and recovery.
+//
+// [Client.Close] waits without a timeout.
+// Cancellation of any active [Client.CloseContext] wait kills the worker and
+// ends shared shutdown with that context's error.
+// Later close calls return the saved result.
+// A supervisor calls Wait exactly once for each child that starts.
+// Context cancellation cannot interrupt metadata encoding or application
+// observers.
+//
+// OCSP uses KalkanCrypt by default.
+// Config.CustomOCSP enables Go HTTP requests and OCSP signature verification
+// in the worker.
+// Config.OCSPTimeout separately limits the Go HTTP exchange.
+//
+// Frame and block lengths use 64-bit integers.
+// IPC adds no raw data size limit.
+// The receiver reads bounded chunks as bytes arrive and joins them once per
+// complete block.
+// Small blocks need no join.
+// A truncated frame cannot force allocation of its full declared size.
+// Each SDK operation still requires a complete byte slice.
+//
+// The protocol limits metadata to 64 KiB and each frame to 1024 blocks.
+// A positive Config.MaxInputSize rejects oversized byte inputs in the parent.
+// The worker's kalkan client also applies input and output options.
+// These options do not bound total process memory.
+//
+// Keep source bytes unchanged until the method returns.
+// The sender borrows them directly.
+// On cancellation, it waits for its I/O goroutine before it returns
+// ownership.
+// The receiver allocates storage for raw blocks.
+// The package copies passwords and request bytes into process memory and
+// cannot erase all copies.
+//
+// File paths use the worker's startup directory, which it inherits from the
+// parent.
+// Keep input files unchanged until their operations return.
+// Keep trusted certificate files available and unchanged for later key-store
+// loads until the client closes.
 package isolated

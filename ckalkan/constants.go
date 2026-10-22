@@ -67,11 +67,12 @@ const (
 	SignDraft Flag = 0x00000001
 	// SignCMS requests CMS signature format.
 	SignCMS Flag = 0x00000002
-	// InPEM selects PEM input where supported; VerifyData applies it to Signature.
+	// InPEM selects PEM input where the SDK supports it. VerifyData applies it to Signature.
 	InPEM Flag = 0x00000004
-	// InDER selects DER input where supported; VerifyData applies it to Signature.
+	// InDER selects DER input where the SDK supports it. VerifyData applies it to Signature.
 	InDER Flag = 0x00000008
-	// InBase64 selects Base64 input. VerifyData applies it to Signature;
+	// InBase64 selects base64 input.
+	// VerifyData applies it to Signature.
 	// SignData applies it to both Data and an existing CMS Signature.
 	InBase64 Flag = 0x00000010
 	// In2Base64 marks the original Data input of VerifyData as base64 text.
@@ -115,8 +116,10 @@ const (
 	HashGOST2015_512 Flag = 0x00200000
 )
 
-// XML canonicalization selectors. Choose one selector per call, optionally
-// combined with NoCheckCertTime; their low bits overlap CMS and encoding flags.
+// XML canonicalization flags select the algorithm for a native XML call.
+// Choose one selector per call.
+// Add NoCheckCertTime if required.
+// The low bits overlap CMS and encoding flags.
 const (
 	// XMLInclC14N selects inclusive XML canonicalization.
 	XMLInclC14N Flag = 0x01000001

@@ -8,9 +8,9 @@ const (
 	ErrorOK ErrorCode = 0x00000000
 	// ErrorInit reports a KalkanCrypt initialization failure.
 	ErrorInit ErrorCode = 0x08f00001
-	// ErrorReadPKCS12 reports a failure while reading a PKCS#12 file.
+	// ErrorReadPKCS12 reports a PKCS#12 file read failure.
 	ErrorReadPKCS12 ErrorCode = 0x08f00002
-	// ErrorOpenPKCS12 reports a failure while opening a PKCS#12 file.
+	// ErrorOpenPKCS12 reports a PKCS#12 file open failure.
 	ErrorOpenPKCS12 ErrorCode = 0x08f00003
 	// ErrorInvalidPropID reports an invalid certificate property identifier.
 	ErrorInvalidPropID ErrorCode = 0x08f00004
@@ -20,7 +20,7 @@ const (
 	ErrorCertParse ErrorCode = 0x08f00006
 	// ErrorInvalidFlag reports an invalid KalkanCrypt flag.
 	ErrorInvalidFlag ErrorCode = 0x08f00007
-	// ErrorOpenFile reports a failure while opening a file.
+	// ErrorOpenFile reports a file open failure.
 	ErrorOpenFile ErrorCode = 0x08f00008
 	// ErrorInvalidPassword reports an invalid password.
 	ErrorInvalidPassword ErrorCode = 0x08f00009
@@ -42,7 +42,7 @@ const (
 	ErrorBadCRLFormat ErrorCode = 0x08f00011
 	// ErrorLoadCRL reports a CRL loading failure.
 	ErrorLoadCRL ErrorCode = 0x08f00012
-	// ErrorLoadCRLs reports a failure while loading CRLs.
+	// ErrorLoadCRLs reports a CRL load failure.
 	ErrorLoadCRLs ErrorCode = 0x08f00013
 	// ErrorUnknownAlg reports an unknown algorithm.
 	ErrorUnknownAlg ErrorCode = 0x08f00015
@@ -80,11 +80,11 @@ const (
 	ErrorDecode ErrorCode = 0x08f00025
 	// ErrorXMLParse reports an XML parsing failure.
 	ErrorXMLParse ErrorCode = 0x08f00026
-	// ErrorXMLAddID reports a failure while adding an XML ID.
+	// ErrorXMLAddID reports a failure to add an XML ID.
 	ErrorXMLAddID ErrorCode = 0x08f00027
 	// ErrorXMLInternal reports an internal XML processing failure.
 	ErrorXMLInternal ErrorCode = 0x08f00028
-	// ErrorXMLSetSign reports a failure while setting an XML signature.
+	// ErrorXMLSetSign reports a failure to set an XML signature.
 	ErrorXMLSetSign ErrorCode = 0x08f00029
 	// ErrorOpenSSL reports an OpenSSL failure.
 	ErrorOpenSSL ErrorCode = 0x08f0002a
@@ -92,11 +92,12 @@ const (
 	ErrorEngineInit ErrorCode = 0x08f0002b
 	// ErrorNoTokenFound reports that no token was found.
 	ErrorNoTokenFound ErrorCode = 0x08f0002c
-	// ErrorOCSPAddCert reports a failure while adding a certificate to an OCSP request.
+	// ErrorOCSPAddCert reports a failure to add a certificate to an OCSP
+	// request.
 	ErrorOCSPAddCert ErrorCode = 0x08f0002d
 	// ErrorOCSPParseURL reports an OCSP URL parsing failure.
 	ErrorOCSPParseURL ErrorCode = 0x08f0002e
-	// ErrorOCSPAddHost reports a failure while adding an OCSP host.
+	// ErrorOCSPAddHost reports a failure to add an OCSP host.
 	ErrorOCSPAddHost ErrorCode = 0x08f0002f
 	// ErrorOCSPReq reports an OCSP request creation failure.
 	ErrorOCSPReq ErrorCode = 0x08f00030
@@ -184,13 +185,14 @@ const (
 	ErrorOCSPRespStatUnauthorized ErrorCode = 0x08f0005a
 	// ErrorVerifyIssuerSerialV2 reports an IssuerSerialV2 verification failure.
 	ErrorVerifyIssuerSerialV2 ErrorCode = 0x08f0005b
-	// ErrorOCSPCheckCertFromResp reports a certificate-check failure in an OCSP response.
-	// The value comes from the Linux SDK binary; the vendored
-	// KalkanCrypt.h does not define it.
+	// ErrorOCSPCheckCertFromResp reports a certificate check failure in an OCSP
+	// response.
+	// The value comes from the Linux SDK binary.
+	// The imported KalkanCrypt.h does not define it.
 	ErrorOCSPCheckCertFromResp ErrorCode = 0x08f0005c
 	// ErrorCRLExpired reports an expired certificate revocation list.
-	// The value comes from the Linux SDK binary; the vendored
-	// KalkanCrypt.h does not define it.
+	// The value comes from the Linux SDK binary.
+	// The imported KalkanCrypt.h does not define it.
 	ErrorCRLExpired ErrorCode = 0x08f0005d
 	// ErrorLibraryNotInitialized reports that the native library is not initialized.
 	ErrorLibraryNotInitialized ErrorCode = 0x08f00101

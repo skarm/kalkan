@@ -537,9 +537,10 @@ func TestSignDataFileEstimateKeepsExistingSignatureInMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The bytes intentionally spell the path of a much larger real file. With
-	// KC_IN_FILE only Data is a path; Signature remains an in-memory secondary
-	// input and its byte length must be used for the estimate.
+	// These bytes contain the path of a much larger real file.
+	// With KC_IN_FILE, only Data is a path.
+	// Signature remains an in-memory secondary input.
+	// Use its byte length for the estimate.
 	signaturePath := filepath.Join(t.TempDir(), "existing.cms")
 	if err := os.WriteFile(signaturePath, nil, 0o600); err != nil {
 		t.Fatal(err)

@@ -21,12 +21,17 @@ import (
 	"math/big"
 )
 
+// PublicKey contains a public point on an elliptic curve.
 type PublicKey struct {
-	C    *Curve
+	// C is the public key's curve.
+	C *Curve
+	// X and Y are the public point's coordinates on C.
 	X, Y *big.Int
 }
 
-// Unmarshal LE(X)||LE(Y) public key. "raw" must be 2*c.PointSize() length.
+// NewPublicKeyLE returns a public key on c from raw in LE(X)||LE(Y) format.
+// raw must contain 2*c.PointSize() bytes.
+// The function checks the length but does not validate curve or subgroup membership.
 func NewPublicKeyLE(c *Curve, raw []byte) (*PublicKey, error) {
 	pointSize := c.PointSize()
 	key := make([]byte, 2*pointSize)
@@ -45,7 +50,9 @@ func NewPublicKeyLE(c *Curve, raw []byte) (*PublicKey, error) {
 	}, nil
 }
 
-// Unmarshal BE(X)||BE(Y) public key. "raw" must be 2*c.PointSize() length.
+// NewPublicKeyBE returns a public key on c from raw in BE(X)||BE(Y) format.
+// raw must contain 2*c.PointSize() bytes.
+// The function checks the length but does not validate curve or subgroup membership.
 func NewPublicKeyBE(c *Curve, raw []byte) (*PublicKey, error) {
 	pointSize := c.PointSize()
 	if len(raw) != 2*pointSize {
@@ -59,12 +66,13 @@ func NewPublicKeyBE(c *Curve, raw []byte) (*PublicKey, error) {
 	}, nil
 }
 
-// This is an alias for NewPublicKeyLE().
+// NewPublicKey calls [NewPublicKeyLE] with c and raw.
 func NewPublicKey(c *Curve, raw []byte) (*PublicKey, error) {
 	return NewPublicKeyLE(c, raw)
 }
 
-// Marshal LE(X)||LE(Y) public key. raw will be 2*pub.C.PointSize() length.
+// RawLE returns pk in LE(X)||LE(Y) format.
+// Each coordinate occupies pk.C.PointSize() bytes.
 func (pk *PublicKey) RawLE() []byte {
 	pointSize := pk.C.PointSize()
 	raw := append(
@@ -76,7 +84,8 @@ func (pk *PublicKey) RawLE() []byte {
 	return raw
 }
 
-// Marshal BE(X)||BE(Y) public key. raw will be 2*pub.C.PointSize() length.
+// RawBE returns pk in BE(X)||BE(Y) format.
+// Each coordinate occupies pk.C.PointSize() bytes.
 func (pk *PublicKey) RawBE() []byte {
 	pointSize := pk.C.PointSize()
 	return append(
@@ -85,11 +94,14 @@ func (pk *PublicKey) RawBE() []byte {
 	)
 }
 
-// This is an alias for RawLE().
+// Raw returns the same encoding as [PublicKey.RawLE].
 func (pk *PublicKey) Raw() []byte {
 	return pk.RawLE()
 }
 
+// VerifyDigest reports whether signature verifies digest with pk.
+// signature must contain big-endian s followed by big-endian r.
+// An invalid signature length returns an error.
 func (pk *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	pointSize := pk.C.PointSize()
 	if len(signature) != 2*pointSize {
@@ -132,9 +144,9 @@ func (pk *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// Equal points require doubling; opposite points sum to infinity and
-	// cannot verify a signature. The distinct-point slope has no inverse
-	// when the x coordinates match.
+	// Equal points require doubling.
+	// Opposite points sum to infinity and cannot verify a signature.
+	// The slope for distinct points has no inverse when their x coordinates match.
 	if !pk.C.add(p1x, p1y, q1x, q1y) {
 		return false, nil
 	}
@@ -142,6 +154,7 @@ func (pk *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	return p1x.Cmp(r) == 0, nil
 }
 
+// Equal reports whether theirKey is a *PublicKey with the same coordinates and curve parameters as pk.
 func (pk *PublicKey) Equal(theirKey crypto.PublicKey) bool {
 	their, ok := theirKey.(*PublicKey)
 	if !ok {
@@ -151,10 +164,14 @@ func (pk *PublicKey) Equal(theirKey crypto.PublicKey) bool {
 	return pk.X.Cmp(their.X) == 0 && pk.Y.Cmp(their.Y) == 0 && pk.C.Equal(their.C)
 }
 
+// PublicKeyReverseDigest reverses digest bytes before verification with Pub.
 type PublicKeyReverseDigest struct {
+	// Pub is the public key that verifies the reversed digest.
 	Pub *PublicKey
 }
 
+// VerifyDigest reports whether signature verifies a reversed copy of digest with pub.Pub.
+// It preserves both input slices.
 func (pub PublicKeyReverseDigest) VerifyDigest(digest, signature []byte) (bool, error) {
 	dgst := make([]byte, len(digest))
 	for i := range len(digest) {
@@ -164,14 +181,19 @@ func (pub PublicKeyReverseDigest) VerifyDigest(digest, signature []byte) (bool, 
 	return pub.Pub.VerifyDigest(dgst, signature)
 }
 
+// Equal reports whether theirKey matches pub.Pub under [PublicKey.Equal].
 func (pub PublicKeyReverseDigest) Equal(theirKey crypto.PublicKey) bool {
 	return pub.Pub.Equal(theirKey)
 }
 
+// PublicKeyReverseDigestAndSignature reverses digest and signature bytes before verification with Pub.
 type PublicKeyReverseDigestAndSignature struct {
+	// Pub is the public key that verifies the reversed inputs.
 	Pub *PublicKey
 }
 
+// VerifyDigest reports whether reversed copies of digest and signature verify with pub.Pub.
+// It preserves both input slices.
 func (pub PublicKeyReverseDigestAndSignature) VerifyDigest(digest, signature []byte) (bool, error) {
 	dgst := make([]byte, len(digest))
 
@@ -188,6 +210,7 @@ func (pub PublicKeyReverseDigestAndSignature) VerifyDigest(digest, signature []b
 	return pub.Pub.VerifyDigest(dgst, sign)
 }
 
+// Equal reports whether theirKey matches pub.Pub under [PublicKey.Equal].
 func (pub PublicKeyReverseDigestAndSignature) Equal(theirKey crypto.PublicKey) bool {
 	return pub.Pub.Equal(theirKey)
 }

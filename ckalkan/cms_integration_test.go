@@ -164,8 +164,12 @@ func TestSignVerifyVariants(t *testing.T) {
 	}
 }
 
-// Every negative case starts from a cryptographically verified positive control.
-// Signature mutations preserve CMS structure; payload mutations preserve length.
+// TestCMSVerificationMatrix verifies CMS formats and rejects changed signatures
+// or payloads.
+//
+// Every negative case starts from a positive control with a verified
+// cryptographic signature. Signature mutations preserve CMS structure. Payload
+// mutations preserve length.
 func TestCMSVerificationMatrix(t *testing.T) {
 	client := newIntegrationClient(t)
 	rsa := generatePKCS12Fixture(t)
@@ -176,8 +180,9 @@ func TestCMSVerificationMatrix(t *testing.T) {
 		hash                  ckalkan.HashAlgorithm
 		flags                 ckalkan.Flag
 	}{
-		// A synthetic self-signed RSA identity has no NCA trust chain. This
-		// matrix checks signature integrity; chain/time rejection is separate.
+		// A synthetic self-signed RSA identity has no NCA trust chain.
+		// This matrix checks signature integrity.
+		// Separate tests cover chain and time rejection.
 		{"RSA", rsa.P12Path, rsa.Password, ckalkan.SHA256, ckalkan.NoCheckCertTime},
 		{"GOST512", chooseStore(t, assets.P12), fixturePassword, ckalkan.GOST2015_512, ckalkan.NoCheckCertTime},
 	} {
@@ -439,6 +444,9 @@ func TestCMSVerificationChecksExpiredCertificate(t *testing.T) {
 	}
 }
 
+// TestLiveTimestampVerification checks signatures with timestamps from the live
+// TSA.
+//
 // Live tests are opt-in: service availability must not make the offline suite
 // flaky. Failures of an enabled live test are never converted into skips.
 func TestLiveTimestampVerification(t *testing.T) {
@@ -558,8 +566,8 @@ func TestLiveTimestampVerification(t *testing.T) {
 			if code, ok := ckalkan.ErrorCodeOf(err); !ok || (code != ckalkan.ErrorVerifyTSHash && uint64(code)>>24 != 4) || len(result.Data) != 0 {
 				t.Fatalf("changed TSA signature = %+v, %v, want timestamp verification rejection", result, err)
 			}
-			// GetTimeFromSig extracts a value without authenticating it. The
-			// VerifyData rejection above is the authentication boundary.
+			// GetTimeFromSig extracts a value but does not authenticate it.
+			// The VerifyData rejection above checks authentication.
 			if extracted, err := client.GetTimeFromSig(request.Signature, ckalkan.InDER|ckalkan.NoCheckCertTime, 0); err != nil || !extracted.Equal(timestamp) {
 				t.Fatalf("timestamp extraction = %v, %v, want unchanged embedded value %v", extracted, err, timestamp)
 			}

@@ -69,8 +69,9 @@ func TestSDKIsolatedClientsHaveIndependentSessions(t *testing.T) {
 		}
 	}
 
-	// Export only after BOTH workers have loaded their different keys. A shared
-	// in-process SDK session cannot satisfy these independent identities.
+	// Export only after both workers load their different keys.
+	// A shared SDK session in one process cannot provide these independent
+	// identities.
 	var certificates [2]*x509.Certificate
 	for index, client := range clients {
 		certificate, err := client.X509ExportCertificateFromStore(ctx)
@@ -112,8 +113,8 @@ func TestSDKIsolatedClientsHaveIndependentSessions(t *testing.T) {
 func assertSDKCloseObservations(t *testing.T, clients [2]*isolated.Client, observations [2]chan kalkan.OperationObservation) {
 	t.Helper()
 	for index, client := range clients {
-		// Close publishes its saved result before invoking the observer. A
-		// repeated Close must neither lose nor repeat the worker's observation.
+		// Close publishes its saved result before it invokes the observer.
+		// A repeated Close must neither lose nor repeat the worker's observation.
 		if err := client.Close(); err != nil {
 			t.Fatalf("repeat Close SDK worker %d: %v", index, err)
 		}
@@ -126,8 +127,8 @@ func assertSDKCloseObservations(t *testing.T, clients [2]*isolated.Client, obser
 			t.Fatalf("Close observation missing for SDK worker %d", index)
 		}
 	}
-	// Allow asynchronous callbacks from either completed Close to arrive;
-	// neither the first nor repeated Close may produce another observation.
+	// Wait for asynchronous callbacks from either completed Close.
+	// Neither the first nor repeated Close can produce another observation.
 	select {
 	case observation := <-observations[0]:
 		t.Fatalf("duplicate Close observation for SDK worker 0: %+v", observation)

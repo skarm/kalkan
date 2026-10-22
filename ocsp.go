@@ -18,9 +18,10 @@ import (
 // responder certificate normally occupy only a few kilobytes.
 const kalkanOCSPMaxResponseBytes = 1 << 20
 
-// kalkanOCSPMaxAge is the lifetime of a response without nextUpdate. Such a responder indicates
-// that fresh status is always available (RFC 6960, 4.2.2.1); a response older than an hour is
-// considered a replay rather than a response to this request.
+// kalkanOCSPMaxAge limits the age of a response without nextUpdate.
+// Such a responder indicates that fresh status is always available under RFC
+// 6960, section 4.2.2.1.
+// The client rejects responses older than one hour as possible replays.
 const kalkanOCSPMaxAge = time.Hour
 
 // kalkanRevocationClockSkew is the allowed lead of an OCSP response's thisUpdate over the
@@ -41,8 +42,9 @@ type ocspCertID struct {
 	SerialNumber   *big.Int
 }
 
-// matches reports whether the response's CertID identifies the same certificate. Responders
-// encode hash algorithm parameters either as NULL or omit them, so only the algorithm OID is compared.
+// matches reports whether both CertID values identify the same certificate.
+// Responders can encode hash parameters as NULL or omit them.
+// This method compares only the hash algorithm OID and certificate identifiers.
 func (id ocspCertID) matches(other ocspCertID) bool {
 	return other.HashAlgorithm.Algorithm.Equal(id.HashAlgorithm.Algorithm) && slices.Equal(other.IssuerNameHash, id.IssuerNameHash) &&
 		slices.Equal(other.IssuerKeyHash, id.IssuerKeyHash) && id.SerialNumber != nil && other.SerialNumber != nil && other.SerialNumber.Cmp(id.SerialNumber) == 0
@@ -55,7 +57,7 @@ type ocspRequest struct {
 	}
 }
 
-// ocspResponse — OCSPResponse (RFC 6960, 4.2.1).
+// ocspResponse represents OCSPResponse from RFC 6960, section 4.2.1.
 type ocspResponse struct {
 	Status asn1.Enumerated
 	Bytes  struct {
@@ -64,7 +66,7 @@ type ocspResponse struct {
 	} `asn1:"explicit,tag:0,optional"`
 }
 
-// ocspBasicResponse — BasicOCSPResponse (RFC 6960, 4.2.1).
+// ocspBasicResponse represents BasicOCSPResponse from RFC 6960, section 4.2.1.
 type ocspBasicResponse struct {
 	TBSResponseData    ocspResponseData
 	SignatureAlgorithm pkix.AlgorithmIdentifier
@@ -72,7 +74,8 @@ type ocspBasicResponse struct {
 	Certificates       []asn1.RawValue `asn1:"explicit,tag:0,optional"`
 }
 
-// ocspResponseData is ResponseData; Raw contains the entire signed portion.
+// ocspResponseData represents ResponseData.
+// Raw contains the complete signed portion.
 type ocspResponseData struct {
 	Raw         asn1.RawContent
 	Version     int `asn1:"optional,default:0,explicit,tag:0"`
@@ -82,7 +85,8 @@ type ocspResponseData struct {
 	Extensions  []pkix.Extension `asn1:"optional,explicit,tag:1"`
 }
 
-// ocspSingleResponse is SingleResponse; certStatus is one of good, revoked, or unknown.
+// ocspSingleResponse represents SingleResponse.
+// CertStatus contains good, revoked, or unknown status.
 type ocspSingleResponse struct {
 	CertID     ocspCertID
 	CertStatus asn1.RawValue
@@ -97,9 +101,11 @@ type ocspRevokedInfo struct {
 	Reason         asn1.Enumerated `asn1:"optional,explicit,tag:0"`
 }
 
-// kalkanOCSPCertID builds the CertID for serial, issued by issuer: SHA-1 of the issuer's name
-// and public key value, excluding the tag, length, and unused-bit count (RFC 6960, 4.1.1).
-// The name is issuer's subject: chain traversal matched it byte for byte to the certificate's issuer name.
+// kalkanOCSPCertID creates CertID for serial and issuer under RFC 6960, section 4.1.1.
+// It hashes the issuer's subject name and public key value with SHA-1.
+// The key hash excludes the tag, length, and unused-bit count.
+// Chain traversal already matched the issuer's subject name to the
+// certificate's issuer name byte for byte.
 func kalkanOCSPCertID(serial *big.Int, issuer *x509.Certificate) (ocspCertID, error) {
 	keyHash, err := kalkanOCSPPublicKeyHash(issuer)
 	if err != nil {
@@ -140,12 +146,18 @@ func kalkanOCSPRequest(id ocspCertID) ([]byte, error) {
 	return asn1.Marshal(request)
 }
 
-// kalkanOCSPStatus reads an OCSP response for certificate id, issued by issuer, at now.
-// A true result and revocation time mean revoked; false without an error means not revoked.
-// The response must be signed by issuer or its delegated OCSP responder (kalkanOCSPSigner).
-// Responder refusal (responseStatus), a different certificate, unknown status, an unsupported
-// critical extension (RFC 6960, 4.4), a future response, or a stale response cannot establish status.
-// A response is stale after nextUpdate, or after kalkanOCSPMaxAge when nextUpdate is absent.
+// kalkanOCSPStatus checks an OCSP response for certificate id and issuer at now.
+// A true result and revocation time indicate revocation.
+// A false result without an error indicates good status.
+// issuer or its delegated OCSP responder must sign the response.
+//
+// The function rejects these responses:
+//
+//   - A responder refusal or a response without exactly one status for id.
+//   - An unknown certificate status or an unsupported critical extension.
+//   - A response from the future beyond kalkanRevocationClockSkew.
+//   - A response at or after nextUpdate.
+//   - A response older than kalkanOCSPMaxAge when nextUpdate is absent.
 func kalkanOCSPStatus(raw []byte, id ocspCertID, issuer *x509.Certificate, now time.Time) (time.Time, bool, error) {
 	if len(raw) > kalkanOCSPMaxResponseBytes {
 		return time.Time{}, false, errors.New("the OCSP response exceeds the size limit")
@@ -242,10 +254,16 @@ func kalkanOCSPSingleStatus(single ocspSingleResponse, now time.Time) (time.Time
 	return time.Time{}, false, errors.New("the certificate status is malformed")
 }
 
-// kalkanOCSPSigner verifies the response signature using issuer's key or a delegated responder's
-// key. The responder certificate must be embedded in the response, signed by issuer, valid at now,
-// and carry id-kp-OCSPSigning (RFC 6960, 4.2.2.2). Local policy does not separately check responder
-// certificate revocation, even without id-pkix-ocsp-nocheck; no recursive network checks are made.
+// kalkanOCSPSigner verifies the response signature with issuer's key or a
+// delegated responder's key.
+// A delegated responder's certificate must be in the response.
+// issuer must sign that certificate.
+// The certificate must be valid at now and permit id-kp-OCSPSigning under RFC
+// 6960, section 4.2.2.2.
+//
+// Local policy does not check responder certificate revocation, even without
+// id-pkix-ocsp-nocheck.
+// This check makes no recursive network requests.
 func kalkanOCSPSigner(basic ocspBasicResponse, issuer *x509.Certificate, now time.Time) error {
 	signed, signature := []byte(basic.TBSResponseData.Raw), basic.Signature.RightAlign()
 
@@ -274,8 +292,9 @@ func kalkanOCSPSigner(basic ocspBasicResponse, issuer *x509.Certificate, now tim
 	return fmt.Errorf("the response is signed neither by the issuer nor by its OCSP responder: %w", issuerErr)
 }
 
-// kalkanOCSPResponderMatches binds ResponderID to the certificate whose key verifies the response.
-// Both alternatives are explicitly tagged: byName [1] Name and byKey [2] OCTET STRING.
+// kalkanOCSPResponderMatches reports whether id identifies signer as the OCSP
+// responder. Both alternatives use explicit tags: byName [1] Name and byKey [2]
+// OCTET STRING.
 func kalkanOCSPResponderMatches(id asn1.RawValue, signer *x509.Certificate) bool {
 	if signer == nil || id.Class != asn1.ClassContextSpecific || !id.IsCompound {
 		return false
@@ -299,7 +318,8 @@ func kalkanOCSPResponderMatches(id asn1.RawValue, signer *x509.Certificate) bool
 }
 
 func kalkanOCSPDigitalSignatureAllowed(signer *x509.Certificate) bool {
-	// KeyUsage == 0 also occurs for an explicitly empty extension; only omission means unrestricted.
+	// KeyUsage == 0 can also indicate an explicitly empty extension.
+	// Only an absent extension means unrestricted key use.
 	for _, extension := range signer.Extensions {
 		if extension.Id.Equal(asn1.ObjectIdentifier{2, 5, 29, 15}) {
 			return signer.KeyUsage&x509.KeyUsageDigitalSignature != 0
@@ -319,9 +339,11 @@ func kalkanCriticalExtension(extensions []pkix.Extension) bool {
 	return slices.ContainsFunc(extensions, func(extension pkix.Extension) bool { return extension.Critical })
 }
 
-// encoding/asn1 ignores extra fields at the end of a struct's SEQUENCE and
-// EXPLICIT wrappers. Check the fixed schemas without re-encoding signed data:
-// accepted time representations and explicitly encoded defaults remain intact.
+// kalkanOCSPResponseStructure reports whether raw matches the fixed
+// OCSPResponse schema. It checks the structure without changes to signed bytes.
+// encoding/asn1 ignores extra fields at the end of a struct SEQUENCE or
+// EXPLICIT wrapper. Direct schema checks preserve accepted time formats and
+// explicit default values.
 func kalkanOCSPResponseStructure(raw []byte) bool {
 	fields, ok := kalkanOCSPSequence(raw, 1, 2)
 	if !ok || len(fields) == 1 {

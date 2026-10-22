@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// LoadKeyStore loads container with password for storage and alias. It returns
+// the operation status.
 func (h *windowsDriver) LoadKeyStore(storage int, password, container, alias string) uint64 {
 	cPassword, err := narrowString(password)
 	if err != nil {

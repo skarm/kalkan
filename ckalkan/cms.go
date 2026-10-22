@@ -6,11 +6,14 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
-// GetCertFromCMS returns a signer certificate extracted from in-memory CMS.
-// The Linux SDK numbers certificates from 1; 0 returns an empty result.
-// This differs from the signer index used by GetTimeFromSig.
-// The CMS argument must contain the container bytes; KC_IN_FILE is ignored by
-// that SDK operation, so callers must read file contents themselves.
+// GetCertFromCMS returns the certificate selected by signID from cms.
+// The Linux SDK numbers certificates from 1.
+// Index 0 returns an empty result.
+// This differs from the signer index in [Client.GetTimeFromSig].
+//
+// cms must contain container bytes.
+// The Linux SDK ignores KC_IN_FILE for this operation.
+// Read file contents before this call.
 func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, error) {
 	if err := validateNativeSignerID("signID", signID); err != nil {
 		return nil, err
@@ -39,12 +42,14 @@ func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, err
 	})
 }
 
-// GetTimeFromSig returns the timestamp embedded for CMS signer sigID.
-// This extracts a value; it does not authenticate the CMS or TSA signature.
-// VerifyData must succeed before the timestamp can be trusted.
-// The index is zero-based; a native failure returns the zero time and an error.
-// The Linux SDK expects CMS contents and ignores InFile for this operation;
-// callers using that SDK must read file contents before calling it.
+// GetTimeFromSig returns the embedded timestamp for CMS signer sigID.
+// Extraction does not authenticate the CMS or TSA signature.
+// Verify the CMS with [Client.VerifyData] before you trust the timestamp.
+//
+// The index is zero-based.
+// A native failure returns the zero time and an error.
+// The Linux SDK expects CMS contents and ignores InFile for this operation.
+// Read file contents before this call when that SDK is in use.
 func (c *Client) GetTimeFromSig(data []byte, flags Flag, sigID int) (time.Time, error) {
 	if err := validateNativeSignerID("sigID", sigID); err != nil {
 		return time.Time{}, err

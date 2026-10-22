@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	// ErrWorkerFailed marks a terminated or unusable worker. Create a new client;
-	// operations are never replayed automatically.
+	// ErrWorkerFailed identifies a terminated or unusable worker.
+	// Create a new client after this error.
+	// The client never repeats operations automatically.
 	ErrWorkerFailed = errors.New("kalkan isolated: worker failed")
 	// ErrProtocol marks an incompatible or malformed worker message.
 	ErrProtocol = errors.New("kalkan isolated: invalid protocol message")

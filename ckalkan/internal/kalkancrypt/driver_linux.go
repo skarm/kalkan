@@ -74,6 +74,8 @@ func openDriver(path string) (driver, error) {
 	return &linuxDriver{handle: handle, funcs: unsafe.Pointer(funcs), clearError: clearSymbol}, nil
 }
 
+// Close releases the library handle and clears the driver's function pointers.
+// It returns any library release error.
 func (h *linuxDriver) Close() error {
 	if h == nil || h.handle == nil {
 		return nil
@@ -92,6 +94,7 @@ func (h *linuxDriver) Close() error {
 	return nil
 }
 
+// ClearError resets native error state if KC_InternalClearError is available.
 func (h *linuxDriver) ClearError() {
 	if h != nil && h.handle != nil && h.clearError != nil {
 		C.bridge_internal_clear_error(h.clearError)

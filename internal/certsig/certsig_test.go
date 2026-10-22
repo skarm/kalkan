@@ -107,6 +107,9 @@ func TestCheckSignatureAcceptsGost256SDKSignature(t *testing.T) {
 	}
 }
 
+// TestCheckSignatureAcceptsRealSignature checks OCSP signature verification
+// with a real NCA RK signature.
+//
 // Exercise the OCSP signature verifier with a real NCA RK signature.
 func TestCheckSignatureAcceptsRealSignature(t *testing.T) {
 	certificate := readCertificate(t, "testdata/kz/user_gost2022_test.cer")
@@ -214,8 +217,11 @@ func TestCheckSignatureRejectsMalformedGostKey(t *testing.T) {
 	}
 }
 
-// Both SDK profiles include the matching digest OID; omitting it is also valid
-// because the signature OID unambiguously selects the hash function.
+// TestCheckSignatureAcceptsGostKeyWithoutDigestParameter checks GOST keys
+// without optional digest parameters.
+//
+// Both SDK profiles include the matching digest OID. An absent digest OID is
+// also valid because the signature OID identifies the hash function.
 func TestCheckSignatureAcceptsGostKeyWithoutDigestParameter(t *testing.T) {
 	for _, fixture := range []struct{ name, certificate, issuer string }{
 		{"256", gost256Fixtures + "gost256-leaf.der", gost256Fixtures + "gost256-ca.der"},
@@ -241,8 +247,12 @@ func TestCheckSignatureAcceptsGostKeyWithoutDigestParameter(t *testing.T) {
 	}
 }
 
-// CheckSignature recognizes crypto/x509 algorithms by OID and delegates to crypto/x509.
-// RSASSA-PSS, whose hash is specified in parameters, and unknown algorithms are unsupported.
+// TestCheckSignatureDelegatesKnownAlgorithms checks supported crypto/x509
+// algorithms and rejects unsupported algorithms.
+//
+// CheckSignature recognizes crypto/x509 algorithms by OID and delegates to
+// crypto/x509. RSASSA-PSS, whose hash is specified in parameters, and unknown
+// algorithms are unsupported.
 func TestCheckSignatureDelegatesKnownAlgorithms(t *testing.T) {
 	data := []byte("tbsResponseData")
 	digest := sha256.Sum256(data)
@@ -311,7 +321,11 @@ func outerSignatureAlgorithm(t testing.TB, raw []byte) pkix.AlgorithmIdentifier 
 	return signed.Algorithm
 }
 
-// An issuer from the same algorithm family but with a different key cannot validate the signature.
+// TestCheckCertificateSignatureRejectsAnotherIssuerKey checks that verification
+// rejects a different issuer key.
+//
+// An issuer from the same algorithm family but with a different key cannot
+// validate the signature.
 func TestCheckCertificateSignatureRejectsAnotherIssuerKey(t *testing.T) {
 	for _, test := range []struct{ certificate, issuer string }{
 		{filepath.Join(kalkan, "prod", "nca", "nca_gost_2022.crt"), filepath.Join(kalkan, "test", "root", "root_test_gost_2022.crt")},
@@ -322,7 +336,11 @@ func TestCheckCertificateSignatureRejectsAnotherIssuerKey(t *testing.T) {
 	}
 }
 
-// Even a valid signature cannot authorize an issuer without certificate-signing permissions.
+// TestCheckCertificateSignatureRequiresIssuerRole checks the issuer permission
+// to sign certificates.
+//
+// Even a valid signature cannot authorize an issuer without certificate-signing
+// permissions.
 func TestCheckCertificateSignatureRequiresIssuerRole(t *testing.T) {
 	for _, fixture := range []struct{ name, certificate, issuer string }{
 		{"256", gost256Fixtures + "gost256-leaf.der", gost256Fixtures + "gost256-ca.der"},
@@ -355,7 +373,11 @@ func TestCheckCertificateSignatureRequiresIssuerRole(t *testing.T) {
 	}
 }
 
-// Kazakhstan's GOST 34.310-2004 cannot be verified and must be rejected as unsupported.
+// TestCheckCertificateSignatureRejectsUnsupportedAlgorithms checks rejection of
+// unsupported certificate signature algorithms.
+//
+// Kazakhstan's GOST 34.310-2004 cannot be verified and must be rejected as
+// unsupported.
 func TestCheckCertificateSignatureRejectsUnsupportedAlgorithms(t *testing.T) {
 	for _, test := range []struct{ certificate, issuer string }{
 		{filepath.Join(kalkan, "test", "root", "root_gost_test.crt"), filepath.Join(kalkan, "test", "root", "root_gost_test.crt")},
@@ -368,8 +390,11 @@ func TestCheckCertificateSignatureRejectsUnsupportedAlgorithms(t *testing.T) {
 	}
 }
 
-// crypto/x509 verifies its algorithms under its own policy: ECDSA is accepted, while SHA-1
-// certificate signatures are rejected.
+// TestCheckCertificateSignatureDelegatesKnownAlgorithms checks certificate
+// signatures under crypto/x509 policy.
+//
+// crypto/x509 verifies its algorithms under its own policy: ECDSA is accepted,
+// while SHA-1 certificate signatures are rejected.
 func TestCheckCertificateSignatureDelegatesKnownAlgorithms(t *testing.T) {
 	ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -568,8 +593,12 @@ func marshalFixture(t *testing.T, value any) []byte {
 	return encoded
 }
 
-// Literal on-curve points were derived with independent affine arithmetic. The mixed
-// points G+T and G+U have large order, so rejecting only small-order keys is insufficient.
+// TestCurveSubgroupMembership checks subgroup membership with independently
+// calculated curve points.
+//
+// Literal on-curve points were derived with independent affine arithmetic. The
+// mixed points G+T and G+U have large order, so rejecting only small-order keys
+// is insufficient.
 func TestCurveSubgroupMembership(t *testing.T) {
 	curve := gost3410.CurveIdtc26gost341012256paramSetA()
 	for _, test := range []struct {
@@ -647,6 +676,9 @@ func TestCurveExpHandlesInfinity(t *testing.T) {
 	}
 }
 
+// TestCurveExpAroundSubgroupOrder checks scalar multiplication near the
+// subgroup order.
+//
 // Exercise scalar multiplication around the subgroup order for both profiles,
 // including recovery from an intermediate point at infinity.
 func TestCurveExpAroundSubgroupOrder(t *testing.T) {
@@ -690,9 +722,12 @@ func fixtureInteger(t *testing.T, value string) *big.Int {
 	return integer
 }
 
-// A mixed-order key can satisfy the signature equation while lying outside the
-// required subgroup. These independently computed vectors specifically detect
-// removal of the subgroup check, rather than merely checking an invalid signature.
+// TestCheckSignatureRejectsGost256KeyOutsideSubgroup checks rejection of GOST
+// keys outside the required subgroup.
+//
+// A mixed-order key can satisfy the signature equation outside the required
+// subgroup. These independent vectors detect removal of the subgroup check.
+// They test more than rejection of an invalid signature.
 func TestCheckSignatureRejectsGost256KeyOutsideSubgroup(t *testing.T) {
 	issuer := readCertificate(t, gost256Fixtures+"gost256-ca.der")
 	algorithm := pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 398, 3, 10, 1, 1, 2, 3, 1}}
@@ -739,6 +774,9 @@ func decodeHexFixture(t *testing.T, value string) []byte {
 	return decoded
 }
 
+// TestCurveFactoriesKeepMutableParametersIndependent checks that curves do not
+// share mutable parameters.
+//
 // Factory results expose mutable integers, but mutating one result must not
 // change another curve or the constants used by subsequent verifications.
 func TestCurveFactoriesKeepMutableParametersIndependent(t *testing.T) {
@@ -774,6 +812,9 @@ func TestCurveFactoriesKeepMutableParametersIndependent(t *testing.T) {
 	}
 }
 
+// TestNewCurveCopiesAllParameters checks that curve constructors copy mutable
+// parameters.
+//
 // Constructor callers may retain their parameter integers. Changing them after
 // construction must not affect a curve being used by another goroutine.
 func TestNewCurveCopiesAllParameters(t *testing.T) {
@@ -807,8 +848,12 @@ func TestNewCurveCopiesAllParameters(t *testing.T) {
 	}
 }
 
+// TestConcurrentGostVerification checks concurrent verification with shared
+// inputs and both GOST profiles.
+//
 // All workers share the same parsed certificates, public keys and input slices.
-// Both profiles run together so the race detector observes their shared constants.
+// Both profiles run together so the race detector observes their shared
+// constants.
 func TestConcurrentGostVerification(t *testing.T) {
 	type fixture struct {
 		name                                                       string
@@ -1267,8 +1312,9 @@ func FuzzCheckGostSignature(f *testing.F) {
 			algorithm.Parameters = asn1.RawValue{FullBytes: data}
 		}
 		before := bytes.Clone(data)
-		// The parser and arithmetic must return errors for bad input without panicking
-		// or mutating caller-owned bytes. Valid seeds reach verification on both curves.
+		// The parser and arithmetic must return errors for bad input.
+		// They must not panic or change the caller's bytes.
+		// Valid seeds reach verification on both curves.
 		_ = certsig.CheckSignature(&issuer, algorithm, certificate.RawTBSCertificate, signature)
 		if !bytes.Equal(data, before) {
 			t.Fatal("signature verification mutated its input")

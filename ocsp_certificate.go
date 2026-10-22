@@ -7,10 +7,12 @@ import (
 	"math/big"
 )
 
-// parseOCSPDERCertificate preserves the signed bytes and actual serial number
-// of legacy certificates with negative serials accepted by KalkanCrypt. Only
-// that x509 parsing restriction is relaxed; signature verification still uses
-// the original TBSCertificate. Adapted from CSP's kalkanSignedCertificate.
+// parseOCSPDERCertificate parses legacy certificates with negative serial
+// numbers that KalkanCrypt accepts.
+// It preserves signed bytes and the actual serial number.
+// It relaxes only x509's serial number restriction.
+// Signature verification uses the original TBSCertificate.
+// The implementation derives from CSP's kalkanSignedCertificate.
 func parseOCSPDERCertificate(der []byte) (*x509.Certificate, error) {
 	certificate, originalErr := x509.ParseCertificate(der)
 	if originalErr == nil {

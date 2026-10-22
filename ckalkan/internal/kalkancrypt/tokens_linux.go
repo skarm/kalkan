@@ -25,9 +25,12 @@ import (
 	"github.com/skarm/kalkan/internal/nativebytes"
 )
 
+// GetTokens returns the native status, token list, and item count for storage.
+// bufferSize controls the Go allocation only. The native API receives no output
+// capacity.
 func (h *linuxDriver) GetTokens(storage uint64, bufferSize int) (ListResult, error) {
-	// KC_GetTokens has no capacity parameter in KalkanCrypt.h; bufferSize only
-	// sizes the Go allocation before entering the native library.
+	// KC_GetTokens has no capacity parameter in KalkanCrypt.h.
+	// bufferSize controls the Go allocation only.
 	buf, err := outputBuffer(bufferSize)
 	if err != nil {
 		return ListResult{}, err
@@ -40,9 +43,12 @@ func (h *linuxDriver) GetTokens(storage uint64, bufferSize int) (ListResult, err
 	return ListResult{Code: uint64(code), Data: string(nativebytes.BeforeNUL(buf)), Count: uint64(count)}, nil
 }
 
+// GetCertificatesList returns the native status, certificate list, and item
+// count. bufferSize controls the Go allocation only. The native API receives no
+// output capacity.
 func (h *linuxDriver) GetCertificatesList(bufferSize int) (ListResult, error) {
-	// KC_GetCertificatesList has no capacity parameter in KalkanCrypt.h; bufferSize
-	// only sizes the Go allocation before entering the native library.
+	// KC_GetCertificatesList has no capacity parameter in KalkanCrypt.h.
+	// bufferSize controls the Go allocation only.
 	buf, err := outputBuffer(bufferSize)
 	if err != nil {
 		return ListResult{}, err

@@ -614,6 +614,9 @@ func TestVerifyCMSValidatesBeforeNativeLock(t *testing.T) {
 	}
 }
 
+// TestVerifyCMSSignatureEncodingPrecedence checks the precedence of source and
+// request encodings.
+//
 // Verify the complete source/request encoding precedence independently of the
 // production encoding helpers. Raw CMS and automatic defaults both mean DER.
 func TestVerifyCMSSignatureEncodingPrecedence(t *testing.T) {

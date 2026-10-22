@@ -16,14 +16,18 @@ const maxSignerID = int(^uint32(0) >> 1)
 
 // Client owns one initialized KalkanCrypt session.
 //
-// KalkanCrypt stores process-global state inside the native library. The
-// low-level ckalkan package therefore allows one active native client per
-// process and serializes native calls. Client follows that model.
-// Individual calls are serialized; a LoadKeyStore call followed by signing is
-// not atomic. Callers using different key stores must synchronize the complete
-// load-and-sign sequence or use separate processes.
-// A Client is safe for concurrent method calls, subject to the callback contract
-// of [Observer]. It must be created with [Open]; its zero value is not initialized.
+// KalkanCrypt shares native state across the process.
+// The low-level ckalkan package allows one active native client per process.
+// It serializes individual native calls.
+// Client follows the same model.
+//
+// A Client is safe for concurrent method calls under the [Observer] callback contract.
+// A sequence that loads a key store and then signs with it is not atomic.
+// Synchronize the complete sequence when callers use different key stores.
+// Separate processes can use different key stores independently.
+//
+// Create clients with [Open].
+// The zero value is not ready for use.
 type Client struct {
 	mu       sync.Mutex
 	pemCache atomic.Pointer[entry]
@@ -32,7 +36,7 @@ type Client struct {
 	library  closer
 	config   runtimeConfig
 	logger   *slog.Logger
-	// trusted is accessed only while the native call gate is held.
+	// The client accesses trusted only while it holds the native call gate.
 	trusted []loadedTrustedCertificate
 }
 
@@ -94,30 +98,34 @@ type zipContainers interface {
 
 // Open loads and initializes KalkanCrypt.
 //
-// The context is checked before and between Go setup steps and while waiting
-// for the Client call gate. It cannot interrupt the low-level process mutex
-// wait, library loading, or an active KalkanCrypt call, including Init. Cleanup
-// after failed or canceled setup also waits without a context.
+// Open checks ctx before and between Go setup steps and during a wait for the client call gate.
+// The context cannot interrupt the low-level process mutex wait, a library
+// load, or an active native call, including Init.
+// Cleanup after failed or canceled setup also waits without a context.
+// A nil ctx uses [context.Background].
 func Open(ctx context.Context, options ...Option) (*Client, error) {
 	return openWithLibraryFactory(ctx, options, defaultLibraryFactory)
 }
 
-// Close releases the native KalkanCrypt session. It may be called more than
-// once. Close waits for any in-flight native call to return before closing the
-// native library. Repeated calls return the saved result of closing.
+// Close releases the native KalkanCrypt session.
+// It waits for an active native call to return before it closes the library.
+// Repeated calls return the saved close result.
+// Close returns nil for a nil client.
 func (c *Client) Close() error {
 	return c.CloseContext(context.Background())
 }
 
-// CloseContext releases the native KalkanCrypt session with context-aware
-// waiting. It may be called more than once.
+// CloseContext starts native session shutdown and uses ctx to limit the caller's wait.
+// It rejects new operations even if ctx is already canceled.
+// A nil ctx uses [context.Background].
 //
-// The context can stop waiting for a close that is queued behind another native
-// call or already running in another goroutine. It cannot interrupt a
-// KalkanCrypt call after control has entered the shared library.
-// CloseContext always starts closing, even when ctx is already canceled, and
-// rejects new operations. Once closing has completed, repeated calls return its
-// saved result, including when ctx is canceled.
+// Context cancellation can end the caller's wait while shutdown waits for
+// another native call or runs in another goroutine.
+// It cannot interrupt a KalkanCrypt call inside the shared library.
+// Shutdown continues after the caller's wait ends.
+//
+// Repeated calls return the saved result after shutdown completes, even if ctx is canceled.
+// CloseContext returns nil for a nil client.
 func (c *Client) CloseContext(ctx context.Context) error {
 	if c == nil {
 		return nil
@@ -220,8 +228,8 @@ func waitCloseContext(ctx context.Context, closing *closeState) error {
 	}
 }
 
-// lockLibrary acquires the client call gate and rechecks that the session is
-// open. On success the caller must release the returned gate after using library.
+// lockLibrary acquires the client call gate and checks that the session is still open.
+// On success, release the returned gate after the library call.
 func (c *Client) lockLibrary(ctx context.Context) (closer, chan struct{}, error) {
 	if c == nil {
 		return nil, nil, ErrClosed
@@ -402,8 +410,8 @@ func setupOpenedClient(ctx context.Context, client *Client, cfg config) error {
 		return err
 	}
 
-	// There is no KalkanCrypt SetOCSPURL call in the SDK used by this wrapper;
-	// cfg.ocspURL is consumed later by ValidateCertificate defaults.
+	// This SDK has no SetOCSPURL call.
+	// ValidateCertificate uses cfg.ocspURL as its default endpoint.
 
 	if cfg.proxy != nil {
 		if err := withLockedLibrary(client, ctx, "SetProxy", func(native network) error {
@@ -420,9 +428,9 @@ func setupOpenedClient(ctx context.Context, client *Client, cfg config) error {
 	return nil
 }
 
-// withLockedLibrary holds the client call gate while call runs and reports
-// observations after releasing it. The low-level client serializes native calls
-// through a separate process-global mutex.
+// withLockedLibrary holds the client call gate while call runs.
+// It releases the gate before it reports observations.
+// The low-level client serializes native calls through a separate process mutex.
 func withLockedLibrary[T any](c *Client, ctx context.Context, operation string, call func(T) error) error {
 	_, err := withLockedLibraryResult(c, ctx, operation, func(native T) (struct{}, error) {
 		return struct{}{}, call(native)
@@ -431,9 +439,10 @@ func withLockedLibrary[T any](c *Client, ctx context.Context, operation string, 
 	return err
 }
 
-// withLockedLibraryResult runs call under the client call gate and reports
-// observations after releasing it. expectedCodes classify accepted native
-// statuses for diagnostics without changing the returned result or error.
+// withLockedLibraryResult runs call under the client call gate.
+// It releases the gate before it reports observations.
+// expectedCodes identifies accepted native statuses for diagnostics.
+// It does not change the returned result or error.
 func withLockedLibraryResult[T, N any](c *Client, ctx context.Context, operation string, call func(N) (T, error), expectedCodes ...ckalkan.ErrorCode) (T, error) {
 	if ctx == nil {
 		ctx = context.Background()

@@ -231,8 +231,9 @@ func openFixtureSigningClient(t *testing.T, options ...Option) *Client {
 func requireNativeErrorCode(t *testing.T, name string, err error, want ckalkan.ErrorCode) {
 	t.Helper()
 
-	// A setup, validation, or infrastructure error cannot stand in for the
-	// expected cryptographic rejection, nor can an arbitrary native info string.
+	// A setup, validation, or infrastructure error does not prove cryptographic
+	// rejection.
+	// An arbitrary native diagnostic string also does not prove rejection.
 	code, ok := ckalkan.ErrorCodeOf(err)
 	if !ok || code != want {
 		t.Fatalf("%s error = %v, want KalkanCrypt code %s", name, err, want.Hex())

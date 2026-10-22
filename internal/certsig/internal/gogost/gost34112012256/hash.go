@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// GOST R 34.11-2012 256-bit hash function.
-// RFC 6986. Big-endian hash output.
+// Package gost34112012256 implements the GOST R 34.11-2012 256-bit hash from RFC 6986.
+// Digests use big-endian byte order.
 package gost34112012256
 
 import (
@@ -24,8 +24,10 @@ import (
 )
 
 const (
+	// BlockSize is the input block size in bytes.
 	BlockSize = gost34112012.BlockSize
-	Size      = 32
+	// Size is the digest size in bytes.
+	Size = 32
 )
 
 /*
@@ -34,6 +36,7 @@ func init() {
 }
 */
 
+// New returns a new GOST R 34.11-2012 256-bit hash.
 func New() hash.Hash {
 	return gost34112012.New(32)
 }

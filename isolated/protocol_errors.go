@@ -9,8 +9,9 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// Error text travels in raw blocks. The header stores sentinel bits, an optional
-// concrete native error and direct unwrap links. Both directions bound depth.
+// encodeError encodes err and its direct causes at depth. Error text uses raw
+// blocks. The header stores sentinel bits, an optional concrete native error,
+// and direct cause links. The encoder rejects depths of 32 or more.
 func (e *payloadEncoder) encodeError(err error, depth int) {
 	e.boolean(err != nil)
 
@@ -135,7 +136,10 @@ type remoteError struct {
 	causes  []error
 }
 
-func (err *remoteError) Error() string   { return err.message }
+// Error returns the remote error message.
+func (err *remoteError) Error() string { return err.message }
+
+// Unwrap returns the remote error's causes.
 func (err *remoteError) Unwrap() []error { return err.causes }
 
 func errorSentinels() []error {

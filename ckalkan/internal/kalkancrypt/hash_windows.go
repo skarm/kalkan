@@ -7,6 +7,9 @@ import (
 	"unsafe"
 )
 
+// HashData returns the digest and native status for call.Data with
+// call.Algorithm and call.Flags. It uses call.Capacity bytes of output storage
+// without retries.
 func (h *windowsDriver) HashData(call HashDataCall) (BufferResult, error) {
 	cAlgorithm, err := narrowString(call.Algorithm)
 	if err != nil {

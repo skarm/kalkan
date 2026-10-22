@@ -29,7 +29,8 @@ const (
 )
 
 // KeyStore describes a private-key container to load into KalkanCrypt.
-// Type defaults to [PKCS12]; Path must name a container and cannot be empty.
+// Type defaults to [PKCS12].
+// Path must identify a container and cannot be empty.
 type KeyStore struct {
 	// Type selects the storage provider.
 	Type KeyStoreType
@@ -44,17 +45,19 @@ type KeyStore struct {
 // TrustedCertificate describes a certificate loaded into KalkanCrypt's trust
 // store. Set either a nonempty Path or nonempty Data. A zero value is invalid.
 type TrustedCertificate struct {
-	// Data contains certificate bytes when Path is empty. The bytes are borrowed
-	// for the initial load; after success the client retains its own copy for
-	// restoration after LoadKeyStore. Keep Data unchanged until loading returns.
+	// Data contains certificate bytes when Path is empty.
+	// The client borrows the bytes for the initial load.
+	// Keep Data unchanged until the load returns.
+	// After a successful load, the client retains a copy for restoration after LoadKeyStore.
 	Data []byte
-	// Path is loaded directly by KalkanCrypt when set. The file and its contents
-	// must remain available and unchanged for restoration after every successful
-	// LoadKeyStore.
+	// Path identifies a certificate file that KalkanCrypt loads directly.
+	// Keep the file available and unchanged until the client closes.
+	// The client uses it to restore trust after each successful LoadKeyStore
+	// call.
 	Path string
-	// Type selects CA, intermediate, or user certificate role for Path.
-	// It is validated for both sources, but the SDK buffer-loading function
-	// receives only Data and Format and has no role parameter.
+	// Type selects the CA, intermediate, or user certificate role for Path.
+	// The client validates Type for both sources.
+	// The SDK buffer function receives only Data and Format, without a role parameter.
 	Type CertificateType
 	// Format selects PEM, DER, or base64 bytes for Data.
 	Format CertificateFormat
@@ -89,8 +92,9 @@ func (c *Client) rememberTrustedCertificate(cert loadedTrustedCertificate) {
 	c.trusted = append(c.trusted, cert)
 }
 
-// restoreTrustedCertificates must run inside the successful key-store load's
-// native call gate, including if its context has since been canceled.
+// restoreTrustedCertificates restores trust after a successful native key-store load.
+// Keep the native call gate locked until restoration returns, even if the
+// context is canceled.
 func (c *Client) restoreTrustedCertificates(native keyStore) error {
 	if len(c.trusted) == 0 {
 		return nil
@@ -161,8 +165,8 @@ const (
 )
 
 // Proxy configures the native HTTP proxy and the Go OCSP HTTP proxy.
-// Its zero value disables proxy use; the remaining fields are ignored when
-// Enabled is false.
+// Its zero value disables proxy use.
+// The client ignores the other fields when Enabled is false.
 type Proxy struct {
 	// Enabled enables or disables proxy use.
 	Enabled bool
@@ -244,13 +248,17 @@ func (p Proxy) native() ckalkan.ProxyRequest {
 	}
 }
 
-// LoadKeyStore loads a key container into the native KalkanCrypt session.
-// After a successful native load, it restores all trusted certificates loaded
-// through this client before allowing another operation to run. If restoration
-// fails, the error reports partial success: the key store has already changed,
-// and a later LoadKeyStore retries restoration from the retained certificates.
-// Callers using different key stores must externally synchronize the entire
-// load-and-sign sequence; the client serializes individual calls only.
+// LoadKeyStore loads the key container in store into the native KalkanCrypt
+// session.
+// After a successful native load, it restores this client's trusted
+// certificates before it releases the call gate.
+// If restoration fails, the error reports partial success.
+// The key store already changed, and a later LoadKeyStore call retries
+// restoration from the retained certificates.
+//
+// If callers use different key stores, synchronize each sequence that loads a
+// key store and then signs with it.
+// The client serializes individual calls only.
 func (c *Client) LoadKeyStore(ctx context.Context, store KeyStore) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -289,8 +297,9 @@ func (c *Client) LoadKeyStore(ctx context.Context, store KeyStore) error {
 	})
 }
 
-// LoadTrustedCertificate loads a certificate into the native KalkanCrypt store.
-// Successful loads are retained for restoration after LoadKeyStore until Close.
+// LoadTrustedCertificate loads cert into the native KalkanCrypt trust store.
+// The client retains successful loads until [Client.Close] and restores them
+// after [Client.LoadKeyStore].
 func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertificate) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -355,7 +364,8 @@ func (c *Client) LoadTrustedCertificate(ctx context.Context, cert TrustedCertifi
 	})
 }
 
-// SetProxy configures the native and optional Go OCSP HTTP proxy for the open session.
+// SetProxy applies proxy to the native HTTP client and optional Go OCSP HTTP
+// client.
 func (c *Client) SetProxy(ctx context.Context, proxy Proxy) error {
 	if ctx == nil {
 		ctx = context.Background()

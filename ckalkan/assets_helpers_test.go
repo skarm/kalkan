@@ -157,8 +157,9 @@ func loadCertificates(t *testing.T, client *ckalkan.Client, assets fixtureAssets
 	if len(assets.Certs) == 0 {
 		t.Fatal("certificate fixtures are required for native test setup")
 	}
-	// The selected certificates form the test's trust setup. A rejected input
-	// is a setup failure; negative certificate fixtures belong in explicit tests.
+	// The selected certificates define the test's trust setup.
+	// A rejected input is a setup failure.
+	// Use explicit tests for negative certificate fixtures.
 	for _, certPath := range assets.Certs {
 		data, err := os.ReadFile(certPath)
 		if err != nil {

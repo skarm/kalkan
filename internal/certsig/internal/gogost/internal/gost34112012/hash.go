@@ -13,8 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// GOST R 34.11-2012 hash function.
-// RFC 6986.
+// Package gost34112012 implements GOST R 34.11-2012 hashes from RFC 6986.
 package gost34112012
 
 import (
@@ -22,8 +21,12 @@ import (
 	"encoding/binary"
 )
 
+// BlockSize is the input block size in bytes.
 const BlockSize = 64
 
+// Hash contains mutable state for a GOST R 34.11-2012 hash.
+// Create values with [New].
+// Do not copy initialized Hash values.
 type Hash struct {
 	buf  []byte
 	hsh  []byte
@@ -32,7 +35,8 @@ type Hash struct {
 	size int
 }
 
-// Create new hash object with specified size digest size.
+// New returns a hash with a digest size of size bytes.
+// It panics unless size is 32 or 64.
 func New(size int) *Hash {
 	if size != 32 && size != 64 {
 		panic("size must be either 32 or 64")
@@ -46,6 +50,7 @@ func New(size int) *Hash {
 	return &h
 }
 
+// Reset clears accumulated input and retains the digest size.
 func (h *Hash) Reset() {
 	h.n = 0
 	h.buf = nil
@@ -59,10 +64,12 @@ func (h *Hash) Reset() {
 	}
 }
 
+// BlockSize returns the input block size in bytes.
 func (h *Hash) BlockSize() int {
 	return BlockSize
 }
 
+// Size returns the digest size in bytes.
 func (h *Hash) Size() int {
 	return h.size
 }
@@ -123,6 +130,8 @@ func e(out, k, msg []byte) {
 	subtle.XORBytes(out, k, msg)
 }
 
+// Write adds data to the hash state.
+// It returns len(data) and a nil error.
 func (h *Hash) Write(data []byte) (int, error) {
 	h.buf = append(h.buf, data...)
 	var addBuf, tmp [BlockSize]byte
@@ -136,6 +145,8 @@ func (h *Hash) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+// Sum appends the current digest to in and returns the resulting slice.
+// It does not change the hash state.
 func (h *Hash) Sum(in []byte) []byte {
 	var buf, hsh, tmp, addBuf [BlockSize]byte
 	copy(buf[:], h.buf)

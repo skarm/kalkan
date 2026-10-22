@@ -20,6 +20,9 @@ import (
 	"runtime"
 )
 
+// HashData returns the digest and native status for call.Data with
+// call.Algorithm and call.Flags. It uses call.Capacity bytes of output storage
+// without retries.
 func (h *linuxDriver) HashData(call HashDataCall) (BufferResult, error) {
 	cAlgorithm, freeAlgorithm, err := cString(call.Algorithm)
 	if err != nil {

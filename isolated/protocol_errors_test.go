@@ -130,8 +130,8 @@ func TestBinaryErrorsPreserveFullNativeCode(t *testing.T) {
 }
 
 func TestMalformedErrorsAreRejected(t *testing.T) {
-	// Literal metadata exercises invalid tags, cause counts, sentinel bits and
-	// text references without deriving expectations from the error encoder.
+	// Literal metadata tests invalid tags, cause counts, sentinel bits, and text references.
+	// Expected values do not depend on the error encoder.
 	for _, test := range []struct {
 		name string
 		data []byte

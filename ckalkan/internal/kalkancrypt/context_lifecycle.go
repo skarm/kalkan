@@ -17,15 +17,15 @@ func (c *Context) InitDebug() {
 	}
 }
 
-// Finalize releases the native runtime resources without unloading the
-// shared library. It does nothing for a closed context.
+// Finalize releases native runtime resources and leaves the shared library loaded.
+// It does nothing for a closed context.
 func (c *Context) Finalize() {
 	if !c.closed() {
 		c.driver.Finalize()
 	}
 }
 
-// XMLFinalize releases native XML resources without unloading the library.
+// XMLFinalize releases native XML resources and leaves the library loaded.
 // It does nothing for a closed context.
 func (c *Context) XMLFinalize() {
 	if !c.closed() {

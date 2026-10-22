@@ -8,10 +8,10 @@ const (
 	defaultListBufferSize   = 1 << 20
 	defaultOutputBufferSize = conservativeOutputBufferSize
 
-	// DefaultMaxOutputBufferSize is the default hard limit for each native output
-	// buffer. It is a security and availability boundary, not a promise that any
-	// particular operation should consume the full amount. Applications may set
-	// a smaller limit with WithMaxBufferSize.
+	// DefaultMaxOutputBufferSize is the default hard limit for each native output buffer.
+	// It bounds buffer growth for security and availability.
+	// It does not require operations to consume the full amount.
+	// Use [WithMaxBufferSize] to set a smaller limit.
 	DefaultMaxOutputBufferSize = 64 << 20
 	maxNativeOutputBufferSize  = 1<<31 - 1
 

@@ -72,8 +72,8 @@ type certificateInfoFieldsRequest struct {
 	Fields kalkan.CertificateInfoField
 }
 
-// Request fields have a fixed binary order. No reflected struct serialization
-// or intermediate copies of byte inputs are used.
+// encodeRequest serializes request fields in a fixed binary order.
+// It uses no reflection and creates no intermediate copies of byte inputs.
 func encodeRequest(operation string, request any, inputLimit int64) (wirePayload, error) {
 	e := payloadEncoder{inputLimit: inputLimit}
 
@@ -138,8 +138,9 @@ func requestTypeError(operation string) error {
 	return fmt.Errorf("%w: incorrect isolated request type for %s", kalkan.ErrInvalidInput, operation)
 }
 
-// The root API owns SDK validation. Fully decode and validate field boundaries
-// before calling it, so malformed requests cannot reach native code.
+// dispatch validates field boundaries before it calls the root API.
+// The root API validates SDK inputs.
+// Malformed requests cannot reach native code.
 func dispatch(ctx context.Context, client sdkClient, operation string, payload wirePayload) (wirePayload, error) {
 	switch operation {
 	case opHash:

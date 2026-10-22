@@ -329,8 +329,8 @@ func minimumOutputGrowth(current, reported int) uint64 {
 		return 1
 	}
 
-	// Add after converting so this remains safe when int is 32 bits and the
-	// current capacity is the largest value representable by the C int ABI.
+	// Convert the capacity before the addition.
+	// This protects 32-bit arithmetic at the native C int maximum.
 	return value + 1
 }
 

@@ -19,11 +19,15 @@ const (
 
 var errMetadataTooLarge = errors.New("kalkan isolated: metadata exceeds protocol bounds")
 
-// A frame is: uint64 body size, uint32 header size, binary header, raw blocks.
-// Block lengths are uint64 too; raw data has no configurable or default IPC cap.
-// Integers use big-endian byte order. The header contains the request ID,
-// operation, operation fields, errors, observations and the block length table.
-// Parent and child run the same executable; there is no version negotiation.
+// message describes a frame with a uint64 body size, uint32 header size,
+// binary header, and raw blocks.
+// Block lengths also use uint64.
+// IPC adds no configurable or default size limit for raw data.
+// Integers use big-endian byte order.
+//
+// The header contains the request ID, operation, fields, errors,
+// observations, and block lengths.
+// Parent and child use the same build without version negotiation.
 type message struct {
 	ID           uint64
 	Operation    string
@@ -32,8 +36,10 @@ type message struct {
 	Observations []kalkan.OperationObservation
 }
 
+// wirePayload contains metadata and raw blocks.
 // Outgoing blocks borrow caller memory until writeMessage completes.
-// Received blocks own their storage; metadata never contains their contents.
+// Received blocks own their storage.
+// Metadata never contains block contents.
 type wirePayload struct {
 	metadata []byte
 	blocks   []binaryBlock
@@ -122,7 +128,8 @@ func (e *metadataWriter) text(value string) {
 	}
 }
 
-// A collection count of zero means nil; other values store length + 1.
+// length encodes a zero count for a nil collection.
+// Other values store the collection length plus one.
 func (e *metadataWriter) length(length int, present bool) bool {
 	if !present {
 		e.uint32(0)
@@ -221,8 +228,9 @@ func (d *metadataReader) raw() []byte {
 
 func (d *metadataReader) text() string { return string(d.raw()) }
 
-// Every collection item needs at least minSize bytes in the remaining header.
-// Validate the count before allocating its destination slice.
+// length validates a collection count before the caller allocates the
+// destination slice.
+// Each item requires at least minSize bytes in the remaining header.
 func (d *metadataReader) length(minSize uint32) int {
 	encoded := d.uint32()
 	if d.err != nil || encoded == 0 {
@@ -257,8 +265,10 @@ type payloadEncoder struct {
 	size       uint64
 }
 
-// Block references are one-based; zero means nil. A non-nil empty byte slice
-// has its own zero-length block, preserving the distinction from nil.
+// add returns a one-based block reference.
+// Zero means nil.
+// A non-nil empty byte slice receives its own zero-length block to preserve
+// the distinction from nil.
 func (e *payloadEncoder) add(block binaryBlock) uint32 {
 	if e.err != nil {
 		return 0
@@ -433,9 +443,10 @@ func readMessage(reader io.Reader) (message, error) {
 	return result, nil
 }
 
-// Read bounded chunks as bytes arrive, then join them once. This avoids repeated
-// copying of the growing prefix, and a truncated frame cannot force allocation
-// of its full declared size. The SDK API ultimately requires contiguous bytes.
+// readBlock reads bounded chunks as bytes arrive and joins them once.
+// This avoids repeated copies of the received prefix.
+// A truncated frame cannot force allocation of its full declared size.
+// The SDK API requires contiguous bytes.
 func readBlock(reader io.Reader, length uint64) ([]byte, error) {
 	if length > uint64(math.MaxInt) {
 		return nil, fmt.Errorf("%w: block length overflows int", ErrProtocol)

@@ -1,7 +1,7 @@
 package kalkancrypt
 
-// SetTSAURL configures the timestamp authority endpoint for native signing
-// operations and returns a native status.
+// SetTSAURL configures the timestamp authority endpoint for native signatures.
+// It returns a wrapper status because the native function returns no status.
 func (c *Context) SetTSAURL(tsaURL string) uint64 {
 	if c.closed() {
 		return errorLibraryNotInitialized

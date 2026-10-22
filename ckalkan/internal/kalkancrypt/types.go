@@ -3,11 +3,11 @@ package kalkancrypt
 import "errors"
 
 var (
-	// ErrClosed is returned when a low-level context is used after Close.
+	// ErrClosed indicates a call through a closed low-level context.
 	ErrClosed = errors.New("kalkancrypt: context is closed")
 
-	// ErrUnavailable is returned when this binary has no native KalkanCrypt
-	// loader for the current platform/build mode.
+	// ErrUnavailable indicates that this build has no native KalkanCrypt loader
+	// for the current platform.
 	ErrUnavailable = errors.New("kalkancrypt: native KalkanCrypt loader is unavailable for this build")
 )
 
@@ -252,7 +252,8 @@ type ProxyCall struct {
 type ZipConSignCall struct {
 	// Alias identifies the key used by the native signer.
 	Alias string
-	// FilePath is the path of the file added to the signed container.
+	// FilePath identifies the input path for the signed container.
+	// The Linux driver requires an existing directory.
 	FilePath string
 	// Name is the name assigned to the generated container.
 	Name string

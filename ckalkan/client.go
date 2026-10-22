@@ -9,31 +9,29 @@ import (
 )
 
 var (
-	// ErrAlreadyOpen is returned when New is called while another Client is still
-	// active in the same process.
+	// ErrAlreadyOpen indicates that another Client is still active in this process.
 	ErrAlreadyOpen = errors.New("ckalkan: KalkanCrypt client is already open")
 
-	// ErrClosed is returned when a method is called after Close.
+	// ErrClosed indicates a method call after Close.
 	ErrClosed = errors.New("ckalkan: client is closed")
 
-	// ErrNoLibrary is returned when New has no library path to load.
+	// ErrNoLibrary indicates that New received no library path.
 	ErrNoLibrary = errors.New("ckalkan: no KalkanCrypt library path")
 
-	// ErrUnavailable is returned when the current build has no native
-	// KalkanCrypt loader.
+	// ErrUnavailable indicates that the current build has no native KalkanCrypt loader.
 	ErrUnavailable = errors.New("ckalkan: native KalkanCrypt loader is unavailable for this build")
 
-	// ErrInvalidOutputBufferSize is returned when WithMaxBufferSize receives a
-	// negative limit. Zero selects DefaultMaxOutputBufferSize.
+	// ErrInvalidOutputBufferSize indicates a negative WithMaxBufferSize limit.
+	// Zero selects DefaultMaxOutputBufferSize.
 	ErrInvalidOutputBufferSize = errors.New("ckalkan: maximum output buffer size must be non-negative")
 
-	// ErrPoisoned is returned after native close/finalize failed and the
-	// process-global KalkanCrypt state can no longer be reused.
+	// ErrPoisoned indicates that native cleanup failed and the process cannot
+	// safely reuse KalkanCrypt state.
 	ErrPoisoned = errors.New("ckalkan: KalkanCrypt process state is poisoned after failed close")
 )
 
-// clientContext is the low-level call surface Client needs from internal/kalkancrypt.
-// Tests use this interface to inject fakes without opening a native library.
+// clientContext defines the internal/kalkancrypt capabilities that Client requires.
+// Tests use this interface to supply fakes without a native library.
 type clientContext interface {
 	Close() error
 	ClearError()
@@ -94,12 +92,11 @@ type zipContext interface {
 	GetCertFromZipFile(call kalkancrypt.GetCertFromZipFileCall) (kalkancrypt.BufferResult, error)
 }
 
-// processState protects the process-global KalkanCrypt runtime state.
+// processState protects KalkanCrypt state across the process.
 //
-// The native library does not expose an independent context handle per operation:
-// loaded keys, XML state, network settings, and last-error text all behave as
-// global state inside the loaded .so. One mutex therefore guards both the single
-// active-client slot and every call crossing the KalkanCrypt boundary.
+// The native library exposes no independent context handle per operation.
+// Loaded keys, XML state, network settings, and error text are global to the loaded library.
+// One mutex protects both the active client slot and each native call.
 type processState struct {
 	mu       sync.Mutex
 	active   bool
@@ -109,16 +106,22 @@ type processState struct {
 //nolint:gochecknoglobals
 var process processState
 
-// Client is a serialized, stateful handle to one loaded KalkanCrypt library.
+// Client controls one loaded KalkanCrypt library and its state.
 //
-// KalkanCrypt stores process-global state: loaded keys, XML state, network
-// settings, and last-error text. For that reason ckalkan allows one active
-// Client per process and serializes every public method through a process-wide
-// mutex. If true parallelism is required, use separate OS processes.
-// A Client is safe for concurrent method calls, but callers must synchronize
-// sequences such as loading a key store and signing with it. Create a Client
-// with [New], then call [Client.Init]; the zero value is not initialized.
-// A Client must not be copied; share its pointer instead.
+// KalkanCrypt shares loaded keys, XML state, network settings, and error text
+// across the process.
+// The package allows one active Client per process.
+// A process mutex serializes public methods.
+// Use separate OS processes for parallel native calls.
+//
+// A Client is safe for concurrent method calls.
+// Synchronize sequences that load a key store and then sign with it.
+// Create clients with [New].
+// Call [Client.Init] before cryptographic operations.
+// The zero value is not ready for use.
+// Do not copy a Client.
+//
+// Share the pointer returned by New.
 type Client struct {
 	noCopy   noCopy
 	ctx      clientContext
@@ -130,11 +133,15 @@ type Client struct {
 // noCopy makes go vet report accidental copies of a Client.
 type noCopy struct{}
 
-func (*noCopy) Lock()   {}
+// Lock is a no-op for go vet's copy checks.
+func (*noCopy) Lock() {}
+
+// Unlock is a no-op for go vet's copy checks.
 func (*noCopy) Unlock() {}
 
-// New loads KalkanCrypt and resolves its KC_GetFunctionList table. It does not
-// call KC_Init; call Init explicitly before cryptographic operations.
+// New loads KalkanCrypt and resolves its KC_GetFunctionList table.
+// It does not call KC_Init.
+// Call [Client.Init] before cryptographic operations.
 func New(options ...Option) (*Client, error) {
 	cfg := defaultConfig()
 
@@ -187,8 +194,10 @@ func New(options ...Option) (*Client, error) {
 	return nil, fmt.Errorf("ckalkan: cannot load KalkanCrypt library: %s: %w", libraryPath, err)
 }
 
-// Close finalizes XML/core KalkanCrypt state and closes the dynamic library
-// handle. It may be called more than once.
+// Close releases native XML and core resources and closes the dynamic library
+// handle.
+// Later calls return nil after the first close attempt.
+// Close returns nil for a nil client.
 func (c *Client) Close() (err error) {
 	if c == nil {
 		return nil

@@ -10,19 +10,21 @@ import (
 	"unicode/utf8"
 )
 
-// xmlCertificateInput removes ambiguous signature selectors from an extraction-
-// only copy. The SDK matches either a signature's one-based position or Id,
-// whichever it encounters first. Id="2" on the first of two signatures would
-// therefore make lookups 1 and 2 return that first certificate twice.
-// No verification uses this copy: every byte outside unqualified ds:Signature
-// Id attributes, including namespace declarations and the encoding, is retained.
+// xmlCertificateInput removes ambiguous signature selectors from a copy for certificate extraction.
+// The SDK matches a signature's one-based position or Id, whichever it encounters first.
+// An Id of "2" on the first signature makes selectors 1 and 2 return that first certificate.
+//
+// Verification never uses this copy.
+// The copy preserves every byte outside unqualified ds:Signature Id
+// attributes, including namespaces and encoding.
 func xmlCertificateInput(document []byte) []byte {
 	view, sourceOffset := xmlCertificateScanView(document)
 
 	decoder := xml.NewDecoder(bytes.NewReader(view))
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
-	// Unknown entities and DTD processing remain the SDK's responsibility.
-	// This decoder only locates tags; it does not validate signed XML.
+	// The SDK handles unknown entities and DTD processing.
+	// This decoder locates tags only.
+	// It does not validate signed XML.
 	decoder.Strict = false
 
 	var out []byte
@@ -78,10 +80,10 @@ func xmlCertificateInput(document []byte) []byte {
 	return append(out, document[keptFrom:]...)
 }
 
-// xmlCertificateScanView makes ASCII-compatible legacy XML readable by the
-// scanner without merging distinct names. Each non-ASCII byte maps to a unique
-// three-byte CJK rune, valid in XML names. Only the scan view changes; the
-// monotonic offset mapper locates the corresponding bytes in the original.
+// xmlCertificateScanView creates a scan view of ASCII-compatible legacy XML without name collisions.
+// Each non-ASCII byte maps to a unique three-byte CJK rune that is valid in XML names.
+// Only the scan view changes.
+// The monotonic offset mapper locates the corresponding original bytes.
 func xmlCertificateScanView(document []byte) ([]byte, func(int64) int) {
 	if len(document) >= 2 {
 		switch {
@@ -167,8 +169,9 @@ func xmlUTF16CertificateScanView(document []byte, order binary.ByteOrder) ([]byt
 }
 
 // xmlSignatureIDAttribute finds the original byte span of an unqualified Id
-// attribute in a start tag already recognized by encoding/xml. Quoted values
-// are skipped as units so text such as `title="Id='2' >"` cannot be changed.
+// attribute in a start tag that encoding/xml recognizes.
+// The scanner skips each quoted value as a unit.
+// It cannot change text such as `title="Id='2' >"`.
 func xmlSignatureIDAttribute(tag []byte) (int, int) {
 	i := 1 // Skip '<' and the element name.
 	for i < len(tag) && !xmlTagWhitespace(tag[i]) && tag[i] != '>' && tag[i] != '/' {

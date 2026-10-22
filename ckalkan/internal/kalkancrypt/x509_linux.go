@@ -39,6 +39,8 @@ import "C"
 
 import "runtime"
 
+// X509LoadCertificateFromFile loads certPath into the native store with
+// certType. It returns the operation status.
 func (h *linuxDriver) X509LoadCertificateFromFile(certPath string, certType int) uint64 {
 	path, freePath, err := cString(certPath)
 	if err != nil {
@@ -49,6 +51,8 @@ func (h *linuxDriver) X509LoadCertificateFromFile(certPath string, certType int)
 	return uint64(C.bridge_x509_load_certificate_from_file(h.funcs, path, C.int(certType)))
 }
 
+// X509LoadCertificateFromBuffer loads cert into the native store in format. It
+// returns the operation status.
 func (h *linuxDriver) X509LoadCertificateFromBuffer(cert []byte, format int) uint64 {
 	in, inLen, err := inputBytes(cert)
 	if err != nil {
@@ -60,6 +64,8 @@ func (h *linuxDriver) X509LoadCertificateFromBuffer(cert []byte, format int) uin
 	return uint64(code)
 }
 
+// X509ExportCertificateFromStore returns the certificate for alias in format
+// and its native status. It uses capacity bytes of output storage.
 func (h *linuxDriver) X509ExportCertificateFromStore(alias string, format, capacity int) (BufferResult, error) {
 	cAlias, freeAlias, err := cString(alias)
 	if err != nil {
@@ -79,6 +85,8 @@ func (h *linuxDriver) X509ExportCertificateFromStore(alias string, format, capac
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// X509CertificateGetInfo returns property prop from cert and its native status.
+// It uses capacity bytes of output storage.
 func (h *linuxDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(cert)
 	if err != nil {
@@ -98,6 +106,8 @@ func (h *linuxDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (B
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// X509ValidateCertificate returns the validation status, diagnostics, and OCSP
+// output for call.
 func (h *linuxDriver) X509ValidateCertificate(call ValidateCertificateCall) (ValidateResult, error) {
 	in, inLen, err := inputBytesWithFlags(call.Certificate, call.Flags)
 	if err != nil {

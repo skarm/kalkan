@@ -13,6 +13,8 @@ static unsigned long bridge_load_key_store(void *funcsPtr, int storage, char *pa
 */
 import "C"
 
+// LoadKeyStore loads container with password for storage and alias. It returns
+// the operation status.
 func (h *linuxDriver) LoadKeyStore(storage int, password, container, alias string) uint64 {
 	cPassword, freePassword, err := cString(password)
 	if err != nil {

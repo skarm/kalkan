@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-// pipeTransport owns only the parent's endpoints. Giving exec.Cmd the child's
-// *os.File endpoints avoids Cmd.Wait closing our reader before a final response
-// has been consumed, as can happen with StdoutPipe.
+// pipeTransport owns only the parent's pipe endpoints.
+// exec.Cmd receives the child's *os.File endpoints directly.
+// This prevents Cmd.Wait from interrupting the final response read, which can
+// occur with StdoutPipe.
 type pipeTransport struct {
 	reader *os.File
 	writer *os.File
@@ -20,17 +21,27 @@ type pipeTransport struct {
 	err    error
 }
 
-func (p *pipeTransport) Read(data []byte) (int, error)  { return p.reader.Read(data) }
+// Read reads from the worker's response pipe into data.
+func (p *pipeTransport) Read(data []byte) (int, error) { return p.reader.Read(data) }
+
+// Write writes data to the worker's request pipe.
 func (p *pipeTransport) Write(data []byte) (int, error) { return p.writer.Write(data) }
+
+// Close closes both parent pipe endpoints once. Repeated calls return the saved
+// result.
 func (p *pipeTransport) Close() error {
 	p.once.Do(func() { p.err = errors.Join(p.reader.Close(), p.writer.Close()) })
 	return p.err
 }
 
-// Open starts a dedicated worker and initializes its KalkanCrypt session. The
-// context bounds startup only; there is no internal timeout. Canceling it after
-// Open succeeds leaves the client alive. WorkerPath and WorkerArgs must start
-// an application entry point that calls [RunWorker] and exits when it returns.
+// Open starts a dedicated worker and initializes its KalkanCrypt session.
+// The context limits startup only, without an internal timeout.
+// A nil ctx uses [context.Background].
+// Cancellation after Open succeeds leaves the client alive.
+//
+// WorkerPath and WorkerArgs must select an entry point that calls
+// [RunWorker].
+// Exit the worker process when RunWorker returns.
 func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -61,8 +72,8 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Startup owns the gate before starting Wait, so an early process exit
-	// cannot close the stream ahead of its last response.
+	// Startup acquires the gate before Wait starts.
+	// An early process exit cannot close the stream before its final response.
 	defer func() { c.gate <- struct{}{} }()
 
 	response, err := c.exchange(ctx, opOpen, payload)
@@ -72,8 +83,8 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 		err = c.failProtocol(errors.New("invalid Open acknowledgement"))
 	}
 
-	// The client has not been returned yet; Open observers can use other clients
-	// but cannot reenter this instance before it is published to the caller.
+	// Open does not return the client until setup completes.
+	// Observers can use other clients but cannot call this instance yet.
 	// Failed setup responses also contain useful native observations.
 	if c.logger != nil || c.observer != nil {
 		c.report(ctx, opOpen, started, response.Observations, err)
@@ -87,7 +98,9 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 }
 
 // startProcess creates private pipes and starts a supervised child without a
-// shell. It returns with the startup gate held; the caller must release it.
+// shell.
+// It returns with the startup gate locked.
+// The caller must release the gate.
 func startProcess(cfg Config) (*Client, error) {
 	childInput, input, err := os.Pipe()
 	if err != nil {

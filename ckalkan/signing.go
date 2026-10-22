@@ -30,9 +30,9 @@ func (c *Client) SignHash(alias string, flags Flag, hash []byte) ([]byte, error)
 	})
 }
 
-// SignData signs req.Data according to the native flags and returns the
-// signature bytes. A nil req.Signature creates a new signature; an existing
-// signature can be extended when the selected native mode supports it.
+// SignData signs req.Data with the native flags and returns the signature bytes.
+// A nil req.Signature creates a new signature.
+// An existing signature can receive another signer when the native mode supports it.
 func (c *Client) SignData(req SignDataRequest) ([]byte, error) {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {
@@ -62,9 +62,9 @@ func (c *Client) SignData(req SignDataRequest) ([]byte, error) {
 			Signature: req.Signature,
 			Capacity:  capacity,
 		})
-		// The Linux SDK can return KCR_OK after signing or TSA failures,
-		// reporting the failure only through KC_GetLastError. Never return
-		// the untouched or incomplete output buffer as a signed CMS.
+		// The Linux SDK can return KCR_OK after a signature or TSA failure.
+		// KC_GetLastError can contain the only failure report.
+		// Reject untouched or incomplete output buffers.
 		if err == nil && result.Code == uint64(ErrorOK) {
 			result.Code = uint64(platformCMSLastError(ctx))
 		}

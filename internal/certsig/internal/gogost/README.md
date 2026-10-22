@@ -34,6 +34,10 @@ Java 0.7.5 and [RFC 7836, Appendix A](https://www.rfc-editor.org/rfc/rfc7836.htm
 Other curve definitions, signing, key generation, key agreement and other ciphers
 are omitted.
 
+Local documentation edits align package and API comments with Go conventions.
+They also add missing comments for exported declarations. Copyright and license
+notices retain their original text.
+
 The shared Streebog primitive and its official test vectors, including
 256-bit and 512-bit cases, are retained unchanged. Imports are rewritten to
 local package paths. A local correction in `gost3410/public.go` handles equal

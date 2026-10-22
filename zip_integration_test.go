@@ -345,8 +345,9 @@ func TestZIPVerificationRejectsChangedEntries(t *testing.T) {
 	if err := os.WriteFile(inputPath, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// The Linux SDK traverses a directory. A regular-file input produces
-	// an empty manifest; keep that vendor limitation out of the positive control.
+	// The Linux SDK traverses a directory.
+	// A regular-file input produces an empty manifest.
+	// Use a directory for the positive control.
 	signed, err := client.SignZIP(ctx, SignZIPRequest{InputPath: inputDir, OutputPath: filepath.Join(dir, "signed.zip"), CertificateTimeCheck: SkipCertificateTimeCheck})
 	if err != nil {
 		t.Fatal(err)

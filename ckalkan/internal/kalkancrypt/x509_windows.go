@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// X509LoadCertificateFromFile loads certPath into the native store with
+// certType. It returns the operation status.
 func (h *windowsDriver) X509LoadCertificateFromFile(certPath string, certType int) uint64 {
 	path, err := narrowString(certPath)
 	if err != nil {
@@ -19,6 +21,8 @@ func (h *windowsDriver) X509LoadCertificateFromFile(certPath string, certType in
 	return code
 }
 
+// X509LoadCertificateFromBuffer loads cert into the native store in format. It
+// returns the operation status.
 func (h *windowsDriver) X509LoadCertificateFromBuffer(cert []byte, format int) uint64 {
 	in, inLen, err := inputBytes(cert)
 	if err != nil {
@@ -31,6 +35,8 @@ func (h *windowsDriver) X509LoadCertificateFromBuffer(cert []byte, format int) u
 	return code
 }
 
+// X509ExportCertificateFromStore returns the certificate for alias in format
+// and its native status. It uses capacity bytes of output storage.
 func (h *windowsDriver) X509ExportCertificateFromStore(alias string, format, capacity int) (BufferResult, error) {
 	cAlias, err := narrowString(alias)
 	if err != nil {
@@ -56,6 +62,8 @@ func (h *windowsDriver) X509ExportCertificateFromStore(alias string, format, cap
 	return bufferResult(code, buf, int(outLen)), nil
 }
 
+// X509CertificateGetInfo returns property prop from cert and its native status.
+// It uses capacity bytes of output storage.
 func (h *windowsDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(cert)
 	if err != nil {
@@ -82,6 +90,8 @@ func (h *windowsDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) 
 	return bufferResult(code, buf, int(outLen)), nil
 }
 
+// X509ValidateCertificate returns the validation status, diagnostics, and OCSP
+// output for call.
 func (h *windowsDriver) X509ValidateCertificate(call ValidateCertificateCall) (ValidateResult, error) {
 	in, inLen, err := inputBytesWithFlags(call.Certificate, call.Flags)
 	if err != nil {

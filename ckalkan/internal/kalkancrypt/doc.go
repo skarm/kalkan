@@ -1,6 +1,6 @@
 // Package kalkancrypt contains the private KalkanCrypt ABI boundary.
 //
-// The package has a small common Go core plus one platform driver. The common
-// files define Context, request/result DTOs, and method routing; they compile on
-// every platform. Platform driver files own dynamic loading and native ABI calls.
+// Common Go files define [Context], requests, results, and method dispatch on
+// every platform.
+// A platform driver loads the dynamic library and executes native ABI calls.
 package kalkancrypt

@@ -27,10 +27,10 @@ const (
 )
 
 // CertificateInfo contains selected KalkanCrypt certificate properties.
-// Fields that were not requested retain their zero values. Optional properties
-// absent from the certificate may also be empty. Parsed fields and inferred
-// subject details depend on the properties selected by
-// [Client.X509CertificateGetInfoFields].
+// Fields retain their zero values if the caller did not request them.
+// Optional properties can also be empty if the certificate does not contain them.
+// [Client.X509CertificateGetInfoFields] selects the properties that supply
+// parsed fields and inferred subject details.
 type CertificateInfo struct {
 	// Subject is the native subject distinguished name string.
 	Subject string
@@ -90,7 +90,7 @@ type CertificateInfo struct {
 type CertificateSubjectType string
 
 const (
-	// CertificateSubjectUnknown means the subject type could not be inferred.
+	// CertificateSubjectUnknown means that the client cannot infer the subject type.
 	CertificateSubjectUnknown CertificateSubjectType = ""
 	// CertificateSubjectPerson identifies policy OID 1.2.398.3.3.4.1.1.
 	CertificateSubjectPerson CertificateSubjectType = kzPolicyPerson
@@ -230,8 +230,8 @@ var certificateInfoProperties = [...]certificateInfoProperty{
 	{field: CertificateInfoDeltaCRLURL, prop: ckalkan.CertPropGetDeltaCRL, optional: true},
 }
 
-// X509ExportCertificateFromStore exports the default certificate from
-// KalkanCrypt's native store and parses it as an x509 certificate.
+// X509ExportCertificateFromStore returns the default certificate from the
+// native store as an [x509.Certificate].
 func (c *Client) X509ExportCertificateFromStore(ctx context.Context) (*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -263,9 +263,11 @@ func (c *Client) X509CertificateGetInfo(ctx context.Context, cert *x509.Certific
 	return c.X509CertificateGetInfoFields(ctx, cert, CertificateInfoAllFields)
 }
 
-// X509CertificateGetInfoFields retrieves properties selected by the bitmask
-// fields. The mask must be nonzero and contain only [CertificateInfoAllFields]
-// bits. cert must be non-nil with nonempty Raw DER; other cert fields are unused.
+// X509CertificateGetInfoFields returns the properties of cert selected by
+// fields.
+// The bitmask must be nonzero and contain only [CertificateInfoAllFields] bits.
+// cert must be non-nil with nonempty Raw DER.
+// The method does not use other cert fields.
 func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Certificate, fields CertificateInfoField) (*CertificateInfo, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -348,8 +350,9 @@ type entry struct {
 	pem []byte
 }
 
-// Check both raw and expanded input before encoding or retaining a cache entry.
-// The native C int bound also keeps the size arithmetic safe on 32-bit builds.
+// validateCertificateInfoInputSize checks raw and expanded input sizes before
+// PEM conversion or cache storage.
+// The native C int bound also protects size arithmetic on 32-bit builds.
 func validateCertificateInfoInputSize(derSize int, maxSize int64) error {
 	limit := int64(math.MaxInt32)
 	if maxSize > 0 {
@@ -475,8 +478,9 @@ func applyCertificateInfoProperty(info *CertificateInfo, field CertificateInfoFi
 	return nil
 }
 
-// GetCertFromCMS extracts signer certificates embedded in a CMS container.
-// File sources are read into memory by Go and obey WithMaxInputSize.
+// GetCertFromCMS returns signer certificates from cms.
+// It does not verify signatures or establish certificate trust.
+// Go reads file sources into memory under the [WithMaxInputSize] limit.
 func (c *Client) GetCertFromCMS(ctx context.Context, cms Source) ([]*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -537,8 +541,9 @@ func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
 	if info, statErr := file.Stat(); statErr == nil && info.Mode().IsRegular() && info.Size() >= 0 {
 		initial := min(info.Size(), maxSize+1)
 		if initial <= int64(math.MaxInt)-bytes.MinRead {
-			// ReadFrom needs spare capacity for the final EOF probe. Stat is
-			// only an allocation hint; LimitReader also bounds a growing file.
+			// ReadFrom needs spare capacity for the final EOF probe.
+			// Stat supplies an allocation hint only.
+			// LimitReader also bounds a file that grows during the read.
 			buffer.Grow(int(initial) + bytes.MinRead)
 		}
 	}
@@ -555,11 +560,13 @@ func readCMSCertificateFile(path string, maxSize int64) ([]byte, error) {
 	return data, nil
 }
 
-// GetTimeFromSig returns the timestamp embedded for CMS signer 0 (the first
-// signer). Extraction does not authenticate the CMS or TSA signature; call
-// VerifyCMS successfully before trusting the returned time.
-// The low-level ckalkan.Client.GetTimeFromSig method accepts a signer
-// index. File sources are read into memory by Go and obey WithMaxInputSize.
+// GetTimeFromSig returns the timestamp for signer 0, the first signer in
+// signature.
+// Extraction does not authenticate the CMS or TSA signature.
+// Verify the CMS with [Client.VerifyCMS] before you trust the returned time.
+//
+// The low-level [ckalkan.Client.GetTimeFromSig] method accepts a signer index.
+// Go reads file sources into memory under the [WithMaxInputSize] limit.
 func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Time, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -588,8 +595,9 @@ func (c *Client) GetTimeFromSig(ctx context.Context, signature Source) (time.Tim
 	})
 }
 
-// GetCertFromXML extracts one embedded certificate per XML signature in document
-// order. It does not verify signatures or establish trust in the certificates.
+// GetCertFromXML returns one certificate per XML signature in source, in
+// document order.
+// It does not verify signatures or establish certificate trust.
 func (c *Client) GetCertFromXML(ctx context.Context, source Source) ([]*x509.Certificate, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -618,7 +626,8 @@ func (c *Client) GetCertFromXML(ctx context.Context, source Source) ([]*x509.Cer
 	})
 }
 
-// GetSigAlgFromXML returns the native XML signature algorithm identifier.
+// GetSigAlgFromXML returns the native XML signature algorithm identifier in
+// source.
 func (c *Client) GetSigAlgFromXML(ctx context.Context, source Source) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()

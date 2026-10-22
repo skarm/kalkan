@@ -13,10 +13,10 @@ const (
 	defaultTSAURL  = "http://tsp.pki.gov.kz:80"
 	defaultOCSPURL = "http://ocsp.pki.gov.kz"
 
-	// DefaultMaxOutputBufferSize is the default hard limit for each native
-	// output buffer. It is a security and availability boundary, not a promise
-	// that any operation should consume the full amount. Applications may set a
-	// smaller limit with WithMaxOutputBufferSize.
+	// DefaultMaxOutputBufferSize is the default hard limit for each native output buffer.
+	// It bounds buffer growth for security and availability.
+	// It does not require operations to consume the full amount.
+	// Use [WithMaxOutputBufferSize] to set a smaller limit.
 	DefaultMaxOutputBufferSize = ckalkan.DefaultMaxOutputBufferSize
 
 	// DefaultOCSPTimeout bounds the complete HTTP exchange for WithCustomOCSP,
@@ -77,29 +77,35 @@ func WithOCSPURL(url string) Option {
 }
 
 // WithCustomOCSP enables Go OCSP requests and signature verification for
-// CertificateValidationOCSP. By default, OCSP uses KalkanCrypt's native path.
-// Native chain validation still runs before the Go OCSP check. The issuer must
-// be available through loaded certificates or ValidateCertificateRequest.Issuer.
-// A Go OCSP failure never falls back to native OCSP.
+// [CertificateValidationOCSP].
+// OCSP uses KalkanCrypt by default.
+// Native chain validation runs before the Go OCSP check.
+// Loaded certificates or ValidateCertificateRequest.Issuer must supply the
+// issuer.
+// If Go OCSP fails, the client returns the error without native OCSP
+// fallback.
 func WithCustomOCSP() Option {
 	return func(c *config) {
 		c.customOCSP = true
 	}
 }
 
-// WithOCSPTimeout bounds HTTP requests when WithCustomOCSP is enabled. Zero selects
-// DefaultOCSPTimeout; negative values make Open return ErrInvalidInput.
-// This option does not enable Go OCSP or limit native calls. Use process
-// isolation for native deadlines.
+// WithOCSPTimeout limits HTTP requests when [WithCustomOCSP] is enabled.
+// Zero selects [DefaultOCSPTimeout].
+// Negative values make [Open] return [ErrInvalidInput].
+// This option does not enable Go OCSP or limit native calls.
+// Use process isolation for native deadlines.
 func WithOCSPTimeout(timeout time.Duration) Option {
 	return func(c *config) {
 		c.ocspTimeout = timeout
 	}
 }
 
-// WithEndpointPolicy restricts TSA and OCSP URLs, including per-request OCSP
-// overrides. By default destinations are unrestricted. Go OCSP rejects redirects;
-// native redirects and DNS rebinding still require external egress controls.
+// WithEndpointPolicy restricts TSA and OCSP URLs, including OCSP overrides in
+// individual requests.
+// The default configuration permits all destinations.
+// Go OCSP rejects redirects.
+// Native redirects and DNS rebinding require external network controls.
 func WithEndpointPolicy(policy EndpointPolicy) Option {
 	owned := policy.clone()
 
@@ -108,9 +114,10 @@ func WithEndpointPolicy(policy EndpointPolicy) Option {
 	}
 }
 
-// WithTrustedCertificate loads a trusted certificate during Open.
-// Successful loads are retained until Close and restored after LoadKeyStore.
-// See TrustedCertificate for byte ownership and file lifetime requirements.
+// WithTrustedCertificate loads a trusted certificate during [Open].
+// The client retains successful loads until Close and restores them after
+// LoadKeyStore.
+// See [TrustedCertificate] for byte ownership and file lifetime requirements.
 func WithTrustedCertificate(cert TrustedCertificate) Option {
 	return func(c *config) {
 		c.trusted = append(c.trusted, cert)
@@ -144,29 +151,34 @@ func WithProxy(proxy Proxy) Option {
 	}
 }
 
-// WithAtomicZIPOutput makes SignZIP create its output in a private temporary
-// directory next to OutputPath, then publish the completed file atomically
-// without replacing an existing destination. It requires a filesystem that
-// supports hard links and an output directory controlled by the application.
-// By default SignZIP lets KalkanCrypt create OutputPath directly.
+// WithAtomicZIPOutput makes [Client.SignZIP] create its output in a private
+// temporary directory next to OutputPath.
+// SignZIP then publishes the completed file atomically without replacement of
+// an existing destination.
+// This requires a filesystem with hard links and an output directory under
+// application control.
+// By default, KalkanCrypt creates OutputPath directly.
 func WithAtomicZIPOutput() Option {
 	return func(c *config) {
 		c.atomicZIPOutput = true
 	}
 }
 
-// WithLogger enables diagnostic structured logging for Client operations.
-// Passing nil leaves logging disabled. The logger receives a component=kalkan
-// attribute and is never installed as slog's process-global default logger.
+// WithLogger enables structured diagnostic logs for Client operations.
+// A nil logger disables logs.
+// The logger receives a component=kalkan attribute.
+// This option does not set slog's default process logger.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) {
 		c.logger = logger
 	}
 }
 
-// WithObserver installs an optional callback for native-call timings and safe
-// outcome metadata. It runs after the native gate is released; see Observer
-// for concurrency and Close behavior. Passing nil disables observations.
+// WithObserver sets an optional callback for native call durations and
+// outcome metadata without payloads.
+// The client releases the native gate before the callback runs.
+// See [Observer] for concurrency and Close behavior.
+// A nil observer disables observations.
 func WithObserver(observer Observer) Option {
 	return func(c *config) {
 		c.observer = observer

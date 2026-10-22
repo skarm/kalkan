@@ -21,8 +21,8 @@ const (
 	OverwriteDuplicates
 )
 
-// ExtractZIP unpacks an SDK fixture archive into a fresh test-owned directory.
-// It fails the test on extraction errors; the directory is removed at cleanup.
+// ExtractZIP extracts an SDK fixture archive into a fresh directory for the // It fails the test on extraction errors.
+// Test cleanup removes the directory.
 func ExtractZIP(t testing.TB, zipPath string, duplicates DuplicatePolicy) string {
 	t.Helper()
 

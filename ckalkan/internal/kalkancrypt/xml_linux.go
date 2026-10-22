@@ -27,6 +27,8 @@ import "C"
 
 import "runtime"
 
+// VerifyXML returns the native verification status and diagnostics for call.XML
+// with call.Flags and call.Alias.
 func (h *linuxDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
@@ -51,6 +53,8 @@ func (h *linuxDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// GetCertFromXML returns the certificate selected by signID in xml and its
+// native status. It uses capacity bytes of output storage.
 func (h *linuxDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(xml)
 	if err != nil {
@@ -69,6 +73,8 @@ func (h *linuxDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferRe
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// GetSigAlgFromXML returns the signature algorithm identifier in xml and its
+// native status. It uses capacity bytes of output storage.
 func (h *linuxDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(xml)
 	if err != nil {

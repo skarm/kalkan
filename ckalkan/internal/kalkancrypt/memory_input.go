@@ -5,9 +5,9 @@ import (
 	"errors"
 )
 
-// inputBytes validates a length-delimited native input without copying it.
-// KalkanCrypt consumes the pointer synchronously, and every caller keeps the
-// slice alive until the native call returns.
+// inputBytes validates a native input with an explicit length without a copy.
+// KalkanCrypt consumes the pointer synchronously.
+// Each caller keeps the slice alive until the native call returns.
 func inputBytes(value []byte) ([]byte, nativeInt, error) {
 	if err := checkNativeBytes(value); err != nil {
 		return nil, 0, err
@@ -30,7 +30,7 @@ func filePathBytes(value []byte) ([]byte, nativeInt, error) {
 	return terminatedInputBytes(value)
 }
 
-// terminatedInputBytes owns the terminator without changing the logical length.
+// terminatedInputBytes owns the terminator and preserves the logical input length.
 func terminatedInputBytes(value []byte) ([]byte, nativeInt, error) {
 	if err := checkNativeBytes(value); err != nil {
 		return nil, 0, err

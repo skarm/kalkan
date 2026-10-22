@@ -1,7 +1,8 @@
 package kalkancrypt
 
-// GetTokens returns the raw token list and native count for storage.
-// The SDK receives no buffer capacity; bufferSize controls only Go allocation.
+// GetTokens returns the native status, token list, and item count for storage.
+// The SDK receives no buffer capacity.
+// bufferSize controls the Go allocation only.
 func (c *Context) GetTokens(storage uint64, bufferSize int) (ListResult, error) {
 	if c.closed() {
 		return ListResult{}, ErrClosed
@@ -10,8 +11,10 @@ func (c *Context) GetTokens(storage uint64, bufferSize int) (ListResult, error) 
 	return c.driver.GetTokens(storage, bufferSize)
 }
 
-// GetCertificatesList returns the raw certificate list and native count.
-// The SDK receives no buffer capacity; bufferSize controls only Go allocation.
+// GetCertificatesList returns the native status, certificate list, and item
+// count.
+// The SDK receives no buffer capacity.
+// bufferSize controls the Go allocation only.
 func (c *Context) GetCertificatesList(bufferSize int) (ListResult, error) {
 	if c.closed() {
 		return ListResult{}, ErrClosed

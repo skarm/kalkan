@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// Package gost3410 provides elliptic curves and GOST public-key verification.
 package gost3410
 
 import (
@@ -30,33 +31,45 @@ var (
 	bigInt4 = big.NewInt(4)
 )
 
+// Curve contains elliptic curve parameters and a base point.
+// Create curves with [NewCurve].
+// Concurrent reads are safe if callers keep the exported fields unchanged.
 type Curve struct {
-	P *big.Int // Characteristic of the underlying prime field
-	Q *big.Int // Elliptic curve subgroup order
+	// P is the modulus of the underlying prime field.
+	P *big.Int
+	// Q is the elliptic curve subgroup order.
+	Q *big.Int
 
-	Co *big.Int // Cofactor
+	// Co is the cofactor.
+	Co *big.Int
 
-	// Equation coefficients of the elliptic curve in canonical form
+	// A is the linear coefficient in the canonical curve equation.
 	A *big.Int
+	// B is the constant coefficient in the canonical curve equation.
 	B *big.Int
 
-	// Equation coefficients of the elliptic curve in twisted Edwards form
+	// E is the first coefficient in the twisted Edwards curve equation.
 	E *big.Int
+	// D is the second coefficient in the twisted Edwards curve equation.
 	D *big.Int
 
-	// Basic point X and Y coordinates
+	// X is the base point's x coordinate.
 	X *big.Int
+	// Y is the base point's y coordinate.
 	Y *big.Int
 
 	// Cached s/t parameters for Edwards curve points conversion
 	edS *big.Int
 	edT *big.Int
 
-	Name string // Just simple identifier
+	// Name identifies the curve.
+	Name string
 }
 
-// NewCurve copies its parameters. A curve can be read concurrently as long as
-// callers do not mutate its exported fields.
+// NewCurve returns a curve with copies of the supplied parameters.
+// It returns an error if the base point (x, y) does not satisfy the curve equation.
+// Both e and d must be non-nil to set the Edwards coefficients.
+// A nil co selects a cofactor of 1.
 func NewCurve(p, q, a, b, x, y, e, d, co *big.Int) (*Curve, error) {
 	c := Curve{
 		Name: "unknown",
@@ -86,7 +99,7 @@ func NewCurve(p, q, a, b, x, y, e, d, co *big.Int) (*Curve, error) {
 	return &c, nil
 }
 
-// Is point on curve?
+// Contains reports whether (x, y) satisfies c's curve equation modulo c.P.
 func (c *Curve) Contains(x, y *big.Int) bool {
 	r1 := big.NewInt(0)
 	r2 := big.NewInt(0)
@@ -102,7 +115,7 @@ func (c *Curve) Contains(x, y *big.Int) bool {
 	return r1.Cmp(r2) == 0
 }
 
-// IsInSubgroup checks canonical coordinates and membership in the subgroup of order Q.
+// IsInSubgroup reports whether (x, y) has canonical coordinates and belongs to the subgroup of order c.Q.
 func (c *Curve) IsInSubgroup(x, y *big.Int) bool {
 	if x == nil || y == nil || x.Sign() < 0 || y.Sign() < 0 ||
 		x.Cmp(c.P) >= 0 || y.Cmp(c.P) >= 0 || !c.Contains(x, y) {
@@ -118,8 +131,8 @@ func (c *Curve) IsInSubgroup(x, y *big.Int) bool {
 	return errors.Is(err, errInfinitePoint)
 }
 
-// PointSize get the size of the point's coordinate in bytes.
-// 32 for 256-bit curves, 64 for 512-bit ones.
+// PointSize returns the encoded coordinate size in bytes.
+// It returns 32 for fields up to 256 bits and 64 for larger fields.
 func (c *Curve) PointSize() int {
 	return pointSize(c.P)
 }
@@ -177,6 +190,8 @@ func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) bool {
 	return true
 }
 
+// Exp returns the coordinates of degree times the point (xS, yS).
+// It returns an error if degree is nonpositive or the result is the point at infinity.
 func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 	if degree.Sign() <= 0 {
 		return nil, nil, errors.New("gogost/gost3410: nonpositive degree value")
@@ -208,6 +223,7 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 	return tx, ty, nil
 }
 
+// Equal reports whether c and their have equal curve parameters.
 func (c *Curve) Equal(their *Curve) bool {
 	return c.P.Cmp(their.P) == 0 &&
 		c.Q.Cmp(their.Q) == 0 &&
@@ -228,6 +244,7 @@ func optionalIntEqual(our, their *big.Int) bool {
 	return our.Cmp(their) == 0
 }
 
+// String returns c.Name.
 func (c *Curve) String() string {
 	return c.Name
 }

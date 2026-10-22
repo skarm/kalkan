@@ -23,8 +23,12 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
+// TestIsolatedWorkerHelper runs a child worker with a fake SDK for isolation
+// tests.
+//
 // The helper is a real child process, including inherited-handle redirection.
-// Its fake SDK lets tests force hangs and crashes without a native installation.
+// Its fake SDK lets tests force hangs and crashes without a native
+// installation.
 func TestIsolatedWorkerHelper(t *testing.T) {
 	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "isolated-worker-test" {
 		return
@@ -312,8 +316,8 @@ func TestCancellationDuringWriteReturnsOwnershipOfInput(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("sender remained blocked after cancellation")
 	}
-	// Reuse the caller's buffer immediately. The race detector must see no
-	// concurrent transport access after the API has returned.
+	// Reuse the caller's buffer immediately.
+	// The race detector must see no concurrent transport access after the API returns.
 	for i := range data {
 		data[i] = 0xff
 	}
@@ -344,7 +348,7 @@ func TestCancellationWhileQueuedPreservesWorker(t *testing.T) {
 
 func TestQueuedCallHasNoInternalTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		// A held gate keeps this call waiting without starting a process.
+		// The locked gate keeps this call in the queue without a new process.
 		client := &Client{gate: make(chan struct{}, 1), exited: make(chan struct{})}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -691,7 +695,7 @@ func TestZeroClientAndInvalidConfig(t *testing.T) {
 	}
 	cfg := helperConfig(t)
 	cfg.WorkerPath = filepath.Join(t.TempDir(), "does-not-exist")
-	// Windows may fail executable-extension lookup before starting the process.
+	// Windows can fail executable extension lookup before the process starts.
 	if _, err := Open(context.Background(), cfg); !errors.Is(err, os.ErrNotExist) && !errors.Is(err, exec.ErrNotFound) {
 		t.Fatalf("missing worker = %v", err)
 	}

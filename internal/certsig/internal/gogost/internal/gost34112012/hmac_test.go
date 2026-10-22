@@ -30,8 +30,8 @@ func hash512() hash.Hash {
 	return New(64)
 }
 
-// HMAC test vectors taken from
-// http://tc26.ru/methods/recommendation/%D0%A2%D0%9A26%D0%90%D0%9B%D0%93.pdf test vectors
+// TestHMACVectors checks the HMAC vectors from the TC26 recommendations:
+// http://tc26.ru/methods/recommendation/%D0%A2%D0%9A26%D0%90%D0%9B%D0%93.pdf.
 func TestHMACVectors(t *testing.T) {
 	t.Run("256", func(t *testing.T) {
 		h := hmac.New(hash256, []byte{

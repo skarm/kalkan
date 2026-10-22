@@ -11,9 +11,8 @@ import (
 	"unicode"
 )
 
-// endpointPurpose identifies the network operation that will use an
-// endpoint. It is provided to diagnostics so applications can distinguish TSA
-// and OCSP policy failures.
+// endpointPurpose identifies the network operation that uses an endpoint.
+// Diagnostics use it to distinguish TSA and OCSP policy failures.
 type endpointPurpose string
 
 const (
@@ -25,20 +24,26 @@ const (
 	endpointPurposeOCSP endpointPurpose = "OCSP"
 )
 
-// EndpointPolicy restricts TSA and OCSP destinations. Its zero value is
-// invalid because AllowedHosts must contain at least one host. Host matching is
-// exact and case-insensitive after removing a trailing DNS dot. The policy is a
-// local validation boundary only. Optional Go OCSP rejects redirects; native
-// TSA and OCSP perform their own HTTP requests. An egress firewall is still needed
-// to prevent DNS rebinding and native redirect-based bypasses.
+// EndpointPolicy restricts TSA and OCSP destinations.
+// Its zero value is invalid because AllowedHosts must contain at least one host.
+// Host comparison ignores case and a final DNS dot but requires an exact match.
+//
+// The policy validates explicit endpoints only.
+// Go OCSP rejects redirects.
+// Native TSA and OCSP use their own HTTP implementations.
+// Use external network controls to prevent bypasses through DNS rebinding or
+// native redirects.
 type EndpointPolicy struct {
-	// AllowedHosts is the exact allowlist of DNS names. IP literals are rejected
-	// unless AllowIPAddresses is true and the literal is explicitly listed.
-	// DNS names here and in endpoint URLs must use ASCII; use Punycode for
-	// internationalized names. Unicode names are rejected without IDNA conversion.
-	// List IPv6 literals without brackets, for example "2001:db8::1"; endpoint
-	// URLs use brackets, for example "https://[2001:db8::1]/". IPv6 zone
-	// identifiers are not supported.
+	// AllowedHosts contains the exact list of permitted DNS names.
+	// IP literals require AllowIPAddresses and an explicit entry in this list.
+	//
+	// Use ASCII DNS names in this list and in endpoint URLs.
+	// Use Punycode for internationalized names.
+	// The client rejects Unicode names without IDNA conversion.
+	//
+	// List IPv6 literals without brackets, for example "2001:db8::1".
+	// Use brackets in endpoint URLs, for example "https://[2001:db8::1]/".
+	// The client rejects IPv6 zone identifiers.
 	AllowedHosts []string
 	// AllowedPorts contains allowed effective ports. When empty, only the
 	// scheme-default port is accepted (80 for HTTP and 443 for HTTPS).

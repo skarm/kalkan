@@ -15,10 +15,9 @@ func platformVerifyDataOutputPolicy(req VerifyDataRequest) verifyDataOutputPolic
 	}
 
 	if policy.dataBufferActive {
-		// The encoded attached CMS size is a useful payload estimate and normally
-		// exceeds the embedded data size. Use it after the first ambiguous
-		// saturation instead of repeatedly doubling or allocating a CMS-sized
-		// buffer eagerly; further saturation retries remain the fallback.
+		// The encoded attached CMS size normally exceeds the embedded payload size.
+		// Use that size as a capacity hint after the first ambiguous saturation.
+		// Later retries still use geometric growth.
 		policy.dataCapacityHint = len(req.Signature)
 	}
 

@@ -3,9 +3,9 @@ package ckalkan
 import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
 // SetTSAURL configures the timestamp authority URL through KC_TSASetUrl.
-// The SDK function returns no status, so success does not confirm that
-// KalkanCrypt accepted the URL or that the TSA server is reachable. Wrapper
-// and session errors can still be returned.
+// The SDK function returns no status.
+// Success does not confirm URL acceptance or server availability.
+// The method can still return wrapper and session errors.
 func (c *Client) SetTSAURL(tsaURL string) error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -20,8 +20,8 @@ func (c *Client) SetTSAURL(tsaURL string) error {
 	return c.wrapCodeLocked(ErrorCode(ctx.SetTSAURL(tsaURL)))
 }
 
-// SetProxy applies the native HTTP proxy mode and connection parameters in
-// req. Authentication and enablement are selected by req.Flags.
+// SetProxy applies the native HTTP proxy mode and connection parameters in req.
+// req.Flags selects authentication and proxy use.
 func (c *Client) SetProxy(req ProxyRequest) error {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {

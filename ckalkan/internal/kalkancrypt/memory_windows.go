@@ -7,10 +7,9 @@ func narrowString(value string) ([]byte, error) {
 		return nil, err
 	}
 
-	// KalkanCrypt Windows calls receive narrow char* arguments. The wrapper
-	// passes Go's UTF-8 string bytes plus a terminating NUL; deployments should
-	// verify this matches their SDK/DLL version if paths or aliases contain
-	// non-ASCII characters.
+	// KalkanCrypt Windows calls receive narrow char* arguments.
+	// The wrapper passes Go's UTF-8 string bytes with a final NUL byte.
+	// Verify SDK compatibility if paths or aliases contain non-ASCII characters.
 	buf := make([]byte, len(value)+1)
 	copy(buf, value)
 

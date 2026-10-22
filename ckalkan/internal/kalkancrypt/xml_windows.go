@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// VerifyXML returns the native verification status and diagnostics for call.XML
+// with call.Flags and call.Alias.
 func (h *windowsDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	cAlias, err := narrowString(call.Alias)
 	if err != nil {
@@ -40,6 +42,8 @@ func (h *windowsDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 	return bufferResult(code, buf, int(outLen)), nil
 }
 
+// GetCertFromXML returns the certificate selected by signID in xml and its
+// native status. It uses capacity bytes of output storage.
 func (h *windowsDriver) GetCertFromXML(xml []byte, signID, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(xml)
 	if err != nil {
@@ -66,6 +70,8 @@ func (h *windowsDriver) GetCertFromXML(xml []byte, signID, capacity int) (Buffer
 	return bufferResult(code, buf, int(outLen)), nil
 }
 
+// GetSigAlgFromXML returns the signature algorithm identifier in xml and its
+// native status. It uses capacity bytes of output storage.
 func (h *windowsDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult, error) {
 	in, inLen, err := inputBytes(xml)
 	if err != nil {

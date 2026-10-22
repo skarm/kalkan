@@ -17,10 +17,9 @@ const (
 	// DefaultCertificateTimeCheck keeps KalkanCrypt's default certificate-time
 	// validation behavior.
 	DefaultCertificateTimeCheck CertificateTimeCheck = iota
-	// SkipCertificateTimeCheck sets KC_NOCHECKCERTTIME. It can be useful when
-	// verifying signatures according to an external archival policy, but it
-	// weakens validation and should be enabled only when that policy explicitly
-	// allows it.
+	// SkipCertificateTimeCheck sets KC_NOCHECKCERTTIME and weakens certificate validation.
+	// Enable it only when an external archival policy permits verification
+	// without certificate-time checks.
 	SkipCertificateTimeCheck
 )
 
@@ -28,15 +27,17 @@ const (
 type CMSOutputFormat int
 
 const (
-	// CMSOutputDER returns raw binary ASN.1 DER CMS bytes. This is the default
-	// output format and can be passed back to VerifyCMS using Bytes or DER
-	// sources.
+	// CMSOutputDER selects CMS bytes in ASN.1 DER format.
+	// This is the default output format.
+	// [Client.VerifyCMS] accepts this output through [Bytes] or [DER] sources.
 	CMSOutputDER CMSOutputFormat = iota
-	// CMSOutputBase64 returns base64 text for the DER CMS bytes, without PEM
-	// header/footer armor. Use it for text-only transports or JSON fields.
+	// CMSOutputBase64 selects base64 text for DER CMS bytes without PEM
+	// delimiters.
+	// Use it for text transports or JSON fields.
 	CMSOutputBase64
-	// CMSOutputPEM returns PEM-armored text: base64 DER plus header/footer and
-	// line wrapping. Use it for copy/paste workflows and PEM-oriented tools.
+	// CMSOutputPEM selects PEM text with base64 DER, delimiters, and line
+	// breaks.
+	// Use it for PEM tools and text transfers.
 	CMSOutputPEM
 )
 
@@ -45,11 +46,13 @@ type SignCMSRequest struct {
 	// Alias selects a loaded key alias. Empty alias lets KalkanCrypt use its
 	// default loaded key when the native library supports that behavior.
 	Alias string
-	// Data is the payload to sign. The zero-value Source is rejected; use
-	// Bytes(nil) or Bytes([]byte{}) only when an explicit empty payload is
-	// intended. During attached signing, an existing CMS with DER, PEM, or
-	// Base64 encoding is passed to the SDK for adding a signer. Use raw input
-	// to sign CMS bytes as an opaque payload instead.
+	// Data is the payload to sign.
+	// The client rejects the zero-value Source.
+	// Use Bytes(nil) or Bytes([]byte{}) for an explicit empty payload.
+	//
+	// For attached signatures, the SDK can add a signer to an existing CMS with
+	// DER, PEM, or base64 encoding.
+	// Use raw input to sign CMS bytes as an opaque payload.
 	Data Source
 	// Detached requests a detached CMS signature.
 	Detached bool
@@ -61,8 +64,8 @@ type SignCMSRequest struct {
 	// OutputFormat selects the CMS output representation. The zero value
 	// returns raw DER CMS bytes.
 	OutputFormat CMSOutputFormat
-	// CertificateTimeCheck controls KalkanCrypt certificate-time validation while
-	// building the signature.
+	// CertificateTimeCheck controls native certificate-time validation for the
+	// new signature.
 	CertificateTimeCheck CertificateTimeCheck
 }
 
@@ -73,18 +76,21 @@ type VerifyCMSRequest struct {
 	// Signature is the CMS/signature input. Use File for large signatures or
 	// Bytes for in-memory raw CMS bytes.
 	Signature Source
-	// Data is the detached payload. It is valid only when Detached is true and
-	// must be an in-memory source: KalkanCrypt's KC_IN_FILE flag applies to the
-	// CMS signature input during verification. For detached verification the
-	// zero-value Source is rejected; Bytes(nil) or Bytes([]byte{}) means an
-	// explicit empty detached payload.
+	// Data is the detached payload.
+	// It is valid only when Detached is true and must use an in-memory source.
+	// KalkanCrypt applies KC_IN_FILE to the CMS signature input during
+	// verification.
+	//
+	// Detached verification rejects the zero-value Source.
+	// Bytes(nil) or Bytes([]byte{}) supplies an explicit empty detached payload.
 	Data Source
 	// Detached verifies a detached CMS signature.
 	Detached bool
-	// Encoding supplies the fallback when Signature uses EncodingAuto. File
-	// starts with EncodingAuto; Bytes, Base64, PEM, and DER set an explicit
-	// encoding that takes precedence over this field. Go does not inspect file
-	// contents to infer their encoding.
+	// Encoding supplies the default when Signature uses EncodingAuto.
+	// [File] uses EncodingAuto.
+	// [Bytes], [Base64], [PEM], and [DER] set an explicit encoding that
+	// overrides this field.
+	// Go does not inspect file contents to infer their encoding.
 	Encoding Encoding
 	// SignerID selects a signer certificate from multi-signer data.
 	SignerID int
@@ -92,18 +98,18 @@ type VerifyCMSRequest struct {
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// CMS contains a signature returned by [Client.SignCMS] or [Client.SignHash].
-// Its representation is selected by the signing request's OutputFormat.
+// CMS contains a signature from [Client.SignCMS] or [Client.SignHash].
+// The request's OutputFormat selects its representation.
 type CMS struct {
-	// Data contains CMS output bytes. By default this is raw DER CMS; when a
-	// signing request sets OutputFormat, Data contains native base64 or PEM
-	// text bytes instead.
+	// Data contains CMS output bytes.
+	// The default format is raw DER CMS.
+	// OutputFormat can select native base64 or PEM text.
 	Data []byte
 }
 
 // Verification contains diagnostics and optional extracted data from
-// [Client.VerifyCMS], [Client.VerifyXML], or [Client.VerifyZIP]. It accompanies
-// a successful verification; failures are returned as errors.
+// [Client.VerifyCMS], [Client.VerifyXML], or [Client.VerifyZIP].
+// These methods return Verification after successful verification and errors on failure.
 type Verification struct {
 	// Info is KalkanCrypt's native verification information string.
 	Info string
@@ -115,9 +121,10 @@ type Verification struct {
 	SignerCert []byte
 }
 
-// SignCMS signs data and returns CMS output bytes. The default output format is
-// raw DER CMS. During attached signing, DER, PEM, or Base64 input containing an
-// existing CMS adds a signer to that container.
+// SignCMS signs req.Data and returns a [CMS] container.
+// The default output format is raw DER CMS.
+// For attached signatures, existing CMS input in DER, PEM, or base64 format
+// receives an additional signer.
 func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -193,10 +200,14 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 	return &CMS{Data: out}, nil
 }
 
-// VerifyCMS verifies an attached or detached CMS signature.
-// The Linux SDK cannot reliably verify empty CMS payloads. This binding
-// rejects its negative output length for attached empty CMS; detached empty
-// verification returns ckalkan.ErrorVerifyNoData, including for valid signatures.
+// VerifyCMS verifies req.Signature and returns native diagnostics.
+// The result can also contain decoded data and a signer certificate.
+//
+// The Linux SDK cannot reliably verify empty CMS payloads.
+// For attached empty CMS, this binding rejects the SDK's negative output
+// length.
+// Detached empty verification returns [ckalkan.ErrorVerifyNoData], even for a
+// valid signature.
 func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verification, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -255,7 +266,7 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 
 	flags |= checkFlags
 
-	// Detached data file sources have already been rejected above.
+	// Validation already rejected detached data file sources.
 	if req.Signature.file {
 		flags |= ckalkan.InFile
 	}

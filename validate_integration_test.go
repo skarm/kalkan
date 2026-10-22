@@ -148,8 +148,8 @@ func TestLiveOCSPSignatureVerification(t *testing.T) {
 		}
 	}
 	revokedAt, revoked, statusErr := kalkanOCSPStatus(answer, id, issuer, time.Now())
-	// An authenticated unknown status is possible for expired fixture identities;
-	// it proves the response signature, but cannot establish certificate validity.
+	// An authenticated unknown status is possible for expired fixture identities.
+	// It proves the response signature but cannot establish certificate validity.
 	if statusErr != nil && statusErr.Error() != "the responder does not know the certificate" {
 		t.Fatalf("live OCSP signature/status verification: %v", statusErr)
 	}

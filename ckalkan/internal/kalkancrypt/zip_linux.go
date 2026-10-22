@@ -32,6 +32,8 @@ import (
 
 const zipVerifyOutputGuardCapacity = 64 << 10
 
+// ZipConVerify verifies zipFile with flags and returns native diagnostics and
+// status. It exposes at most capacity output bytes.
 func (h *linuxDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferResult, error) {
 	if err := checkOutputBufferCapacity(capacity); err != nil {
 		return BufferResult{}, err
@@ -59,6 +61,8 @@ func (h *linuxDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferR
 	return bufferResult(uint64(code), buf[:capacity:capacity], int(outLen)), nil
 }
 
+// ZipConSign creates a signed container from call and returns the operation
+// status.
 func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
 	alias, freeAlias, err := cString(call.Alias)
 	if err != nil {
@@ -95,6 +99,9 @@ func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
 	return uint64(C.bridge_zip_con_sign(h.funcs, alias, filePath, name, outDir, C.int(call.Flags)))
 }
 
+// GetCertFromZipFile returns the certificate selected by call.SignID in
+// call.ZipFile and its native status. It uses call.Capacity bytes of output
+// storage.
 func (h *linuxDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error) {
 	inZip, freeInZip, err := cString(call.ZipFile)
 	if err != nil {

@@ -22,6 +22,8 @@ import "C"
 
 import "runtime"
 
+// GetTimeFromSig returns the status and Unix timestamp for signer sigID in CMS
+// data.
 func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
 	// Like certificate extraction, timestamp extraction consumes CMS bytes
 	// even when KC_IN_FILE remains in the flags.
@@ -37,6 +39,8 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 	return uint64(code), int64(out)
 }
 
+// GetCertFromCMS returns the certificate selected by call.SignID in call.CMS
+// and its native status. It uses call.Capacity bytes of output storage.
 func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
 	// The SDK ignores KC_IN_FILE here and always consumes in-memory CMS.
 	// Binary CMS may contain NUL bytes, so do not validate it as a file path.

@@ -155,8 +155,9 @@ func (d *payloadDecoder) certificates() [][]byte {
 	return values
 }
 
-// Preserve the instant and observed zone offset, including values outside
-// RFC3339's range. Named location rules and monotonic readings are process-local.
+// timestamp encodes the instant and observed zone offset, including values
+// outside RFC3339's range.
+// Named location rules and monotonic clock values remain local to each process.
 func (e *payloadEncoder) timestamp(value time.Time) {
 	e.boolean(!value.IsZero())
 

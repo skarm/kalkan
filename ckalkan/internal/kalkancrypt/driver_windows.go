@@ -28,8 +28,9 @@ type windowsDriver struct {
 	clearError uintptr
 }
 
-// kcFunctionList mirrors stKCFunctionsType from KalkanCrypt.h. Windows uses the
-// same KC_GetFunctionList table layout; each field is a native function pointer.
+// kcFunctionList mirrors stKCFunctionsType from KalkanCrypt.h.
+// Windows uses the same KC_GetFunctionList table layout.
+// Each field is a native function pointer.
 type kcFunctionList struct {
 	init                      uintptr
 	getTokens                 uintptr
@@ -132,6 +133,8 @@ func loadLibraryEx(path string, flags uintptr) (*syscall.DLL, error) {
 	return &syscall.DLL{Name: path, Handle: syscall.Handle(handle)}, nil
 }
 
+// Close releases the library handle and clears the driver's function pointers.
+// It returns any library release error.
 func (h *windowsDriver) Close() error {
 	if h == nil || h.dll == nil {
 		return nil
@@ -145,13 +148,17 @@ func (h *windowsDriver) Close() error {
 	return dll.Release()
 }
 
+// ClearError resets native error state if KC_InternalClearError is available.
 func (h *windowsDriver) ClearError() {
 	callWindowsVoid(h.clearError)
 }
 
-// Pointer-to-uintptr conversions must appear directly in callers' argument
-// lists. The directive makes their pointees escape to stable heap storage and
-// keeps them alive across this wrapper, stack growth, and the native syscall.
+// callWindowsStatus calls fn with args and returns the low 32 bits of its
+// status. A zero fn returns errorLibraryNotInitialized.
+//
+// Keep pointer-to-uintptr conversions directly in the caller's argument list.
+// The compiler directive retains stable heap storage for the referenced values
+// across stack growth and the native syscall.
 //
 //go:uintptrescapes
 func callWindowsStatus(fn uintptr, args ...uintptr) uint64 {
@@ -164,7 +171,9 @@ func callWindowsStatus(fn uintptr, args ...uintptr) uint64 {
 	return uint64(uint32(code))
 }
 
-// callWindowsVoid follows the same pointer contract as callWindowsStatus.
+// callWindowsVoid calls fn with args and discards its results.
+// A zero fn does nothing.
+// The pointer lifetime requirements match callWindowsStatus.
 //
 //go:uintptrescapes
 func callWindowsVoid(fn uintptr, args ...uintptr) {

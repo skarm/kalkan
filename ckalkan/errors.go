@@ -22,13 +22,14 @@ func (c ErrorCode) String() string {
 	return c.Label(ErrorLanguageEnglish)
 }
 
-// Label returns a human-readable label for the KalkanCrypt error code in
-// language. Unsupported languages fall back to English.
+// Label returns the KalkanCrypt error label in language.
+// Unsupported languages use English.
 func (c ErrorCode) Label(language ErrorLanguage) string {
 	return errorLabelForLanguage(c, language)
 }
 
-// Hex formats the error code as an eight-digit hexadecimal value.
+// Hex returns c as uppercase hexadecimal with a 0x prefix and at least eight
+// digits.
 func (c ErrorCode) Hex() string {
 	const width = 8
 
@@ -40,7 +41,7 @@ func (c ErrorCode) Hex() string {
 	return "0x" + hex
 }
 
-// KalkanError is returned when a KalkanCrypt function returns a non-zero code.
+// KalkanError reports a nonzero KalkanCrypt status code.
 type KalkanError struct {
 	// Code is the non-zero status returned by KalkanCrypt.
 	Code ErrorCode
@@ -49,16 +50,18 @@ type KalkanError struct {
 	Message string
 }
 
-// OutputBufferLimitError reports that an output buffer would have to exceed
-// the active hard limit. Requested and Limit are byte counts. Operation names
-// the native wrapper operation without including any processed input data.
+// OutputBufferLimitError reports that an output buffer requires more bytes
+// than the active hard limit permits.
 type OutputBufferLimitError struct {
+	// Operation names the native wrapper operation without input data.
 	Operation string
+	// Requested is the requested buffer capacity in bytes.
 	Requested uint64
-	Limit     uint64
+	// Limit is the active hard limit in bytes.
+	Limit uint64
 }
 
-// Error formats the output-buffer limit failure as ErrorBufferTooSmall.
+// Error returns the buffer limit message with the [ErrorBufferTooSmall] label.
 func (e *OutputBufferLimitError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -85,13 +88,15 @@ func (e *OutputBufferLimitError) Unwrap() error {
 	return &KalkanError{Code: ErrorBufferTooSmall}
 }
 
-// Error formats the KalkanCrypt error code and optional native message.
+// Error returns the English error label, hexadecimal code, and optional
+// diagnostic message.
 func (e *KalkanError) Error() string {
 	return e.Format(ErrorLanguageEnglish)
 }
 
-// Format formats the KalkanCrypt error code and optional native message using
-// language. Unsupported languages fall back to English.
+// Format returns the KalkanCrypt error code and optional native message in
+// language.
+// Unsupported languages use English.
 func (e *KalkanError) Format(language ErrorLanguage) string {
 	if e == nil {
 		return "<nil>"
@@ -105,7 +110,8 @@ func (e *KalkanError) Format(language ErrorLanguage) string {
 }
 
 // Is reports whether target itself is a KalkanError with the same code.
-// It does not unwrap target; errors.Is handles unwrapping the source error.
+// It does not unwrap target.
+// [errors.Is] traverses the source error tree.
 func (e *KalkanError) Is(target error) bool {
 	//noinspection GoTypeAssertionOnErrors
 	t, ok := target.(*KalkanError)

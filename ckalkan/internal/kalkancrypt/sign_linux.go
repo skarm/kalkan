@@ -33,6 +33,9 @@ import "C"
 
 import "runtime"
 
+// SignHash returns the signature and native status for call.Hash with
+// call.Alias and call.Flags. It uses call.Capacity bytes of output storage
+// without retries.
 func (h *linuxDriver) SignHash(call SignHashCall) (BufferResult, error) {
 	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
@@ -58,6 +61,9 @@ func (h *linuxDriver) SignHash(call SignHashCall) (BufferResult, error) {
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// SignData returns the signature and native status for call.Data with
+// call.Signature and call.Flags. It uses call.Capacity bytes of output storage
+// without retries.
 func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
 	cAlias, freeAlias, err := cString(call.Alias)
 	if err != nil {
@@ -89,6 +95,9 @@ func (h *linuxDriver) SignData(call SignDataCall) (BufferResult, error) {
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// SignXML returns signed call.XML and the native status for call's node
+// selectors and flags. It uses call.Capacity bytes of output storage without
+// retries.
 func (h *linuxDriver) SignXML(call SignXMLCall) (BufferResult, error) {
 	alias, freeAlias, err := cString(call.Alias)
 	if err != nil {
@@ -143,6 +152,9 @@ func (h *linuxDriver) SignXML(call SignXMLCall) (BufferResult, error) {
 	return bufferResult(uint64(code), buf, int(outLen)), nil
 }
 
+// SignWSSE returns signed call.XML and the native status for call.SignNodeID
+// and call.Flags. It uses call.Capacity bytes of output storage without
+// retries.
 func (h *linuxDriver) SignWSSE(call SignWSSECall) (BufferResult, error) {
 	alias, freeAlias, err := cString(call.Alias)
 	if err != nil {

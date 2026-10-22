@@ -16,13 +16,13 @@ func (a HashAlgorithm) native() (ckalkan.HashAlgorithm, error) {
 }
 
 const (
-	// SHA256 calculates a SHA-256 digest.
+	// SHA256 selects the SHA-256 digest algorithm.
 	SHA256 HashAlgorithm = iota
-	// GOST95 calculates a GOST R 34.11-95 digest.
+	// GOST95 selects the GOST R 34.11-95 digest algorithm.
 	GOST95
-	// GOST2015_256 calculates a GOST R 34.11-2015 256-bit digest.
+	// GOST2015_256 selects the GOST R 34.11-2015 256-bit digest algorithm.
 	GOST2015_256
-	// GOST2015_512 calculates a GOST R 34.11-2015 512-bit digest.
+	// GOST2015_512 selects the GOST R 34.11-2015 512-bit digest algorithm.
 	GOST2015_512
 )
 
@@ -44,7 +44,7 @@ type Digest struct {
 	Data []byte
 }
 
-// SignHashRequest describes signing of an already calculated digest.
+// SignHashRequest describes a request to sign a precomputed digest.
 type SignHashRequest struct {
 	// Alias selects a loaded key alias. Empty alias lets KalkanCrypt use its
 	// default loaded key when the native library supports that behavior.
@@ -52,11 +52,12 @@ type SignHashRequest struct {
 	// Digest contains the precomputed raw digest bytes to sign, not the original
 	// payload.
 	Digest []byte
-	// DigestAlgorithm describes the algorithm that produced Digest. The zero
-	// value is SHA256. The wrapper validates the algorithm and digest length;
-	// this field does not select the native signing algorithm. Digest must match
-	// the algorithm required by the loaded key, which cannot be inferred from
-	// digest length alone.
+	// DigestAlgorithm identifies the algorithm that produced Digest.
+	// The zero value is SHA256.
+	// The wrapper validates the algorithm and digest length.
+	// This field does not select the native signature algorithm.
+	// Digest must match the loaded key's required algorithm.
+	// Digest length alone cannot identify that algorithm.
 	DigestAlgorithm HashAlgorithm
 	// Timestamp requests a TSA timestamp token.
 	Timestamp bool
@@ -66,13 +67,14 @@ type SignHashRequest struct {
 	// OutputFormat selects the CMS output representation. The zero value
 	// returns raw DER CMS bytes.
 	OutputFormat CMSOutputFormat
-	// CertificateTimeCheck controls KalkanCrypt certificate-time validation while
-	// signing the digest.
+	// CertificateTimeCheck controls native certificate-time validation for the
+	// digest signature.
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// Hash returns the raw digest of req.Data using req.Algorithm. An absent
-// source is invalid; Bytes(nil) supplies an explicitly empty input.
+// Hash returns the raw digest of req.Data with req.Algorithm.
+// An absent source is invalid.
+// Bytes(nil) supplies an explicit empty input.
 func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -119,10 +121,12 @@ func (c *Client) Hash(ctx context.Context, req HashRequest) (*Digest, error) {
 	return &Digest{Algorithm: req.Algorithm, Data: digest}, nil
 }
 
-// SignHash signs raw digest bytes and returns CMS output bytes. The default
-// output format is raw DER CMS. The digest algorithm must match the loaded
-// signing key; DigestAlgorithm only controls wrapper validation. Verify the
-// returned CMS against the original payload to validate the complete signature.
+// SignHash signs req.Digest and returns a [CMS] container.
+// The default output format is raw DER CMS.
+// The digest algorithm must match the loaded key's required algorithm.
+// req.DigestAlgorithm controls wrapper validation only.
+// Verify the returned CMS against the original payload to validate the complete
+// signature.
 func (c *Client) SignHash(ctx context.Context, req SignHashRequest) (*CMS, error) {
 	if ctx == nil {
 		ctx = context.Background()

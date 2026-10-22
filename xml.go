@@ -92,19 +92,20 @@ type VerifyXMLRequest struct {
 type SignWSSERequest struct {
 	// Alias selects a loaded key alias.
 	Alias string
-	// XML is either a full SOAP envelope or a payload that should be wrapped when
-	// WrapSOAP is true. It must be a nonempty in-memory source with raw or
-	// automatic encoding; file sources are unsupported.
+	// XML is a full SOAP envelope or a payload for a new envelope when WrapSOAP is true.
+	// It must be a nonempty in-memory source with raw or automatic encoding.
+	// The client rejects file sources.
 	XML Source
 	// BodyID is the wsu:Id value of the SOAP Body that KalkanCrypt signs. It
 	// is required whether XML is wrapped by this package or supplied as a full
 	// SOAP envelope.
 	BodyID string
-	// WrapSOAP wraps XML into a minimal SOAP envelope before signing.
+	// WrapSOAP adds a minimal SOAP envelope to XML before the SDK signs it.
 	WrapSOAP bool
-	// Canonicalization selects the XML canonicalization algorithm. Select
-	// XMLCanonicalizationExclusive for compatibility with VerifyXML's SOAP
-	// Body transform policy; other modes remain available for native consumers.
+	// Canonicalization selects the XML canonicalization algorithm.
+	// Select XMLCanonicalizationExclusive for compatibility with VerifyXML's
+	// SOAP Body transform policy.
+	// Other modes remain available for native consumers.
 	Canonicalization XMLCanonicalization
 	// CertificateTimeCheck controls certificate-time validation.
 	CertificateTimeCheck CertificateTimeCheck
@@ -117,7 +118,7 @@ type SignedXML struct {
 	XML []byte
 }
 
-// SignXML signs an XML document.
+// SignXML signs req.XML and returns the signed document.
 func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -168,11 +169,14 @@ func (c *Client) SignXML(ctx context.Context, req SignXMLRequest) (*SignedXML, e
 	return &SignedXML{XML: out}, nil
 }
 
-// VerifyXML verifies a signed XML document. A SOAP Body reference may omit
-// Transforms or contain one exclusive canonicalization Transform with at most
-// one InclusiveNamespaces parameter with a PrefixList attribute, which may be
-// empty. Other transform parameters, attributes, and non-whitespace text are
-// rejected before verification.
+// VerifyXML verifies req.XML and returns native diagnostics.
+// A SOAP Body reference can omit Transforms or contain one exclusive
+// canonicalization Transform.
+// That transform can contain at most one InclusiveNamespaces parameter with a
+// PrefixList attribute.
+// PrefixList can be empty.
+// The client rejects other transform parameters, attributes, and non-whitespace
+// text before native verification.
 func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verification, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -210,7 +214,7 @@ func (c *Client) VerifyXML(ctx context.Context, req VerifyXMLRequest) (*Verifica
 	return &Verification{Info: info}, nil
 }
 
-// SignWSSE signs a SOAP/WS-Security document.
+// SignWSSE signs req.XML with WS-Security and returns the signed SOAP document.
 func (c *Client) SignWSSE(ctx context.Context, req SignWSSERequest) (*SignedXML, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -425,8 +429,9 @@ type soapVerificationState struct {
 	expectedReferenceCount int
 }
 
-// soapBodyReferenceTransformState tracks nesting and counts within the
-// expected Body reference. Inactive depth markers must be initialized to -1.
+// soapBodyReferenceTransformState tracks depth and counts within the expected
+// Body reference.
+// Initialize inactive depth markers to -1.
 type soapBodyReferenceTransformState struct {
 	referenceDepth           int
 	transformsDepth          int
@@ -441,9 +446,10 @@ type xmlDocumentPreamble struct {
 	hasNonWhitespaceText bool
 }
 
-// validateXMLVerificationStructure checks SOAP signature binding before
-// native verification. SOAP requires expectedID and a strict structural scan;
-// non-SOAP XML without expectedID is left to the native verifier.
+// validateXMLVerificationStructure checks SOAP signature references before
+// native verification.
+// SOAP requires expectedID and a strict structural scan.
+// The native verifier handles non-SOAP XML without expectedID.
 func validateXMLVerificationStructure(document []byte, expectedID string) error {
 	if expectedID != "" {
 		if err := validateSOAPBodyID(expectedID); err != nil {
@@ -451,9 +457,10 @@ func validateXMLVerificationStructure(document []byte, expectedID string) error 
 		}
 	}
 
-	// UTF-8 BOM is an encoding marker, not text before the document element.
-	// Strip it only from this scan view; native verification receives the
-	// original bytes. A BOM anywhere else remains ordinary character data.
+	// A UTF-8 BOM marks the encoding before the document element.
+	// Remove it from this scan view only.
+	// Native verification receives the original bytes.
+	// A BOM elsewhere remains ordinary character data.
 	document = bytes.TrimPrefix(document, []byte{0xef, 0xbb, 0xbf})
 	decoder := xml.NewDecoder(bytes.NewReader(document))
 
@@ -587,7 +594,8 @@ func validateSOAPVerificationState(state soapVerificationState, expectedID strin
 
 func xmlDocumentRoot(document []byte) (xml.Name, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(document))
-	// Treat declared ASCII-compatible encodings as byte-compatible while reading an ASCII root tag.
+	// Treat declared ASCII-compatible encodings as byte-compatible during the
+	// ASCII root tag scan.
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
 		return input, nil
 	}
@@ -819,10 +827,10 @@ func (state *soapBodyReferenceTransformState) validate() error {
 		return fmt.Errorf("%w: SOAP Body ds:Transforms must contain exactly one direct ds:Transform, got %d", ErrInvalidInput, state.transformElementCount)
 	}
 
-	// CanonicalizationMethod, DigestMethod, and SignatureMethod remain native
-	// KalkanCrypt policy: the repository does not define a stable allowlist for
-	// those installation-dependent algorithms, so guessing one here would break
-	// supported signatures. This wrapper independently constrains only transforms.
+	// KalkanCrypt controls CanonicalizationMethod, DigestMethod, and
+	// SignatureMethod.
+	// Supported algorithms depend on the SDK installation.
+	// This wrapper restricts transforms only.
 	return nil
 }
 

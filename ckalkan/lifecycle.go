@@ -16,8 +16,9 @@ func (c *Client) Init() error {
 	return c.wrapCodeLocked(ErrorCode(ctx.Init()))
 }
 
-// InitDebug invokes KalkanCrypt debug initialization. The native function
-// returns no status; the method reports only client or capability errors.
+// InitDebug invokes KalkanCrypt debug initialization.
+// The native function returns no status.
+// The method reports client or capability errors only.
 func (c *Client) InitDebug() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -33,8 +34,8 @@ func (c *Client) InitDebug() error {
 	return nil
 }
 
-// Finalize releases native runtime resources while keeping the library
-// loaded. [Client.Close] also finalizes the runtime and unloads the library.
+// Finalize releases native runtime resources and leaves the library loaded.
+// [Client.Close] also finalizes the runtime and unloads the library.
 func (c *Client) Finalize() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -50,8 +51,8 @@ func (c *Client) Finalize() error {
 	return nil
 }
 
-// XMLFinalize releases the native XML subsystem resources while keeping
-// the library loaded. [Client.Close] performs this cleanup automatically.
+// XMLFinalize releases native XML resources and leaves the library loaded.
+// [Client.Close] performs this cleanup automatically.
 func (c *Client) XMLFinalize() error {
 	process.mu.Lock()
 	defer process.mu.Unlock()

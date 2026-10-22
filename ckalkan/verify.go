@@ -5,9 +5,9 @@ import (
 	"github.com/skarm/kalkan/internal/nativebytes"
 )
 
-// VerifyData calls VerifyData and returns decoded embedded data when the native
-// verification mode produces it, verification info, and optionally the signer
-// certificate selected by CertID.
+// VerifyData verifies a signature and returns native diagnostics.
+// The selected native mode can also return decoded embedded data and the
+// signer certificate selected by CertID.
 func (c *Client) VerifyData(req VerifyDataRequest) (VerifyDataResult, error) {
 	if err := validateNativeSignerID("CertID", req.CertID); err != nil {
 		return VerifyDataResult{}, err

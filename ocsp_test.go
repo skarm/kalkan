@@ -20,8 +20,9 @@ import (
 	"time"
 )
 
-// testOCSPPKI contains a CA, its leaf certificate, and OCSP responders: a delegated responder,
-// one without id-kp-OCSPSigning, one issued by another CA, and one that has expired.
+// testOCSPPKI contains a CA, its leaf certificate, and four OCSP responders.
+// The responders include a delegated responder, one without
+// id-kp-OCSPSigning, one from another CA, and one expired responder.
 type testOCSPPKI struct {
 	ca, leaf, responder, withoutUsage, foreign, expired *x509.Certificate
 	caKey, responderKey                                 *ecdsa.PrivateKey
@@ -155,8 +156,11 @@ func (pki testOCSPPKI) certID(t *testing.T) ocspCertID {
 	return id
 }
 
-// Fixtures were produced by golang.org/x/crypto/ocsp v0.57.0, independently
-// of this implementation. They require no external module to run the tests.
+// TestOCSPInteroperability checks independent OCSP fixtures from
+// golang.org/x/crypto/ocsp.
+//
+// Fixtures were produced by golang.org/x/crypto/ocsp v0.57.0, independently of
+// this implementation. They require no external module to run the tests.
 func TestOCSPInteroperability(t *testing.T) {
 	issuer := readTestCertificate(t, "testdata/ocsp/issuer.der")
 	leaf := readTestCertificate(t, "testdata/ocsp/leaf.der")
@@ -185,8 +189,12 @@ func TestOCSPInteroperability(t *testing.T) {
 	}
 }
 
-// Accept only fresh responses for the requested certificate signed by its CA or a delegated
-// responder. Unknown status, critical extensions, and responder refusal do not establish status.
+// TestKalkanOCSPStatus checks OCSP signatures, freshness, and certificate
+// status.
+//
+// Accept only fresh responses for the requested certificate signed by its CA or
+// a delegated responder. Unknown status, critical extensions, and responder
+// refusal do not establish status.
 func TestKalkanOCSPStatus(t *testing.T) {
 	t.Parallel()
 
@@ -392,8 +400,9 @@ func TestOCSPDelegatedResponderByKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Derive the expected KeyHash independently from the responder's public key,
-	// without calling kalkanOCSPPublicKeyHash or kalkanOCSPCertID.
+	// Derive the expected KeyHash independently from the responder's public key.
+	// Do not call kalkanOCSPPublicKeyHash or kalkanOCSPCertID for the expected
+	// value.
 	spki, err := x509.MarshalPKIXPublicKey(pki.responder.PublicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -483,6 +492,9 @@ func TestOCSPResponderWithNegativeSerial(t *testing.T) {
 	}
 }
 
+// TestOCSPGOST2015Digest256 checks OCSP GOST verification with independent
+// KalkanCrypt fixtures.
+//
 // These certificates and responses were signed and verified independently by
 // KalkanCrypt 0.7.5, rather than by the verifier exercised here.
 func TestOCSPGOST2015Digest256(t *testing.T) {
@@ -586,8 +598,11 @@ func readGOST256OCSPFixture(t testing.TB, name string) []byte {
 	return raw
 }
 
-// Unknown ASN.1 fields must not disappear when a fixed schema is decoded into
-// a Go struct. In particular, envelope fields are outside the signed bytes.
+// TestOCSPRejectsUnexpectedASN1Fields checks rejection of extra ASN.1 fields in
+// OCSP responses.
+//
+// Unknown ASN.1 fields must not disappear when a fixed schema is decoded into a
+// Go struct. In particular, envelope fields are outside the signed bytes.
 func TestOCSPRejectsUnexpectedASN1Fields(t *testing.T) {
 	issuer := readTestCertificate(t, "testdata/ocsp/gost2015_256/gost256-ca.der")
 	leaf := readTestCertificate(t, "testdata/ocsp/gost2015_256/gost256-leaf.der")
@@ -910,7 +925,8 @@ func testOCSPRejectsUnexpectedEnvelopeFields(t *testing.T, raw []byte, id ocspCe
 	}
 }
 
-// Change a selected constructed value while preserving every other DER byte.
+// ocspTestASN1Change returns raw with change applied to the ASN.1 value at
+// path. It preserves every other DER byte.
 func ocspTestASN1Change(t *testing.T, raw []byte, path []int, change func(asn1.RawValue) asn1.RawValue) []byte {
 	t.Helper()
 	var value asn1.RawValue

@@ -17,9 +17,9 @@ import (
 )
 
 func TestStubLibraryOutputBufferBoundaries(t *testing.T) {
-	// KalkanCrypt cannot produce successful, non-empty outputs for
-	// these methods with the repository fixtures. The compiled stub still
-	// crosses the C ABI while providing deterministic success outputs.
+	// KalkanCrypt cannot produce successful nonempty outputs for these methods
+	// with the repository fixtures.
+	// The compiled stub crosses the C ABI and provides deterministic successful outputs.
 	ctx, err := kalkancrypt.Open(buildStubLibrary(t))
 	if err != nil {
 		t.Fatalf("Open stub library: %v", err)

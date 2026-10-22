@@ -19,15 +19,16 @@ type workerSession interface {
 // workerFactory initializes an SDK session.
 type workerFactory func(context.Context, libraryConfig, kalkan.Observer) (workerSession, error)
 
-// RunWorker serves SDK requests over the stdin/stdout pipes supplied by [Open].
-// Call it in the application's worker branch, in a dedicated child process,
-// before starting normal services. Use os.Executable for [Config.WorkerPath]
-// and pass the application's worker argument in [Config.WorkerArgs].
+// RunWorker serves SDK requests over the stdin and stdout pipes from [Open].
+// Call it in the application's worker branch in a dedicated child process.
+// Call it before normal services start.
+// Use the path from os.Executable for Config.WorkerPath.
+// Pass the worker argument in Config.WorkerArgs.
 //
-// RunWorker redirects the process's standard streams to null before loading the
-// SDK. It returns on session close, transport failure, or context cancellation.
-// Exit the process immediately when it returns,
-// even on success: a native call may still be stuck in a goroutine.
+// RunWorker redirects standard streams to null before the SDK loads.
+// It returns on session close, transport failure, or context cancellation.
+// Exit the process immediately when RunWorker returns, even on success.
+// A native call can still be stuck in a goroutine.
 func RunWorker(ctx context.Context) error {
 	transport, err := preserveProtocolStreams()
 	if err != nil {
@@ -63,11 +64,12 @@ func openLibrary(ctx context.Context, cfg libraryConfig, observer kalkan.Observe
 	client, err := kalkan.Open(ctx, options...)
 	if err != nil {
 		if sawInit {
-			// A failed Open cleans up its initialized session, but Close can
-			// return before reporting. Drain that observation before execute
-			// snapshots the collector and the worker exits. execute uses a
-			// background context, so any created session reaches Init. Failures
-			// before Init need not have a Close callback and must not wait.
+			// A failed Open releases its initialized session, but Close can return
+			// before its observer callback.
+			// Wait for that observation before execute reads the collector and the
+			// worker exits.
+			// execute uses a background context, so each created session reaches Init.
+			// Failures before Init need no Close callback and must not wait.
 			<-closed
 		}
 
@@ -77,13 +79,16 @@ func openLibrary(ctx context.Context, cfg libraryConfig, observer kalkan.Observe
 	return &observedSession{Client: client, closed: closed}, nil
 }
 
-// kalkan.Close publishes its result before reporting its final observation.
-// Wait for that callback before the worker snapshots observations and exits.
+// observedSession waits for the Close observation after kalkan.Close returns
+// its saved result.
+// The worker must receive that observation before it reads the collector and exits.
 type observedSession struct {
 	*kalkan.Client
 	closed <-chan struct{}
 }
 
+// Close closes the session and waits for its final observation. It returns the
+// session's close error.
 func (s *observedSession) Close() error {
 	err := s.Client.Close()
 	<-s.closed
@@ -96,9 +101,14 @@ type streams struct {
 	writer io.WriteCloser
 }
 
-func (s *streams) Read(data []byte) (int, error)  { return s.reader.Read(data) }
+// Read reads from the session's input stream into data.
+func (s *streams) Read(data []byte) (int, error) { return s.reader.Read(data) }
+
+// Write writes data to the session's output stream.
 func (s *streams) Write(data []byte) (int, error) { return s.writer.Write(data) }
-func (s *streams) Close() error                   { return errors.Join(s.reader.Close(), s.writer.Close()) }
+
+// Close closes both session streams and returns their combined errors.
+func (s *streams) Close() error { return errors.Join(s.reader.Close(), s.writer.Close()) }
 
 type readResult struct {
 	message message
@@ -121,8 +131,9 @@ func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFact
 		writing   <-chan error
 	)
 
-	// serve owns the transport. Closing it interrupts both I/O goroutines;
-	// native execution may still be stuck and is left for process exit.
+	// serve owns the transport.
+	// Transport closure interrupts both I/O goroutines.
+	// Native execution can remain stuck until the process exits.
 	defer func() {
 		cancel()
 
@@ -163,8 +174,9 @@ func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFact
 			return ctx.Err()
 		case read := <-incoming:
 			if read.err != nil {
-				// Return without native Close: a hung SDK call must not keep an
-				// orphan worker alive after the parent closes its request pipe.
+				// Return without native Close.
+				// A hung SDK call must not keep an orphan worker alive after the parent
+				// closes its request pipe.
 				return read.err
 			}
 
@@ -175,9 +187,10 @@ func serve(ctx context.Context, transport io.ReadWriteCloser, factory workerFact
 			expected++
 
 			if writing != nil {
-				// The parent can consume the final response bytes and send its
-				// next request before the writer publishes completion. Defer
-				// that request while still listening for EOF and cancellation.
+				// The parent can read the final response and send its next request before
+				// the writer reports completion.
+				// Defer that request until completion.
+				// Continue to check for EOF and cancellation.
 				next = &read.message
 				continue
 			}
@@ -307,8 +320,9 @@ func writeResponse(writer io.Writer, message message) error {
 	if !errors.Is(err, errMetadataTooLarge) {
 		return err
 	}
-	// No response bytes were written. Return a small typed error without
-	// pretending that a completed native operation was rolled back.
+	// The writer sent no response bytes.
+	// Return a small typed error.
+	// A completed native operation can still have external effects.
 	message.Payload, message.Observations = wirePayload{}, nil
 	message.Error = errMetadataTooLarge
 

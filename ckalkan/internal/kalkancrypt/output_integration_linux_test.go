@@ -149,8 +149,8 @@ func assertNativeSingleOutputBuffer(t *testing.T, call kalkancrypt.OutputBufferF
 		}
 		switch short.Code {
 		case kcrBufferTooSmall:
-			// The status itself is a sufficient retry signal; some SDK methods
-			// additionally replace OutLen with the required size.
+			// The status alone is sufficient to request a retry.
+			// Some SDK methods also replace OutLen with the required size.
 		case kcrOK:
 			if short.OutLen <= capacity {
 				t.Fatalf("capacity %d returned KCR_OK with OutLen=%d, no retry signal", capacity, short.OutLen)

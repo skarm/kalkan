@@ -7,26 +7,32 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// SignZIPRequest describes creating a KalkanCrypt ZIP container from an input path.
+// SignZIPRequest describes a request to create a KalkanCrypt ZIP container
+// from an input path.
 type SignZIPRequest struct {
 	// Alias selects a loaded key alias. Empty alias lets KalkanCrypt use its
 	// default loaded key when the native library supports that behavior.
 	Alias string
-	// InputPath is passed unchanged to KalkanCrypt. The Linux native adapter
-	// requires an existing directory and rejects other input types with
-	// ckalkan.ErrorParam, preventing the SDK from creating an empty container
-	// for a regular-file path. Keep the referenced files unchanged until
-	// SignZIP returns and put output elsewhere.
+	// InputPath identifies the input that the client passes unchanged to KalkanCrypt.
+	// The Linux native adapter requires an existing directory.
+	// It returns ckalkan.ErrorParam for other input types before the SDK can
+	// create an empty container for a regular file.
+	//
+	// Keep the input files unchanged until SignZIP returns.
+	// Create output outside the input directory.
 	InputPath string
-	// OutputPath is the expected ZIP container path and must end with .zip,
-	// matched case-insensitively. KalkanCrypt creates lowercase .zip output, so
-	// non-lowercase extensions are accepted but SignedZIP.Path reports the
-	// actual lowercase path.
-	// The path must not exist. KalkanCrypt creates it without an atomic
-	// create-if-absent guarantee unless WithAtomicZIPOutput is enabled.
+	// OutputPath is the expected ZIP container path.
+	// Its extension must match .zip without case sensitivity.
+	// KalkanCrypt creates a lowercase .zip extension.
+	// SignedZIP.Path reports the actual output path.
+	//
+	// The path must not exist.
+	// Enable [WithAtomicZIPOutput] for atomic publication without replacement of
+	// an existing destination.
+	// The default native path has no atomic create-if-absent guarantee.
 	OutputPath string
-	// CertificateTimeCheck controls KalkanCrypt certificate-time validation while
-	// building the ZIP signature.
+	// CertificateTimeCheck controls native certificate-time validation for the
+	// ZIP signature.
 	CertificateTimeCheck CertificateTimeCheck
 }
 
@@ -58,7 +64,8 @@ type ExtractZIPSignerCertificateRequest struct {
 	CertificateTimeCheck CertificateTimeCheck
 }
 
-// SignZIP signs InputPath and creates a KalkanCrypt ZIP container at OutputPath.
+// SignZIP creates a signed ZIP container from req.InputPath.
+// The result contains the actual output path.
 func (c *Client) SignZIP(ctx context.Context, req SignZIPRequest) (*SignedZIP, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -135,7 +142,8 @@ func (c *Client) SignZIP(ctx context.Context, req SignZIPRequest) (*SignedZIP, e
 	return &SignedZIP{Path: path}, nil
 }
 
-// VerifyZIP verifies a KalkanCrypt ZIP container.
+// VerifyZIP verifies the ZIP container at req.Path and returns native
+// diagnostics.
 func (c *Client) VerifyZIP(ctx context.Context, req VerifyZIPRequest) (*Verification, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -167,8 +175,9 @@ func (c *Client) VerifyZIP(ctx context.Context, req VerifyZIPRequest) (*Verifica
 	}, nil
 }
 
-// ExtractZIPSignerCertificate extracts a signer certificate without verifying
-// the ZIP signature.
+// ExtractZIPSignerCertificate returns bytes for signer req.SignerID from the
+// ZIP container at req.Path.
+// It does not verify the ZIP signature.
 func (c *Client) ExtractZIPSignerCertificate(ctx context.Context, req ExtractZIPSignerCertificateRequest) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()

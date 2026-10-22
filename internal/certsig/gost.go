@@ -26,9 +26,11 @@ var (
 	oidKazakhGost2015Digest512          = asn1.ObjectIdentifier{1, 2, 398, 3, 10, 1, 3, 3}
 )
 
-// verifyKazakhGost2015 verifies ST RK GOST R 34.10-2015 with the matching Streebog hash.
-// The key stores LE(X) || LE(Y) in an OCTET STRING inside a BIT STRING. The digest and
-// signature are reversed before GoGOST verification, as checked against NCA RK certificates.
+// verifyKazakhGost2015 verifies ST RK GOST R 34.10-2015 with the matching
+// Streebog hash.
+// The key stores LE(X) || LE(Y) in an OCTET STRING inside a BIT STRING.
+// GoGOST verification uses reversed copies of the digest and signature.
+// NCA RK certificates confirm this representation.
 func verifyKazakhGost2015(signer *x509.Certificate, algorithm asn1.ObjectIdentifier, signed, signature []byte) error {
 	name := "ST RK GOST R 34.10-2015 512"
 	publicKeyAlgorithm, curveAlgorithm := oidPublicKeyKazakhGost2015Digest512, oidKazakhGost2015Curve512
@@ -79,8 +81,11 @@ func verifyKazakhGost2015(signer *x509.Certificate, algorithm asn1.ObjectIdentif
 		return fmt.Errorf("certsig: malformed %s public key", name)
 	}
 
-	// NewPublicKeyLE only decodes coordinates. Check bounds and subgroup membership;
-	// the 256-bit curve has cofactor 4, so an on-curve check alone is insufficient.
+	// NewPublicKeyLE decodes coordinates only.
+	// Check coordinate bounds.
+	// Check subgroup membership.
+	// The 256-bit curve has cofactor 4, so curve membership alone is
+	// insufficient.
 	publicKey, err := gost3410.NewPublicKeyLE(curve, point)
 	if err != nil || !curve.IsInSubgroup(publicKey.X, publicKey.Y) {
 		return fmt.Errorf("certsig: invalid %s public key", name)

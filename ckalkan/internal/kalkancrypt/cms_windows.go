@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// GetTimeFromSig returns the status and Unix timestamp for signer sigID in CMS
+// data.
 func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
 	in, inLen, err := cmsInputBytes(data, flags&^inFileFlag)
 	if err != nil {
@@ -27,6 +29,8 @@ func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, i
 	return code, out
 }
 
+// GetCertFromCMS returns the certificate selected by call.SignID in call.CMS
+// and its native status. It uses call.Capacity bytes of output storage.
 func (h *windowsDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
 	// The extraction API receives in-memory CMS, including binary NUL bytes,
 	// even when the caller retained KC_IN_FILE in the native flags.

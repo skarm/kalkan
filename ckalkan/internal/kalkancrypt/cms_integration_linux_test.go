@@ -169,8 +169,8 @@ func TestContextUVerifyDataAutoDetectsAttachedCMSFile(t *testing.T) {
 	}
 
 	verifyResult, err := ctx.UVerifyData(kalkancrypt.VerifyDataCall{
-		// UVerifyData reads the file and auto-detects CMS/base64; no format flag
-		// is intentionally supplied here.
+		// UVerifyData reads the file and detects CMS or base64 automatically.
+		// This call deliberately omits the format flag.
 		Flags:        noCheckCertTime,
 		Data:         data,
 		Signature:    []byte(signaturePath),

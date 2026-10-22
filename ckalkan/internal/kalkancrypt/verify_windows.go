@@ -7,10 +7,14 @@ import (
 	"unsafe"
 )
 
+// VerifyData returns the native verification status, decoded data, diagnostics,
+// and certificate for call.
 func (h *windowsDriver) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, false)
 }
 
+// UVerifyData returns native verification outputs for call through the
+// universal verifier.
 func (h *windowsDriver) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return h.verifyData(call, true)
 }

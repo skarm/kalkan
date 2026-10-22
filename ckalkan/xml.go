@@ -73,9 +73,11 @@ func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error)
 }
 
 // GetCertFromXML returns the signer certificate selected by signID from XML.
-// The Linux SDK accepts one-based signature positions and also matches numeric
-// Signature Id attributes; 0 aliases the first signature. Colliding Id values
-// can select an earlier signature. ErrorIDAttrNotFound signals no match.
+// The Linux SDK accepts one-based signature positions and numeric Signature
+// Id attributes.
+// Index 0 selects the first signature.
+// Conflicting Id values can select an earlier signature.
+// ErrorIDAttrNotFound indicates no match.
 func (c *Client) GetCertFromXML(xml []byte, signID int) ([]byte, error) {
 	if err := validateNativeSignerID("signID", signID); err != nil {
 		return nil, err

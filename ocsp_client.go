@@ -22,15 +22,19 @@ import (
 
 // OCSPRevokedError reports an authenticated revoked status.
 type OCSPRevokedError struct {
-	Endpoint  string
+	// Endpoint is the OCSP responder URL that returned the verified status.
+	Endpoint string
+	// RevokedAt is the revocation time from the signed OCSP response.
 	RevokedAt time.Time
 }
 
+// Error returns the revocation message with the revocation time.
 func (e *OCSPRevokedError) Error() string {
 	return "kalkan: OCSP certificate revoked at " + e.RevokedAt.Format(time.RFC3339)
 }
 
-// Unwrap preserves the revoked status code used by the native validator.
+// Unwrap returns a [ckalkan.KalkanError] with code
+// [ckalkan.ErrorCertStatusRevoked].
 func (e *OCSPRevokedError) Unwrap() error {
 	return &ckalkan.KalkanError{Code: ckalkan.ErrorCertStatusRevoked}
 }
@@ -67,8 +71,9 @@ func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertif
 		checkTimeUnix = req.CheckTime.Unix()
 	}
 
-	// Preserve native chain and certificate-time validation, but never invoke
-	// the vendor's OCSP transport. Snapshot trust while holding its native gate.
+	// Retain native chain and certificate-time validation.
+	// Do not invoke the vendor's OCSP transport.
+	// Copy trust state under the native call gate.
 	result, err := withLockedLibraryResult(c, ctx, "ValidateCertificate", func(native certificates) (ckalkan.ValidateCertificateResult, error) {
 		if issuer == nil {
 			trusted = slices.Clone(c.trusted)
@@ -160,8 +165,9 @@ func ocspTrustedCertificateBytes(certificate loadedTrustedCertificate) ([]byte, 
 		return certificate.data, nil
 	}
 
-	// A trust file is normally a few kilobytes. Avoid unbounded reads and
-	// special files when locating an issuer outside the native trust store.
+	// A trust file is normally a few kilobytes.
+	// Bound file reads during issuer lookup outside the native trust store.
+	// Reject special files.
 	info, err := os.Stat(certificate.path)
 	if err != nil {
 		return nil, err

@@ -80,8 +80,9 @@ func TestCallWindowsStatusRejectsMissingFunction(t *testing.T) {
 }
 
 func TestWindowsCertificateValidationPreservesNativePointers(t *testing.T) {
-	// Enter Go through a native callback and grow its stack before writing both
-	// output lengths. This exercises the actual syscall wrapper without the SDK.
+	// Enter Go through a native callback.
+	// Grow its stack before the callback writes both output lengths.
+	// This tests the syscall wrapper without the SDK.
 	var calls int
 	fn := syscall.NewCallback(func(cert *byte, certLen uintptr, mode uintptr, path *byte, checkTime uintptr,
 		info *byte, infoLen *int32, flags uintptr, ocsp *byte, ocspLen *int32,

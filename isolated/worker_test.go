@@ -124,7 +124,7 @@ func TestWorkerAcceptsNextRequestBeforeWriterCompletion(t *testing.T) {
 		if err := writeMessage(parent, message{ID: 2, Operation: opClose}); err != nil {
 			t.Fatal(err)
 		}
-		// The entire response reached the parent, but Write has not returned.
+		// The entire response reached the parent, but Write did not return yet.
 		// Let the server receive and retain the next request in this interval.
 		synctest.Wait()
 		select {
@@ -267,8 +267,9 @@ func TestDuplicatedProtocolPipeCloseInterruptsIO(t *testing.T) {
 				_ = duplicate.Close()
 			}()
 			if runtime.GOOS != "windows" {
-				// POSIX duplicates must join the runtime poller. Windows uses
-				// CancelIoEx on synchronous anonymous pipes when closing them.
+				// POSIX duplicates must register with the runtime poller.
+				// On Windows, file closure uses CancelIoEx on synchronous anonymous
+				// pipes.
 				if err := duplicate.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 					t.Fatalf("duplicate is not pollable: %v", err)
 				}
@@ -287,8 +288,8 @@ func TestDuplicatedProtocolPipeCloseInterruptsIO(t *testing.T) {
 			}()
 			<-started
 			if writing {
-				// Confirm that the large write is in progress without draining
-				// enough bytes for it to finish before Close.
+				// Confirm that the large write is in progress.
+				// Leave enough bytes unread to prevent completion before Close.
 				progress := make(chan error, 1)
 				go func() {
 					_, err := reader.Read(make([]byte, 1))
@@ -325,6 +326,9 @@ func TestDuplicatedProtocolPipeCloseInterruptsIO(t *testing.T) {
 	}
 }
 
+// TestRunWorkerReturnsSDKValidationError checks SDK configuration validation
+// through RunWorker.
+//
 // Invalid SDK configuration is rejected inside RunWorker before native loading.
 // This checks the public same-executable path even on machines without the SDK.
 func TestRunWorkerReturnsSDKValidationError(t *testing.T) {
@@ -455,7 +459,10 @@ func TestSDKOpenFailureWaitsForCleanupObservation(t *testing.T) {
 	}
 }
 
-// The native worker lives in this test executable, using the public entry point.
+// TestSDKWorkerHelper runs the native worker through the public entry point.
+//
+// The native worker lives in this test executable, using the public entry
+// point.
 func TestSDKWorkerHelper(t *testing.T) {
 	if len(os.Args) != 4 || os.Args[2] != "--" || os.Args[3] != "kalkan-sdk-worker" {
 		return

@@ -514,9 +514,10 @@ func TestValidateCertificateOCSPGOST2015Digest256(t *testing.T) {
 	response.Bytes.Response = ocspTestMarshal(t, basic)
 	tampered := ocspTestMarshal(t, response)
 
-	// SDK fixtures are valid from 2019 to 2050. Their fixed signed response
-	// interval covers the HTTP client's real clock as well as the status test's
-	// fixed 2030 clock; no SDK or private key is needed to run either test.
+	// SDK fixtures are valid from 2019 to 2050.
+	// Their fixed signed response interval covers the HTTP client's real clock
+	// and the status test's fixed 2030 clock.
+	// Neither test requires the SDK or a private key.
 	for _, test := range []struct {
 		name  string
 		body  []byte

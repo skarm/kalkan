@@ -20,6 +20,8 @@ static unsigned long bridge_set_proxy(void *funcsPtr, int flags, char *inProxyAd
 */
 import "C"
 
+// SetTSAURL configures tsaURL as the native timestamp endpoint and returns a
+// wrapper status. The SDK function returns no status.
 func (h *linuxDriver) SetTSAURL(tsaURL string) uint64 {
 	url, freeURL, err := cString(tsaURL)
 	if err != nil {
@@ -30,6 +32,8 @@ func (h *linuxDriver) SetTSAURL(tsaURL string) uint64 {
 	return uint64(C.bridge_tsa_set_url(h.funcs, url))
 }
 
+// SetProxy applies the proxy configuration in call and returns the operation
+// status.
 func (h *linuxDriver) SetProxy(call ProxyCall) uint64 {
 	addr, freeAddr, err := cString(call.Address)
 	if err != nil {

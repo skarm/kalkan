@@ -42,26 +42,33 @@ import "C"
 
 import "runtime"
 
+// Init initializes the native runtime and returns its status.
 func (h *linuxDriver) Init() uint64 {
 	return uint64(C.bridge_init(h.funcs))
 }
 
+// InitDebug invokes the native debug initializer if it is available.
 func (h *linuxDriver) InitDebug() {
 	C.bridge_init_debug(h.funcs)
 }
 
+// Finalize releases native runtime resources and leaves the library loaded.
 func (h *linuxDriver) Finalize() {
 	C.bridge_finalize(h.funcs)
 }
 
+// XMLFinalize releases native XML resources and leaves the library loaded.
 func (h *linuxDriver) XMLFinalize() {
 	C.bridge_xml_finalize(h.funcs)
 }
 
+// LastError returns the native error code.
 func (h *linuxDriver) LastError() uint64 {
 	return uint64(C.bridge_get_last_error(h.funcs))
 }
 
+// LastErrorString returns native error text and its status within capacity
+// bytes.
 func (h *linuxDriver) LastErrorString(capacity int) (BufferResult, error) {
 	buf, err := outputBuffer(capacity)
 	if err != nil {

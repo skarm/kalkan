@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// ZipConVerify verifies zipFile with flags and returns native diagnostics and
+// status. It exposes at most capacity output bytes.
 func (h *windowsDriver) ZipConVerify(zipFile string, flags, capacity int) (BufferResult, error) {
 	inZip, err := narrowString(zipFile)
 	if err != nil {
@@ -31,6 +33,8 @@ func (h *windowsDriver) ZipConVerify(zipFile string, flags, capacity int) (Buffe
 	return bufferResult(code, buf, int(outLen)), nil
 }
 
+// ZipConSign creates a signed container from call and returns the operation
+// status.
 func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
 	alias, err := narrowString(call.Alias)
 	if err != nil {
@@ -65,6 +69,9 @@ func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
 	return code
 }
 
+// GetCertFromZipFile returns the certificate selected by call.SignID in
+// call.ZipFile and its native status. It uses call.Capacity bytes of output
+// storage.
 func (h *windowsDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferResult, error) {
 	inZip, err := narrowString(call.ZipFile)
 	if err != nil {

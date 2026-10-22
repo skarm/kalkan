@@ -27,8 +27,9 @@ func preserveProtocolStreams() (*streams, error) {
 		return nil, err
 	}
 	defer null.Close()
-	// Go and C still use fd 0/1/2, which now refer to null. The private copies
-	// carry only protocol bytes and are closed when a subprocess calls exec.
+	// Go and C still use descriptors 0, 1, and 2, which now refer to null.
+	// Private copies carry protocol bytes only.
+	// The OS closes these copies when a subprocess calls exec.
 	for _, descriptor := range []int{0, 1, 2} {
 		if err := redirectDescriptor(int(null.Fd()), descriptor); err != nil {
 			_ = transport.Close()
@@ -46,8 +47,9 @@ func duplicateFile(file *os.File) (*os.File, error) {
 	}
 
 	syscall.CloseOnExec(fd)
-	// Inherited stdin/stdout pipes are blocking. Register their duplicates
-	// with Go's poller so Close interrupts an outstanding protocol read/write.
+	// Inherited stdin and stdout pipes use blocking mode.
+	// Register their duplicates with Go's poller so Close interrupts pending
+	// protocol I/O.
 	if err := syscall.SetNonblock(fd, true); err != nil {
 		_ = syscall.Close(fd)
 		return nil, err

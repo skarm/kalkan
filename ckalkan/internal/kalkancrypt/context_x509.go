@@ -20,8 +20,9 @@ func (c *Context) X509LoadCertificateFromBuffer(cert []byte, format int) uint64 
 	return c.driver.X509LoadCertificateFromBuffer(cert, format)
 }
 
-// X509ExportCertificateFromStore exports the certificate for alias in the
-// requested format using capacity bytes of output storage.
+// X509ExportCertificateFromStore returns the certificate for alias in format
+// and its native status.
+// It uses capacity bytes of output storage.
 func (c *Context) X509ExportCertificateFromStore(alias string, format, capacity int) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -30,8 +31,8 @@ func (c *Context) X509ExportCertificateFromStore(alias string, format, capacity 
 	return c.driver.X509ExportCertificateFromStore(alias, format, capacity)
 }
 
-// X509CertificateGetInfo retrieves native property prop from cert using
-// capacity bytes of output storage.
+// X509CertificateGetInfo returns property prop from cert and its native status.
+// It uses capacity bytes of output storage.
 func (c *Context) X509CertificateGetInfo(cert []byte, prop, capacity int) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed

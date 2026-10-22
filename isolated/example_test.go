@@ -13,8 +13,10 @@ import (
 	"github.com/skarm/kalkan/isolated"
 )
 
-// This complete application hashes a file in an isolated SDK process.
-// Copy the function into package main as main, keeping the imports.
+// ExampleOpen demonstrates a complete application that hashes a file in an
+// isolated SDK process.
+//
+// Copy the function into package main as main. Keep the imports.
 func ExampleOpen() {
 	// In an application, this branch belongs at the start of main, before
 	// starting services. The same executable handles parent and worker modes.
@@ -43,7 +45,7 @@ func ExampleOpen() {
 			return err
 		}
 
-		// The application owns cancellation, including while closing the SDK.
+		// The application controls cancellation during operations and SDK shutdown.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		client, err := isolated.Open(ctx, isolated.Config{
@@ -71,10 +73,12 @@ func ExampleOpen() {
 	}
 }
 
-// This complete application loads a PKCS#12 key, signs a file, verifies the
-// detached CMS against the original bytes, and saves the result as DER.
-// Copy the function into package main as main, keeping the imports. Use a valid
-// signing certificate and its CA chain; certificate-time checks remain enabled.
+// ExampleClient_SignCMS demonstrates file signatures with an isolated client
+// and a PKCS#12 key. The application verifies the detached CMS against the
+// original payload and saves the signature as DER.
+//
+// Copy the function into package main as main. Keep the imports. Use a valid
+// signing certificate and its CA chain. Certificate-time checks remain enabled.
 func ExampleClient_SignCMS() {
 	// In an application, this branch belongs at the start of main, before
 	// starting services. The same executable handles parent and worker modes.
@@ -118,7 +122,7 @@ func ExampleClient_SignCMS() {
 			return err
 		}
 
-		// The application owns cancellation, including while closing the SDK.
+		// The application controls cancellation during operations and SDK shutdown.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		client, err := isolated.Open(ctx, isolated.Config{
@@ -135,7 +139,8 @@ func ExampleClient_SignCMS() {
 		}
 		defer func() { err = errors.Join(err, client.CloseContext(ctx)) }()
 
-		// This client belongs to this signing flow; another key cannot interleave.
+		// This client belongs to this signing sequence.
+		// Other callers cannot select a different key between its calls.
 		if err := client.LoadKeyStore(ctx, kalkan.KeyStore{
 			Type: kalkan.PKCS12, Path: keyStore, Password: password,
 		}); err != nil {

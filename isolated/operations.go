@@ -62,12 +62,13 @@ func (c *Client) LoadTrustedCertificate(ctx context.Context, certificate kalkan.
 	return callVoid(c, ctx, opLoadTrustedCertificate, certificate)
 }
 
-// SetProxy changes the worker's native HTTP proxy configuration.
+// SetProxy configures the worker's native HTTP proxy and optional Go OCSP HTTP proxy.
 func (c *Client) SetProxy(ctx context.Context, proxy kalkan.Proxy) error {
 	return callVoid(c, ctx, opSetProxy, proxy)
 }
 
-// SignZIP signs a file into a ZIP container in the worker process.
+// SignZIP creates a signed ZIP container from an input path in the worker process.
+// The input requirements follow [kalkan.Client.SignZIP].
 func (c *Client) SignZIP(ctx context.Context, req kalkan.SignZIPRequest) (*kalkan.SignedZIP, error) {
 	return callResult[*kalkan.SignedZIP](c, ctx, opSignZIP, req)
 }
@@ -78,6 +79,7 @@ func (c *Client) VerifyZIP(ctx context.Context, req kalkan.VerifyZIPRequest) (*k
 }
 
 // ExtractZIPSignerCertificate returns a ZIP signer's native certificate bytes.
+// It does not verify the ZIP signature.
 func (c *Client) ExtractZIPSignerCertificate(ctx context.Context, req kalkan.ExtractZIPSignerCertificateRequest) ([]byte, error) {
 	return callResult[[]byte](c, ctx, opExtractZIPSignerCertificate, req)
 }
@@ -121,17 +123,20 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, certificate *
 	})
 }
 
-// GetCertFromCMS extracts certificates embedded in a CMS container.
+// GetCertFromCMS extracts certificates from a CMS container in the worker process.
+// Extraction does not verify signatures or establish certificate trust.
 func (c *Client) GetCertFromCMS(ctx context.Context, source kalkan.Source) ([]*x509.Certificate, error) {
 	return callCertificates(c, ctx, opGetCertFromCMS, source)
 }
 
 // GetCertFromXML extracts one certificate per XML signature in document order.
+// Extraction does not verify signatures or establish certificate trust.
 func (c *Client) GetCertFromXML(ctx context.Context, source kalkan.Source) ([]*x509.Certificate, error) {
 	return callCertificates(c, ctx, opGetCertFromXML, source)
 }
 
-// GetTimeFromSig returns the timestamp embedded for the first CMS signer.
+// GetTimeFromSig returns the embedded timestamp for the first CMS signer.
+// Verify the CMS with [Client.VerifyCMS] before you trust the returned time.
 func (c *Client) GetTimeFromSig(ctx context.Context, source kalkan.Source) (time.Time, error) {
 	return callResult[time.Time](c, ctx, opGetTimeFromSig, source)
 }

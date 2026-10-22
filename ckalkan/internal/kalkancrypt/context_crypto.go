@@ -1,7 +1,8 @@
 package kalkancrypt
 
-// HashData computes a digest using call.Algorithm and call.Flags, with one
-// native attempt using call.Capacity bytes of output storage.
+// HashData returns the digest and native status for call.Data with
+// call.Algorithm and call.Flags.
+// It uses call.Capacity bytes of output storage without retries.
 func (c *Context) HashData(call HashDataCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed
@@ -51,9 +52,10 @@ func (c *Context) SignWSSE(call SignWSSECall) (BufferResult, error) {
 }
 
 // VerifyData verifies a signature and returns the native status, decoded
-// data, verification diagnostics, and selected signer certificate.
-// On Linux, undersized diagnostic/certificate buffers return a buffer-too-small
-// status and safe minimum capacities without entering the SDK.
+// data, diagnostics, and selected signer certificate.
+// On Linux, insufficient diagnostic or certificate capacities return a
+// buffer-too-small status and safe minimum capacities.
+// That case does not call the SDK.
 func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {
 		return VerifyResult{}, ErrClosed

@@ -1,25 +1,33 @@
 // Package kalkan provides an application-level Go API for KalkanCrypt.
 //
-// The package supports hashing, CMS signatures, XML signatures, WS-Security
-// signing, KalkanCrypt ZIP containers, certificate loading, and certificate
-// validation. Inputs are described with typed request structs and [Source]
-// values, so callers can choose in-memory data or native file paths without
-// passing native KalkanCrypt flags through application code.
-// Source retains caller-provided byte slices; do not mutate them until the
-// operation returns. File source paths are passed unchanged after validation.
+// The package supports hashes, CMS signatures, XML signatures, WS-Security
+// signatures, ZIP containers, and certificates.
+// Typed requests and [Source] values describe inputs without native flags.
+// [Source] retains the caller's byte slices.
+// Keep these slices unchanged until the operation returns.
+// The client validates file paths and passes them to KalkanCrypt unchanged.
 //
-// [Client.VerifyXML] requires ExpectedBodyID for SOAP envelopes. Accepted
-// non-SOAP input is passed to KalkanCrypt unchanged.
+// [Client.VerifyXML] requires VerifyXMLRequest.ExpectedBodyID for SOAP
+// envelopes.
+// The client passes accepted non-SOAP input to KalkanCrypt unchanged.
 //
-// Native calls are process-global and serialized individually. Sequences such
-// as [Client.LoadKeyStore] followed by signing require external synchronization.
-// Context cancellation stops waiting for the Client call gate, but cannot
-// interrupt low-level process mutex waits or active KalkanCrypt calls. Open also
-// cannot cancel library loading or cleanup; hard deadlines require process isolation.
-// WithCustomOCSP optionally runs OCSP HTTP requests and response verification in Go
-// after native chain validation. Its HTTP exchange honors cancellation and
-// WithOCSPTimeout. By default, OCSP also uses KalkanCrypt's native implementation.
+// KalkanCrypt shares native state across the process.
+// The client serializes individual native calls.
+// Synchronize sequences that load a key store and then sign with that key
+// store.
+// Context cancellation stops a wait for the client call gate.
+// It cannot interrupt low-level mutex waits or active native calls.
+// [Open] cannot cancel library loads or cleanup.
 //
-// [Open] requires [WithLibraryPath] with an absolute path to the native KalkanCrypt
-// library. Passwords passed as Go strings cannot be zeroized by this package.
+// Use process isolation when native calls require hard deadlines.
+// The isolated package provides a client with a separate worker process.
+//
+// OCSP uses KalkanCrypt by default.
+// [WithCustomOCSP] enables Go HTTP requests and response verification after
+// native chain validation.
+// The Go HTTP exchange respects context cancellation and [WithOCSPTimeout].
+//
+// [Open] requires [WithLibraryPath] with an absolute path to the native
+// library.
+// The package cannot erase passwords from Go strings.
 package kalkan

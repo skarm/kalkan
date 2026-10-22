@@ -1,13 +1,13 @@
 package kalkancrypt
 
-// driver is the only platform-specific part of this package. Native drivers
-// call a platform KalkanCrypt dynamic library; unsupported builds provide no
-// driver and make Open return ErrUnavailable. Everything above this interface is
-// ordinary Go and is compiled on every platform.
+// driver defines the platform implementation of the KalkanCrypt ABI.
+// Native drivers call the platform's KalkanCrypt dynamic library.
+// Builds without a driver return ErrUnavailable from Open.
+// The common Go code compiles on every platform.
 //
-// Context and driver methods use call structures when the combined number of
-// inputs and results would otherwise exceed five. Platform drivers unpack those
-// structures only at the native ABI call site.
+// Context and driver methods use call structures when inputs and results
+// would otherwise exceed five parameters.
+// Platform drivers read these structures at the native ABI boundary.
 type driver interface {
 	driverHandle
 	driverLifecycle
@@ -82,18 +82,21 @@ type driverZIP interface {
 
 // Context is a low-level handle to KalkanCrypt.
 //
-// Context has the same method set on every platform. Builds with a native
-// driver delegate to the loaded KalkanCrypt library. Builds without a native
-// driver return ErrUnavailable from Open, so callers normally never receive a
-// Context value. A closed Context reports ErrClosed for methods that can return
-// errors and KCR_LIBRARYNOTINITIALIZED for status-code-only methods.
+// Context exposes the same methods on every platform.
+// Builds with a native driver delegate calls to the loaded KalkanCrypt
+// library.
+// Builds without a driver return ErrUnavailable from Open.
+// A closed Context returns ErrClosed from methods with error results and
+// KCR_LIBRARYNOTINITIALIZED from methods with status results only.
 // The zero value behaves as a closed context.
 //
-// Context does not synchronize calls. Callers must serialize access to the
-// process-global native state, including Close, even across different contexts.
-// Buffer methods perform one attempt: native status codes and reported lengths
-// are returned in the result, while Go argument and allocation checks return
-// errors. Callers are responsible for status handling and bounded retries.
+// Context does not synchronize calls.
+// Serialize access to native state across the process, including Close and
+// calls through other contexts.
+// Buffer methods make one attempt and return the native status and reported
+// lengths.
+// Go argument and allocation checks return errors.
+// Handle native statuses and enforce limits on retries in the caller.
 type Context struct {
 	driver driver
 }

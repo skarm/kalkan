@@ -5,10 +5,10 @@ import (
 )
 
 const (
-	// signatureOutputOverhead is deliberately conservative. It covers the
-	// signature value, certificate material, XML/CMS structure, and typical TSA
-	// data. It is only an initial estimate; native reported lengths and retries
-	// remain authoritative.
+	// signatureOutputOverhead estimates space for the signature, certificates,
+	// XML or CMS structure, and typical TSA data.
+	// It affects the initial capacity only.
+	// Native lengths and retries determine the required capacity.
 	signatureOutputOverhead = 64 << 10
 	pemEnvelopeOverhead     = 256
 	pemLineWidth            = 64
@@ -147,7 +147,8 @@ func saturatingEstimateMultiply(value, multiplier int64) int64 {
 
 func boundedOutputEstimate(estimated int64, maximum int) int {
 	// Estimates include conservative overhead and cannot establish the minimum
-	// required output size. Bound them before converting to int, including on
-	// 32-bit builds; native reported lengths determine whether the limit is enough.
+	// required output size.
+	// Bound estimates before conversion to int, including on 32-bit builds.
+	// Native lengths determine whether the limit is sufficient.
 	return int(min(estimated, int64(outputBufferLimit(maximum))))
 }

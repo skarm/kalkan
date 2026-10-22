@@ -22,8 +22,10 @@ import (
 	"fmt"
 )
 
+// MarshalledName is the prefix that identifies an encoded hash state.
 const MarshalledName = "STREEBOG"
 
+// MarshalBinary returns the current hash state as bytes.
 func (h *Hash) MarshalBinary() (data []byte, err error) {
 	data = make([]byte, len(MarshalledName)+1+8+2*BlockSize+len(h.buf))
 	copy(data, MarshalledName)
@@ -41,6 +43,9 @@ func (h *Hash) MarshalBinary() (data []byte, err error) {
 	return
 }
 
+// UnmarshalBinary restores h from data produced by [Hash.MarshalBinary].
+// Initialize h with [New] before this call.
+// Format errors leave h unchanged.
 func (h *Hash) UnmarshalBinary(data []byte) error {
 	expectedLen := len(MarshalledName) + 1 + 8 + 2*BlockSize
 	if len(data) < expectedLen {

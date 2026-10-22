@@ -16,10 +16,10 @@ import (
 type OperationObservation struct {
 	// Operation names the native-call attempt, such as Hash or SignXML.
 	Operation string
-	// QueueWait measures waiting to enter the client native-call gate.
+	// QueueWait measures the wait to enter the client call gate.
 	QueueWait time.Duration
-	// NativeDuration measures the low-level call callback, including its checks
-	// and lock waits. It is zero if that callback was not entered.
+	// NativeDuration measures the low-level callback, including its checks and lock waits.
+	// It is zero if the helper does not enter the callback.
 	NativeDuration time.Duration
 	// TotalDuration measures the call helper through gate release, excluding
 	// observer and logger execution and validation before the helper.
@@ -35,12 +35,16 @@ type OperationObservation struct {
 	Expected bool
 }
 
-// Observer receives native-call timings and safe outcome metadata. Calls are
-// synchronous after gate release and may run concurrently or reenter Client.
-// A slow callback delays its caller, but does not hold the native gate. The
-// Close callback runs in the closing goroutine after the saved close result is
-// ready, so Close can return before that callback finishes. Observers should
-// return promptly and must not panic.
+// Observer receives native call durations and outcome metadata without payloads.
+// The client invokes callbacks synchronously after it releases the gate.
+// Callbacks can run concurrently and can call Client methods.
+// A slow callback delays its caller without the native gate lock.
+//
+// The Close callback runs in the shutdown goroutine after the saved close
+// result is ready.
+// Close can return before that callback finishes.
+// Return promptly from callbacks.
+// Do not panic in callbacks.
 type Observer func(context.Context, OperationObservation)
 
 func reportOperation(c *Client, ctx context.Context, operation string, start time.Time, queueWait, nativeDuration time.Duration, err error, expectedCodes ...ckalkan.ErrorCode) {

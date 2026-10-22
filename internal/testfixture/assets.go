@@ -1,7 +1,8 @@
-// Package testfixture shares fixture discovery and file handling across test
-// layers. Filesystem helpers report failures through testing.TB; ZIP copies
-// and extracted archives belong to the calling test and are cleaned up with it.
-// Client setup and certificate selection remain local to each layer.
+// Package testfixture locates fixtures and manages fixture files across test layers.
+// Filesystem helpers report failures through testing.TB.
+// Each test owns its ZIP copies and extracted archives.
+// Test cleanup removes those files.
+// Each layer controls client setup and certificate selection.
 package testfixture
 
 import (

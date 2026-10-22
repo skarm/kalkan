@@ -18,8 +18,8 @@ func preserveProtocolStreams() (*streams, error) {
 	}
 
 	transport := &streams{reader: input, writer: output}
-	// Set standard handles before loading the SDK and its C runtime. The
-	// protocol handles themselves are non-inheritable duplicates.
+	// Set standard handles before the SDK and its C runtime load.
+	// The protocol handles are duplicates that child processes cannot inherit.
 	for _, stream := range []struct {
 		id   int32
 		file **os.File

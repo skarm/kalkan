@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+// SetTSAURL configures tsaURL as the native timestamp endpoint and returns a
+// wrapper status. The SDK function returns no status.
 func (h *windowsDriver) SetTSAURL(tsaURL string) uint64 {
 	url, err := narrowString(tsaURL)
 	if err != nil {
@@ -23,6 +25,8 @@ func (h *windowsDriver) SetTSAURL(tsaURL string) uint64 {
 	return 0
 }
 
+// SetProxy applies the proxy configuration in call and returns the operation
+// status.
 func (h *windowsDriver) SetProxy(call ProxyCall) uint64 {
 	addr, err := narrowString(call.Address)
 	if err != nil {
