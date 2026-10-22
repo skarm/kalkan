@@ -65,11 +65,11 @@ func (c *Client) VerifyData(req VerifyDataRequest) (VerifyDataResult, error) {
 			return VerifyDataResult{}, err
 		}
 
-		// SDK 2.0.13 can return KCR_OK after a signer-signature failure while
+		// The SDK can return KCR_OK after a signer-signature failure while
 		// recording the failure in the last-error slot. Read it before any
 		// diagnostics or retries, under the same process lock as the call.
 		if ErrorCode(result.Code) == ErrorOK {
-			if code := platformVerifyDataErrorCode(ctx); code != ErrorOK {
+			if code := platformCMSLastError(ctx); code != ErrorOK {
 				return VerifyDataResult{}, c.wrapCodeLocked(code)
 			}
 		}

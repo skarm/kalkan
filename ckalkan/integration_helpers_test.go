@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"os"
@@ -174,4 +175,96 @@ func firstExistingFile(paths ...string) (string, bool) {
 func explainSkipNoAssets(t *testing.T, where string) {
 	t.Helper()
 	t.Skip("no usable KalkanCrypt test assets found in " + where)
+}
+
+func requireCMSCryptographicRejection(t *testing.T, client *ckalkan.Client, request ckalkan.VerifyDataRequest, name string) {
+	t.Helper()
+	result, err := client.VerifyData(request)
+	code := requireKalkanError(t, "VerifyData(changed "+name+")", err).Code
+	// The SDK exposes its OpenSSL failures as native numeric codes.
+	if code != ckalkan.ErrorCode(0x8006E07B) && code != ckalkan.ErrorCode(0x2E09A09E) && uint64(code)>>24 != 4 {
+		t.Fatalf("changed %s: got %s (%v), want signature/digest verification failure", name, code.Hex(), err)
+	}
+	if len(result.Data) != 0 || len(result.Cert) != 0 || result.VerifyInfo != "" {
+		t.Fatalf("changed %s leaked successful output: %+v", name, result)
+	}
+}
+
+func verifyOpenSSLCMS(t *testing.T, cms, payload []byte, detached, valid bool) {
+	t.Helper()
+	dir := t.TempDir()
+	signaturePath, dataPath, outputPath := filepath.Join(dir, "signature.der"), filepath.Join(dir, "payload"), filepath.Join(dir, "verified")
+	for path, data := range map[string][]byte{signaturePath: cms, dataPath: payload} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{"cms", "-verify", "-binary", "-noverify", "-inform", "DER", "-in", signaturePath, "-out", outputPath}
+	if detached {
+		args = append(args, "-content", dataPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, requireOpenSSL(t), args...).CombinedOutput()
+	if ctx.Err() != nil || (err == nil) != valid {
+		t.Fatalf("OpenSSL verification: valid=%v error=%v context=%v\n%s", valid, err, ctx.Err(), output)
+	}
+	if valid {
+		verified, err := os.ReadFile(outputPath)
+		if err != nil || !bytes.Equal(verified, payload) {
+			t.Fatalf("OpenSSL recovered payload = %x, %v; want %x", verified, err, payload)
+		}
+	} else if !bytes.Contains(output, []byte("CMS Verification failure")) {
+		t.Fatalf("OpenSSL failed without a cryptographic rejection: %s", output)
+	}
+}
+
+func cmsTimestampToken(t *testing.T, cms []byte) []byte {
+	t.Helper()
+	var envelope struct {
+		OID     asn1.ObjectIdentifier
+		Content asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+	if _, err := asn1.Unmarshal(cms, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var content struct {
+		Version      int
+		Digests      asn1.RawValue
+		Content      asn1.RawValue
+		Certificates asn1.RawValue   `asn1:"optional,tag:0"`
+		Revocations  asn1.RawValue   `asn1:"optional,tag:1"`
+		Signers      []asn1.RawValue `asn1:"set"`
+	}
+	if _, err := asn1.Unmarshal(envelope.Content.Bytes, &content); err != nil || len(content.Signers) != 1 {
+		t.Fatalf("timestamped CMS signer: %v", err)
+	}
+	var signer struct {
+		Version    int
+		Identifier asn1.RawValue
+		Digest     asn1.RawValue
+		Attributes asn1.RawValue `asn1:"optional,tag:0"`
+		Algorithm  asn1.RawValue
+		Signature  []byte
+		Unsigned   asn1.RawValue `asn1:"optional,tag:1"`
+	}
+	if _, err := asn1.Unmarshal(content.Signers[0].FullBytes, &signer); err != nil {
+		t.Fatal(err)
+	}
+	for remaining := signer.Unsigned.Bytes; len(remaining) > 0; {
+		var attribute struct {
+			OID    asn1.ObjectIdentifier
+			Values []asn1.RawValue `asn1:"set"`
+		}
+		rest, err := asn1.Unmarshal(remaining, &attribute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attribute.OID.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}) && len(attribute.Values) == 1 {
+			return attribute.Values[0].FullBytes
+		}
+		remaining = rest
+	}
+	t.Fatal("CMS has no signatureTimeStampToken unsigned attribute")
+	return nil
 }

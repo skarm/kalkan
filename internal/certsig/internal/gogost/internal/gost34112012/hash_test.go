@@ -246,16 +246,16 @@ func TestUnmarshalBinaryRejectsInvalidState(t *testing.T) {
 		{"full unprocessed block", func(state []byte) []byte { return append(state, make([]byte, BlockSize)...) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			hash := New(64)
-			state, err := hash.MarshalBinary()
+			h := New(64)
+			state, err := h.MarshalBinary()
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := hash.Sum(nil)
-			if err := hash.UnmarshalBinary(test.change(state)); err == nil {
+			want := h.Sum(nil)
+			if err := h.UnmarshalBinary(test.change(state)); err == nil {
 				t.Fatal("accepted an invalid hash state")
 			}
-			if got := hash.Sum(nil); !bytes.Equal(got, want) {
+			if got := h.Sum(nil); !bytes.Equal(got, want) {
 				t.Fatal("failed restore changed the existing digest")
 			}
 		})

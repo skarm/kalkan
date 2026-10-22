@@ -117,7 +117,7 @@ func (c *Client) X509ValidateCertificate(req ValidateCertificateRequest) (Valida
 	}
 
 	infoCap := boundedOutputCapacity(c.config.requestOutputInitialCapacity(req.OutputCapacity, initialInfoOutputBuffer), c.config.maxBufferSize)
-	// Keep a valid native OCSP buffer even when it is inactive. SDK 2.0.13 can
+	// Keep a valid native OCSP buffer even when it is inactive. The SDK can
 	// leave its in/out length unchanged, so only consume it when requested.
 	ocspCap := boundedOutputCapacity(c.config.requestOutputInitialCapacity(req.OCSPCapacity, initialCertOutputBuffer), c.config.maxBufferSize)
 	returnOCSP := req.Flags&GetOCSPResponse != 0

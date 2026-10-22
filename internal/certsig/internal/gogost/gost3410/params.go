@@ -17,7 +17,7 @@ package gost3410
 
 var (
 	// id-tc26-gost-3410-12-256-paramSetA
-	CurveIdtc26gost341012256paramSetA func() *Curve = func() *Curve {
+	CurveIdtc26gost341012256paramSetA = func() *Curve {
 		curve, err := NewCurve(
 			bytes2big([]byte{
 				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -71,7 +71,7 @@ var (
 		return curve
 	}
 	// id-tc26-gost-3410-12-512-paramSetA
-	CurveIdtc26gost341012512paramSetA func() *Curve = func() *Curve {
+	CurveIdtc26gost341012512paramSetA = func() *Curve {
 		curve, err := NewCurve(
 			bytes2big([]byte{
 				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,

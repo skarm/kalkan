@@ -3,12 +3,41 @@ package ckalkan_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
+
+func TestHashDataBase64FileReadsContents(t *testing.T) {
+	client := newIntegrationClient(t)
+	t.Chdir(t.TempDir())
+	// The path is itself valid Base64 for "abc". Hashing its decoded bytes
+	// would conceal a failure to open and hash the actual file.
+	const path = "YWJj"
+	for _, payload := range [][]byte{[]byte("first file contents\x00\xff"), []byte("changed file contents\x00\xff")} {
+		if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(payload)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := client.HashData(ckalkan.SHA256, ckalkan.InFile|ckalkan.InBase64, []byte(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := sha256.Sum256(payload)
+		if !bytes.Equal(digest, want[:]) {
+			t.Fatalf("HashData(Base64 file) = %x, want content hash %x", digest, want)
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if digest, err := client.HashData(ckalkan.SHA256, ckalkan.InFile|ckalkan.InBase64, []byte(path)); err == nil || digest != nil {
+		t.Fatalf("HashData(missing Base64 file) = %x, %v, want an error without a digest", digest, err)
+	}
+}
 
 func TestCertificateAndHashMethods(t *testing.T) {
 	assets := loadFixtureAssets(t)

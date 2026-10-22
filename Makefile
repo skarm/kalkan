@@ -1,5 +1,6 @@
 KALKANCRYPT_LIBRARY ?=
 KALKANCRYPT_SDK_ASSETS ?= $(CURDIR)/testdata
+KALKANCRYPT_LIVE_TESTS ?= 0
 
 .PHONY: fmt vet test test-race test-native docker-test docker-lint lint check
 
@@ -25,7 +26,8 @@ test-native:
 	go test ./...
 
 docker-test:
-	docker build --platform linux/amd64 .
+	docker build --platform linux/amd64 --progress=plain --no-cache-filter test \
+		--build-arg KALKANCRYPT_LIVE_TESTS="$(KALKANCRYPT_LIVE_TESTS)" .
 
 docker-lint:
 	docker run --rm \

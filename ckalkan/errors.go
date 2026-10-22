@@ -105,7 +105,9 @@ func (e *KalkanError) Format(language ErrorLanguage) string {
 }
 
 // Is reports whether target itself is a KalkanError with the same code.
+// It does not unwrap target; errors.Is handles unwrapping the source error.
 func (e *KalkanError) Is(target error) bool {
+	//noinspection GoTypeAssertionOnErrors
 	t, ok := target.(*KalkanError)
 
 	return ok && e != nil && t != nil && e.Code == t.Code

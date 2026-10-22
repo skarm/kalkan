@@ -27,7 +27,7 @@ func estimateSignDataOutput(req SignDataRequest, maximum int) int {
 	// still the secondary in-memory input and must never be interpreted as a
 	// file path merely because Data is a file.
 	signatureSize := int64(len(req.Signature))
-	if req.Flags&In2Base64 != 0 {
+	if req.Flags&InBase64 != 0 {
 		signatureSize = decodedBase64UpperBound(signatureSize)
 	}
 

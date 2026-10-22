@@ -74,6 +74,34 @@ func TestHashPassesFilePathAndEncodingFlag(t *testing.T) {
 	}
 }
 
+func TestHashForwardsInputEncodingFlags(t *testing.T) {
+	for _, input := range []struct {
+		name   string
+		source Source
+		flags  ckalkan.Flag
+		data   string
+	}{
+		{"PEM memory", PEM([]byte("PEM data")), ckalkan.InPEM, "PEM data"},
+		{"PEM file", File("payload.pem").WithEncoding(EncodingPEM), ckalkan.InFile | ckalkan.InPEM, "payload.pem"},
+		{"Base64 file", File("payload.b64").WithEncoding(EncodingBase64), ckalkan.InFile | ckalkan.InBase64, "payload.b64"},
+	} {
+		t.Run(input.name, func(t *testing.T) {
+			client := &Client{library: &fakeNative{
+				hashDataFunc: func(_ ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
+					if flags != input.flags || string(data) != input.data {
+						t.Fatalf("native input = %#x/%q, want %#x/%q", flags, data, input.flags, input.data)
+					}
+					return []byte("digest"), nil
+				},
+			}}
+			result, err := client.Hash(t.Context(), HashRequest{Data: input.source})
+			if err != nil || string(result.Data) != "digest" {
+				t.Fatalf("Hash = %+v, %v, want native digest", result, err)
+			}
+		})
+	}
+}
+
 func TestHashRequiresData(t *testing.T) {
 	native := &fakeNative{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {

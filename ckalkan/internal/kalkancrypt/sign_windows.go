@@ -51,7 +51,7 @@ func (h *windowsDriver) SignData(call SignDataCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	inSig, inSigLen, err := inputBytes(call.Signature)
+	inSig, inSigLen, err := cmsInputBytes(call.Signature, call.Flags&^inFileFlag)
 	if err != nil {
 		return BufferResult{}, err
 	}

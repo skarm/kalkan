@@ -11,7 +11,7 @@ import (
 )
 
 // xmlCertificateInput removes ambiguous signature selectors from an extraction-
-// only copy. SDK 2.0.13 matches either a signature's one-based position or Id,
+// only copy. The SDK matches either a signature's one-based position or Id,
 // whichever it encounters first. Id="2" on the first of two signatures would
 // therefore make lookups 1 and 2 return that first certificate twice.
 // No verification uses this copy: every byte outside unqualified ds:Signature

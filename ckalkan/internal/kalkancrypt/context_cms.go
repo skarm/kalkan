@@ -11,7 +11,7 @@ func (c *Context) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) 
 }
 
 // GetCertFromCMS extracts a certificate using the native signer selector.
-// Linux SDK 2.0.13 expects in-memory CMS and numbers certificates from 1.
+// The Linux SDK expects in-memory CMS and numbers certificates from 1.
 func (c *Context) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
 	if c.closed() {
 		return BufferResult{}, ErrClosed

@@ -234,7 +234,7 @@ func assertSDKSignHash(t *testing.T, ctx context.Context, client *isolated.Clien
 	tampered[0] ^= 1
 	request.Data = kalkan.Bytes(tampered)
 	_, err = client.VerifyCMS(ctx, request)
-	// Linux SDK 2.0.13 exposes this OpenSSL digest-verification error directly.
+	// The Linux SDK exposes this OpenSSL digest-verification error directly.
 	const digestVerificationFailure = ckalkan.ErrorCode(0x2E09A09E)
 	if code, ok := ckalkan.ErrorCodeOf(err); !ok || code != digestVerificationFailure {
 		t.Fatalf("VerifyCMS SignHash altered payload = %v, want native code %s", err, digestVerificationFailure.Hex())

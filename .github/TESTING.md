@@ -88,6 +88,8 @@ golangci-lint run ./...
 Integration tests skip when `KALKANCRYPT_LIBRARY` is unset. The filename convention
 is descriptive; it is not an additional build tag. Use `make test-native` with
 the library and assets configured, or `make docker-test`, to run the native suite.
+Use `make docker-test KALKANCRYPT_LIVE_TESTS=1` to include real TSA/OCSP requests;
+the Docker test stage installs the public test TSA CA chain inside the image.
 See [Contributing](CONTRIBUTING.md#run-the-checks) for the environment settings.
 
 The benchmark smoke run checks that every benchmark still accepts its inputs;

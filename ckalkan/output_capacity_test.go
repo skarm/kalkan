@@ -548,28 +548,38 @@ func TestSignDataFileEstimateKeepsExistingSignatureInMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var capacity int
-	ctx := &fakeNativeContext{
-		signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
-			capacity = call.Capacity
+	for _, variant := range []struct {
+		name  string
+		flags Flag
+		size  int
+	}{
+		{"raw", 0, len(signaturePath)},
+		{"Base64", InBase64, (len(signaturePath) + 3) / 4 * 3},
+		{"In2Base64 does not decode the signature", In2Base64, len(signaturePath)},
+	} {
+		t.Run(variant.name, func(t *testing.T) {
+			var capacity int
+			ctx := &fakeNativeContext{
+				signDataFunc: func(call kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
+					capacity = call.Capacity
 
-			return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
-		},
-	}
-	cli := &Client{ctx: ctx, config: defaultConfig()}
-
-	_, err := cli.SignData(SignDataRequest{
-		Flags:     SignCMS | InFile,
-		Data:      []byte(dataPath),
-		Signature: []byte(signaturePath),
-	})
-	if err != nil {
-		t.Fatalf("SignData failed: %v", err)
-	}
-
-	want := len(signaturePath) + signatureOutputOverhead
-	if capacity != want {
-		t.Fatalf("initial capacity = %d, want in-memory signature estimate %d", capacity, want)
+					return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("ok"), OutLen: 2}, nil
+				},
+			}
+			cli := &Client{ctx: ctx, config: defaultConfig()}
+			_, err := cli.SignData(SignDataRequest{
+				Flags:     SignCMS | InFile | variant.flags,
+				Data:      []byte(dataPath),
+				Signature: []byte(signaturePath),
+			})
+			if err != nil {
+				t.Fatalf("SignData failed: %v", err)
+			}
+			want := variant.size + signatureOutputOverhead
+			if capacity != want {
+				t.Fatalf("initial capacity = %d, want in-memory signature estimate %d", capacity, want)
+			}
+		})
 	}
 }
 

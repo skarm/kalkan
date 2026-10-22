@@ -222,7 +222,7 @@ func parseCertificateIdentifier(der []byte) (certificateIdentifier, error) {
 		return certificateIdentifier{}, fmt.Errorf("decode Certificate: %w", err)
 	}
 	if len(rest) != 0 || certificate.Class != asn1.ClassUniversal || certificate.Tag != asn1.TagSequence {
-		return certificateIdentifier{}, errors.New("Certificate is not a single sequence")
+		return certificateIdentifier{}, errors.New("certificate is not a single sequence")
 	}
 
 	var tbsCertificate asn1.RawValue
@@ -550,7 +550,7 @@ func assertSignHashCMSStructure(t *testing.T, der, digest []byte) {
 		t.Fatalf("SignHash CMS: content=%x, certificates=%d, error=%v; want detached CMS with signer certificate", content, len(certificates), err)
 	}
 
-	// SDK 2.0.13's OBJ_id_GostR3411_2015_512 is OBJ_pkigovkz,3,3.
+	// The SDK's OBJ_id_GostR3411_2015_512 is OBJ_pkigovkz,3,3.
 	// The bundled fixture key selects this Kazakhstan GOST 512-bit digest OID.
 	wantDigestOID := asn1.ObjectIdentifier{1, 2, 398, 3, 10, 1, 3, 3}
 	algorithms := envelope.Content.DigestAlgorithms

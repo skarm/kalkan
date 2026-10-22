@@ -4,6 +4,7 @@ import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
 // HashData returns a digest of data using algorithm. Flags select the native
 // input and output representations; algorithm uses a KalkanCrypt name such as SHA256.
+// InFile reads from a file path; InBase64 requests decoding before hashing.
 func (c *Client) HashData(algorithm HashAlgorithm, flags Flag, data []byte) ([]byte, error) {
 	nativeFlags, err := flagsToNativeInt(flags)
 	if err != nil {

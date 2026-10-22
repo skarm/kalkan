@@ -52,11 +52,12 @@ func TestZipConSignWithFixtureKey(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	inputPath := filepath.Join(outDir, "payload.txt")
+	inputDir := t.TempDir()
+	inputPath := filepath.Join(inputDir, "payload.txt")
 	if err := os.WriteFile(inputPath, []byte("ckalkan ZIP fixture payload"), 0o644); err != nil {
 		t.Fatalf("write ZIP payload: %v", err)
 	}
-	if err := client.ZipConSign(ckalkan.ZipConSignRequest{FilePath: inputPath, Name: "signed-by-fixture-key", OutDir: outDir, Flags: ckalkan.NoCheckCertTime}); err != nil {
+	if err := client.ZipConSign(ckalkan.ZipConSignRequest{FilePath: inputDir, Name: "signed-by-fixture-key", OutDir: outDir, Flags: ckalkan.NoCheckCertTime}); err != nil {
 		t.Fatalf("ZipConSign failed: %v", err)
 	}
 	if _, ok := firstExistingFile(filepath.Join(outDir, "signed-by-fixture-key"), filepath.Join(outDir, "signed-by-fixture-key.zip")); !ok {

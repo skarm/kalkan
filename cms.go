@@ -47,7 +47,9 @@ type SignCMSRequest struct {
 	Alias string
 	// Data is the payload to sign. The zero-value Source is rejected; use
 	// Bytes(nil) or Bytes([]byte{}) only when an explicit empty payload is
-	// intended.
+	// intended. During attached signing, an existing CMS with DER, PEM, or
+	// Base64 encoding is passed to the SDK for adding a signer. Use raw input
+	// to sign CMS bytes as an opaque payload instead.
 	Data Source
 	// Detached requests a detached CMS signature.
 	Detached bool
@@ -114,7 +116,8 @@ type Verification struct {
 }
 
 // SignCMS signs data and returns CMS output bytes. The default output format is
-// raw DER CMS.
+// raw DER CMS. During attached signing, DER, PEM, or Base64 input containing an
+// existing CMS adds a signer to that container.
 func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -191,7 +194,7 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 }
 
 // VerifyCMS verifies an attached or detached CMS signature.
-// Linux SDK 2.0.13 cannot reliably verify empty CMS payloads. This binding
+// The Linux SDK cannot reliably verify empty CMS payloads. This binding
 // rejects its negative output length for attached empty CMS; detached empty
 // verification returns ckalkan.ErrorVerifyNoData, including for valid signatures.
 func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verification, error) {

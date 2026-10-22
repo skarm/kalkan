@@ -2,7 +2,7 @@
 
 package ckalkan
 
-func platformVerifyDataErrorCode(ctx cmsContext) ErrorCode {
+func platformCMSLastError(ctx cmsContext) ErrorCode {
 	return ErrorCode(ctx.LastError())
 }
 

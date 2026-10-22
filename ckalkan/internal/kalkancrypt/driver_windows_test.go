@@ -115,6 +115,25 @@ func TestWindowsCertificateValidationPreservesNativePointers(t *testing.T) {
 	}
 }
 
+func TestWindowsTimestampExtractionKeepsBinaryInputWithInFile(t *testing.T) {
+	want := []byte{0x30, 0, 1}
+	var calls int
+	fn := syscall.NewCallback(func(cms *byte, cmsLen uintptr, flags uintptr, signID uintptr, timestamp *int64) uintptr {
+		calls++
+		if cms == nil || !bytes.Equal(unsafe.Slice(cms, cmsLen), want) || flags != inFileFlag || signID != 1 {
+			t.Error("native callback received incorrect CMS input")
+			return uintptr(errorParam)
+		}
+		*timestamp = 12345
+		return 0
+	})
+	driver := &windowsDriver{funcs: &kcFunctionList{getTimeFromSig: fn}}
+	code, timestamp := driver.GetTimeFromSig(want, inFileFlag, 1)
+	if code != 0 || timestamp != 12345 || calls != 1 {
+		t.Fatalf("GetTimeFromSig = (%#x, %d), calls = %d", code, timestamp, calls)
+	}
+}
+
 func TestWindowsCMSExtractionKeepsBinaryInputWithInFile(t *testing.T) {
 	want := []byte{0x30, 0, 1}
 	var calls int

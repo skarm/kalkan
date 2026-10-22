@@ -154,7 +154,7 @@ func ExampleClient_SignWSSE() {
 		XML:              kalkan.Bytes([]byte(`<m:GetData xmlns:m="urn:example"/>`)),
 		BodyID:           "TheBody",
 		WrapSOAP:         true,
-		Canonicalization: kalkan.XMLCanonicalizationInclusive,
+		Canonicalization: kalkan.XMLCanonicalizationExclusive,
 	})
 	if err != nil {
 		_ = client.Close()
@@ -185,7 +185,7 @@ func ExampleClient_SignZIP() {
 	}
 
 	signed, err := client.SignZIP(ctx, kalkan.SignZIPRequest{
-		InputPath:  "/data/document.bin",
+		InputPath:  "/data/documents", // Directory containing the files to sign.
 		OutputPath: filepath.Join(outputDir, "document.signed.zip"),
 	})
 	if err != nil {

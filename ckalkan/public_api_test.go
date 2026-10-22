@@ -2,7 +2,10 @@ package ckalkan_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan"
@@ -49,6 +52,50 @@ func TestConstantsMatchKnownSDKValues(t *testing.T) {
 		if !ok {
 			t.Fatalf("constant %s has unexpected value", name)
 		}
+	}
+}
+
+func TestFlagsMatchSDKHeader(t *testing.T) {
+	header, err := os.ReadFile("internal/kalkancrypt/KalkanCrypt.h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions := make(map[string]uint64)
+	for line := range strings.SplitSeq(string(header), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[0] != "#define" {
+			continue
+		}
+		value, err := strconv.ParseUint(fields[2], 0, 32)
+		if err == nil {
+			definitions[fields[1]] = value
+		}
+	}
+	for name, flag := range map[string]ckalkan.Flag{
+		"KC_SIGN_DRAFT": ckalkan.SignDraft, "KC_SIGN_CMS": ckalkan.SignCMS,
+		"KC_IN_PEM": ckalkan.InPEM, "KC_IN_DER": ckalkan.InDER,
+		"KC_IN_BASE64": ckalkan.InBase64, "KC_IN2_BASE64": ckalkan.In2Base64,
+		"KC_DETACHED_DATA": ckalkan.DetachedData, "KC_WITH_CERT": ckalkan.WithCert,
+		"KC_WITH_TIMESTAMP": ckalkan.WithTimestamp, "KC_IN_FILE": ckalkan.InFile,
+		"KC_OUT_PEM": ckalkan.OutPEM, "KC_OUT_DER": ckalkan.OutDER,
+		"KC_OUT_BASE64": ckalkan.OutBase64, "KC_NOCHECKCERTTIME": ckalkan.NoCheckCertTime,
+		"KC_PROXY_OFF": ckalkan.ProxyOff, "KC_PROXY_ON": ckalkan.ProxyOn,
+		"KC_PROXY_AUTH": ckalkan.ProxyAuth, "KC_GET_OCSP_RESPONSE": ckalkan.GetOCSPResponse,
+		"KC_HASH_SHA256": ckalkan.HashSHA256, "KC_HASH_GOST95": ckalkan.HashGOST95,
+		"KC_HASH_GOST15_256": ckalkan.HashGOST2015_256, "KC_HASH_GOST15_512": ckalkan.HashGOST2015_512,
+		"KC_XML_INCL_C14N": ckalkan.XMLInclC14N, "KC_XML_INCL_C14NCOMMENT": ckalkan.XMLInclC14NComment,
+		"KC_XML_INCL_C14N11": ckalkan.XMLInclC14N11, "KC_XML_INCL_C14N11COMMENT": ckalkan.XMLInclC14N11Comment,
+		"KC_XML_EXCL_C14N": ckalkan.XMLExclC14N, "KC_XML_EXCL_C14NCOMMENT": ckalkan.XMLExclC14NComment,
+		"KC_XMLC_INCL_C14N": ckalkan.XMLCInclC14N, "KC_XMLC_INCL_C14NCOMMENT": ckalkan.XMLCInclC14NComment,
+		"KC_XMLC_INCL_C14N11": ckalkan.XMLCInclC14N11, "KC_XMLC_INCL_C14N11COMMENT": ckalkan.XMLCInclC14N11Comment,
+		"KC_XMLC_EXCL_C14N": ckalkan.XMLCExclC14N, "KC_XMLC_EXCL_C14NCOMMENT": ckalkan.XMLCExclC14NComment,
+	} {
+		t.Run(name, func(t *testing.T) {
+			value, ok := definitions[name]
+			if !ok || uint64(flag) != value {
+				t.Fatalf("Go flag = %#x, SDK header value = %#x (found=%v)", flag, value, ok)
+			}
+		})
 	}
 }
 

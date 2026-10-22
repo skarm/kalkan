@@ -7,13 +7,16 @@ import (
 	"github.com/skarm/kalkan/ckalkan"
 )
 
-// SignZIPRequest describes signing a file into a KalkanCrypt ZIP container.
+// SignZIPRequest describes creating a KalkanCrypt ZIP container from an input path.
 type SignZIPRequest struct {
 	// Alias selects a loaded key alias. Empty alias lets KalkanCrypt use its
 	// default loaded key when the native library supports that behavior.
 	Alias string
-	// InputPath is passed unchanged to KalkanCrypt. Keep the referenced file
-	// unchanged until SignZIP returns.
+	// InputPath is passed unchanged to KalkanCrypt. The Linux native adapter
+	// requires an existing directory and rejects other input types with
+	// ckalkan.ErrorParam, preventing the SDK from creating an empty container
+	// for a regular-file path. Keep the referenced files unchanged until
+	// SignZIP returns and put output elsewhere.
 	InputPath string
 	// OutputPath is the expected ZIP container path and must end with .zip,
 	// matched case-insensitively. KalkanCrypt creates lowercase .zip output, so

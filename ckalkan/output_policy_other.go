@@ -2,7 +2,7 @@
 
 package ckalkan
 
-func platformVerifyDataErrorCode(_ cmsContext) ErrorCode {
+func platformCMSLastError(_ cmsContext) ErrorCode {
 	return ErrorOK
 }
 

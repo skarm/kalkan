@@ -4,7 +4,7 @@ import "github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 
 // SignHash signs a precomputed hash with the loaded key selected by alias.
 // The hash algorithm must match the algorithm required by the loaded signing key.
-// Linux SDK 2.0.13 derives the signing algorithm from that key and ignores the
+// The Linux SDK derives the signing algorithm from that key and ignores the
 // HashSHA256, HashGOST95, HashGOST2015_256, and HashGOST2015_512 flags here.
 func (c *Client) SignHash(alias string, flags Flag, hash []byte) ([]byte, error) {
 	nativeFlags, err := flagsToNativeInt(flags)
@@ -55,12 +55,20 @@ func (c *Client) SignData(req SignDataRequest) ([]byte, error) {
 	initial := c.config.estimatedOutputInitialCapacity(req.OutputCapacity, estimated, initialSignatureBuffer)
 
 	return c.callBufferWithCapacityLocked("SignData", initial, func(capacity int) (kalkancrypt.BufferResult, error) {
-		return ctx.SignData(kalkancrypt.SignDataCall{
+		result, err := ctx.SignData(kalkancrypt.SignDataCall{
 			Alias:     req.Alias,
 			Flags:     nativeFlags,
 			Data:      req.Data,
 			Signature: req.Signature,
 			Capacity:  capacity,
 		})
+		// The Linux SDK can return KCR_OK after signing or TSA failures,
+		// reporting the failure only through KC_GetLastError. Never return
+		// the untouched or incomplete output buffer as a signed CMS.
+		if err == nil && result.Code == uint64(ErrorOK) {
+			result.Code = uint64(platformCMSLastError(ctx))
+		}
+
+		return result, err
 	})
 }

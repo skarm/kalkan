@@ -73,7 +73,7 @@ func (c *Client) VerifyXML(alias string, flags Flag, xml []byte) (string, error)
 }
 
 // GetCertFromXML returns the signer certificate selected by signID from XML.
-// Linux SDK 2.0.13 accepts one-based signature positions and also matches numeric
+// The Linux SDK accepts one-based signature positions and also matches numeric
 // Signature Id attributes; 0 aliases the first signature. Colliding Id values
 // can select an earlier signature. ErrorIDAttrNotFound signals no match.
 func (c *Client) GetCertFromXML(xml []byte, signID int) ([]byte, error) {

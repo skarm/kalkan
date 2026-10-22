@@ -58,13 +58,14 @@ func TestZipConSignCreatesContainer(t *testing.T) {
 	loadPKCS12Fixture(t, ctx)
 
 	outDir := t.TempDir()
-	inputPath := filepath.Join(outDir, "payload.txt")
+	inputDir := t.TempDir()
+	inputPath := filepath.Join(inputDir, "payload.txt")
 	if err := os.WriteFile(inputPath, []byte("kalkancrypt low-level ZIP payload"), 0o644); err != nil {
 		t.Fatalf("write ZIP payload: %v", err)
 	}
 
 	if code := ctx.ZipConSign(kalkancrypt.ZipConSignCall{
-		FilePath: inputPath,
+		FilePath: inputDir,
 		Name:     "signed-by-kalkancrypt-test",
 		OutDir:   outDir,
 		Flags:    noCheckCertTime,

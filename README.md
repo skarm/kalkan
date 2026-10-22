@@ -14,7 +14,7 @@ Go wrapper for KalkanCrypt. The root package exposes typed operations over the l
 - `linux/amd64` with `CGO_ENABLED=1`
 - `windows/amd64`
 
-Native CI exercises `libkalkancryptwr-64.so.2.0.13`.
+Native CI exercises `libkalkancryptwr-64.so.2.0.13`. The SDK behavior described below was observed with this version.
 
 `windows/386`, Linux with `CGO_ENABLED=0`, and other targets compile against the unsupported driver and return `ErrUnavailable`.
 
@@ -40,11 +40,13 @@ Use `ckalkan` when the root package does not expose the required operation. Use 
 
 The `ckalkan` buffer options cover two ABI shapes:
 
-- `WithListBufferSize` sets the initial allocation for `KC_GetTokens` and `KC_GetCertificatesList`; the default is 1 MiB. In the tested Linux SDK 2.0.13, these functions receive no byte-capacity argument, and `tk_count` and `cert_count` are output item counts. The option controls allocation size but does not bound the native write.
+- `WithListBufferSize` sets the initial allocation for `KC_GetTokens` and `KC_GetCertificatesList`; the default is 1 MiB. In the Linux SDK, these functions receive no byte-capacity argument, and `tk_count` and `cert_count` are output item counts. The option controls allocation size but does not bound the native write.
 - `WithBufferSize` sets the global initial capacity for length-aware output calls when a request does not specify its own capacity. Without this option, operation-specific defaults are 32 bytes for raw SHA-256, GOST 34.11-95, and GOST 34.11-2015-256 hashes; 64 bytes for raw GOST 34.11-2015-512; 256 bytes for Base64/PEM hash output with any algorithm; 128 bytes for other raw hash algorithms; 4 KiB for metadata, 8 KiB for certificates, and 64 KiB for signatures and generic outputs. Attached CMS uses the in-memory input or file size plus a conservative signature reserve; CMS Base64 and PEM expansion is included. Signed XML/WSSE uses the in-memory XML size plus the same reserve (`KC_IN_FILE` is not supported by these two SDK calls). These calls initialize an output-length parameter with the capacity and retry after `KCR_BUFFER_TOO_SMALL`.
 - Every output buffer has a 64 MiB hard limit by default (`ckalkan.DefaultMaxOutputBufferSize`). `WithMaxBufferSize(0)` restores that safe default; a positive value deliberately selects a smaller or larger limit, up to the native C `int` maximum of 2^31-1 bytes. A negative value makes `New` return `ErrInvalidOutputBufferSize`. If native code reports that more than the active limit is required, the wrapper returns a typed `OutputBufferLimitError` containing the operation, requested size, and applied limit before retrying with or allocating the oversized capacity.
 
-On Linux, `ZipConVerify` requires a 64 KiB safety allocation because SDK 2.0.13 can write past a smaller reported capacity. If an explicit hard limit is below that safety minimum, the call fails before entering the native library.
+On Linux, `ZipConVerify` requires a 64 KiB safety allocation because the SDK can write past a smaller reported capacity. If an explicit hard limit is below that safety minimum, the call fails before entering the native library.
+
+The Linux SDK can also corrupt `VerifyData` output lengths when verification-info and signer-certificate buffers are tiny. Before entering the SDK, the adapter requests at least the tested default capacities of 4 KiB for verification info and 8 KiB for the signer certificate, including for the universal verifier. The binding retries within the configured hard limit; an insufficient limit returns `OutputBufferLimitError` without calling the verifier or returning partial data.
 
 Positive `WithBufferSize` and `WithListBufferSize` values are normalized to at least 64 KiB. Positive `WithMaxBufferSize` values are honored exactly up to the C `int` ABI maximum. A smaller hard limit may prevent an operation from using its usual initial capacity; the 64 MiB default is a security and availability boundary, not an indication that an operation should normally use that much memory.
 
@@ -183,13 +185,13 @@ Operations use `Source` values:
 - `kalkan.Base64(data)`: in-memory input that already contains Base64 text; the constructor does not encode `data`
 - `kalkan.PEM(data)`: an existing PEM representation; the constructor does not create the PEM envelope
 - `kalkan.DER(data)`: an existing DER representation, used to select DER explicitly for CMS and certificate inputs
-- `kalkan.File(path)`: a file path; supported operations forward it to KalkanCrypt, while `GetCertFromCMS` and `GetTimeFromSig` read the file into memory
+- `kalkan.File(path)`: input from a file; the operation or native adapter reads its contents
 
 Supported variants are operation-specific.
 
 A source encoding other than `EncodingAuto` takes precedence over request encoding fields and operation defaults. `Bytes`, `Base64`, `PEM`, and `DER` set explicit encodings; `File` starts with `EncodingAuto`. For example, `VerifyCMSRequest.Encoding: EncodingBase64` does not reinterpret a `Bytes` source as Base64. Use `Base64(encoded)` or explicitly restore fallback selection with `Bytes(encoded).WithEncoding(EncodingAuto)`.
 
-The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. On Linux and Windows, length-delimited in-memory inputs are normally passed directly to KalkanCrypt without an adapter copy. Base64 data passed to `SignData` and Base64 CMS signatures passed to `VerifyData`, `GetCertFromCMS`, and `GetTimeFromSig` receive an owned NUL-terminated copy because Linux SDK 2.0.13 reads these inputs as C strings despite accepting an explicit length; the logical length passed to the SDK is unchanged. Except for `GetCertFromCMS` and `GetTimeFromSig`, `File` forwards the original path after empty-path and NUL validation; the native adapter adds the C-string terminator required by `KC_IN_FILE`. Keep borrowed slices and referenced files unchanged until the call returns.
+The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. On Linux and Windows, length-delimited in-memory inputs are normally passed directly to KalkanCrypt without an adapter copy. Base64 data and existing CMS signatures passed to `SignData`, and Base64 CMS signatures passed to `VerifyData`, `GetCertFromCMS`, and `GetTimeFromSig` receive an owned NUL-terminated copy because the Linux SDK reads these inputs as C strings despite accepting an explicit length; the logical length passed to the SDK is unchanged. File paths are checked for empty values and embedded NUL bytes before reading or forwarding them to the SDK. Keep borrowed slices and referenced files unchanged until the call returns.
 
 `WithMaxInputSize` caps high-level in-memory inputs and files read by `GetCertFromCMS` and `GetTimeFromSig`. It does not apply to files read directly by the SDK or native output buffers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
 
@@ -203,13 +205,17 @@ Native binary outputs are returned strictly according to the SDK-reported `outLe
 
 CMS output is raw DER by default. Select `CMSOutputBase64` or `CMSOutputPEM` for text output.
 
-Linux SDK 2.0.13 cannot reliably verify empty CMS payloads. For attached empty CMS, it can report success even after the signature is changed, together with a negative output length that this binding rejects. Detached verification returns `ckalkan.ErrorVerifyNoData`, including for valid signatures over empty data. The binding preserves these failures.
+For attached signing, the SDK interprets an existing CMS supplied with DER, PEM, or Base64 encoding as a request to add a signer. Use raw `Bytes` or a raw file source to sign CMS bytes as an opaque payload. At the `ckalkan` level, `SignData` uses `InBase64` for both its data and existing CMS signature; `In2Base64` instead applies to the original data in `VerifyData`.
+
+The Linux SDK cannot reliably verify empty CMS payloads. For attached empty CMS, it can report success even after the signature is changed, together with a negative output length that this binding rejects. Detached verification returns `ckalkan.ErrorVerifyNoData`, including for valid signatures over empty data. The binding preserves these failures.
 
 `GetTimeFromSig` reads the timestamp of signer 0 (the first signer). The low-level `ckalkan.Client.GetTimeFromSig` method accepts an explicit signer index. The root method reads `File` sources into memory and applies `WithMaxInputSize`, because the SDK operation accepts CMS contents rather than paths.
 
+Timestamp extraction does not authenticate the CMS or TSA signature. The Linux SDK returns the embedded time even after the TSA signature has been changed. Require successful `VerifyCMS` with the original detached data, when applicable, before trusting that time.
+
 `GetCertFromCMS` returns the embedded signer certificates using the SDK's one-based certificate indices. Unlike `VerifyCMS`, this SDK operation accepts only container contents: the root method reads `File` sources into memory once and applies `WithMaxInputSize` while reading them. Certificate extraction does not verify the signature.
 
-`SignHashRequest.Digest` is the precomputed digest. `DigestAlgorithm` describes how it was calculated; its zero value is `SHA256`. The wrapper checks the algorithm and digest length, but this field does not select the native signing algorithm. The digest must match the loaded signing key: for example, use `GOST2015_512` with the bundled GOST 2015 512-bit test keys. Linux SDK 2.0.13 derives the algorithm from the key and ignores the `Hash*` flags in `SignHash`. A wrong digest can have the expected length and still produce a CMS successfully; verify that CMS against the original payload.
+`SignHashRequest.Digest` is the precomputed digest. `DigestAlgorithm` describes how it was calculated; its zero value is `SHA256`. The wrapper checks the algorithm and digest length, but this field does not select the native signing algorithm. The digest must match the loaded signing key: for example, use `GOST2015_512` with the bundled GOST 2015 512-bit test keys. The Linux SDK derives the algorithm from the key and ignores the `Hash*` flags in `SignHash`. A wrong digest can have the expected length and still produce a CMS successfully; verify that CMS against the original payload.
 
 ## XML and WS-Security
 
@@ -265,6 +271,8 @@ Use `X509CertificateGetInfoFields` on metadata hot paths. `CertificateInfo` expo
 
 ZIP input paths are forwarded after empty-path and NUL validation. Keep the files unchanged until each operation returns.
 
+The Linux native adapter requires an existing directory as the `SignZIP` input. It returns `ckalkan.ErrorParam` for a regular file, a link to a file, a missing path, or another non-directory input before creating a ZIP. This prevents the SDK from reporting success for a container that omits the input file. To sign one file, place it in a dedicated input directory and pass that directory; keep the output outside it. Keep input paths and contents unchanged until the operation returns.
+
 `VerifyZIP` and `ExtractZIPSignerCertificate` are independent. Certificate extraction does not verify the ZIP signature. Call `VerifyZIP` first when both results are required.
 
 ## Diagnostics
@@ -287,6 +295,8 @@ make test-native
 ```
 
 `make docker-test` expects the Linux SDK libraries under `.local/kalkancrypt/lib/linux/`.
+
+`make docker-test` runs the full native suite with the race detector during the image build. The test stage bypasses Docker's cache and Go's test cache on each invocation. Use `make docker-test KALKANCRYPT_LIVE_TESTS=1` to also send real HTTP TSA/OCSP requests; this installs the public test TSA CA chain only inside the image. Build output includes the test log. External TSA/OCSP checks are disabled by default.
 
 On Windows:
 

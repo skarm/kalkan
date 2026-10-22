@@ -39,6 +39,8 @@ func (c *Client) ZipConVerify(zipFile string, flags Flag) (string, error) {
 // ZipConSign signs req.FilePath into a KalkanCrypt ZIP container named by
 // req.Name in req.OutDir. Output creation and naming follow the native API;
 // this method does not stage or atomically publish the file.
+// The Linux native adapter requires an existing directory at req.FilePath;
+// other input types return ErrorParam without creating a ZIP.
 func (c *Client) ZipConSign(req ZipConSignRequest) error {
 	nativeFlags, err := flagsToNativeInt(req.Flags)
 	if err != nil {

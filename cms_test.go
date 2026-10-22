@@ -177,6 +177,29 @@ func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
 	}
 }
 
+func TestSignCMSForwardsPEMInputFlag(t *testing.T) {
+	for _, source := range []Source{PEM([]byte("PEM data")), File("payload.pem").WithEncoding(EncodingPEM)} {
+		client := &Client{library: &fakeNative{
+			signDataFunc: func(_ string, flags ckalkan.Flag, data, _ []byte) ([]byte, error) {
+				want := ckalkan.SignCMS | ckalkan.OutDER | ckalkan.InPEM
+				wantData := "PEM data"
+				if source.file {
+					want |= ckalkan.InFile
+					wantData = "payload.pem"
+				}
+				if flags != want || string(data) != wantData {
+					t.Fatalf("native input = %#x/%q, want %#x/%q", flags, data, want, wantData)
+				}
+				return []byte("cms"), nil
+			},
+		}}
+		result, err := client.SignCMS(t.Context(), SignCMSRequest{Data: source})
+		if err != nil || string(result.Data) != "cms" {
+			t.Fatalf("SignCMS = %+v, %v, want native CMS output", result, err)
+		}
+	}
+}
+
 func TestSignCMSRequiresData(t *testing.T) {
 	native := &fakeNative{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {

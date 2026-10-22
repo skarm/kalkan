@@ -51,7 +51,7 @@ func inputBytesWithFlags(value []byte, flags int) ([]byte, nativeInt, error) {
 }
 
 // cmsInputBytes terminates Base64 inputs consumed as C strings by the Linux
-// SDK 2.0.13 CMS routines even though their ABI also accepts an explicit length.
+// SDK CMS routines even though their ABI also accepts an explicit length.
 // Keep this input contract consistent across native drivers.
 func cmsInputBytes(value []byte, flags int) ([]byte, nativeInt, error) {
 	if flags&inFileFlag != 0 {

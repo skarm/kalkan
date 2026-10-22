@@ -29,7 +29,7 @@ type fixtureAssets struct {
 	Certs    map[string]string
 }
 
-func openFixtureClient(t *testing.T, assets fixtureAssets) *Client {
+func openFixtureClient(t *testing.T, assets fixtureAssets, options ...Option) *Client {
 	t.Helper()
 
 	library := strings.TrimSpace(os.Getenv("KALKANCRYPT_LIBRARY"))
@@ -37,7 +37,7 @@ func openFixtureClient(t *testing.T, assets fixtureAssets) *Client {
 		t.Skip("set KALKANCRYPT_LIBRARY to run native-backed root API tests")
 	}
 
-	client, err := Open(context.Background(),
+	options = append([]Option{
 		WithLibraryPath(library),
 		WithTSAURL(testTSAURL),
 		WithOCSPURL(testOCSPURL),
@@ -49,7 +49,8 @@ func openFixtureClient(t *testing.T, assets fixtureAssets) *Client {
 			Path: certificatePath(t, assets, "nca_gost2022_test"),
 			Type: CertificateIntermediate,
 		}),
-	)
+	}, options...)
+	client, err := Open(context.Background(), options...)
 	if errors.Is(err, ckalkan.ErrUnavailable) {
 		t.Skip("native-backed root API tests require Linux with cgo enabled")
 	}
@@ -216,10 +217,10 @@ func requireKalkanError(t *testing.T, name string, err error) {
 	}
 }
 
-func openFixtureSigningClient(t *testing.T) *Client {
+func openFixtureSigningClient(t *testing.T, options ...Option) *Client {
 	t.Helper()
 	assets := loadFixtureAssets(t)
-	client := openFixtureClient(t, assets)
+	client := openFixtureClient(t, assets, options...)
 	ctx := context.Background()
 	if err := client.LoadKeyStore(ctx, KeyStore{Type: PKCS12, Path: keyStorePath(t, assets), Password: fixturePassword}); err != nil {
 		t.Fatalf("LoadKeyStore: %v", err)

@@ -65,11 +65,11 @@ func NewPublicKey(c *Curve, raw []byte) (*PublicKey, error) {
 }
 
 // Marshal LE(X)||LE(Y) public key. raw will be 2*pub.C.PointSize() length.
-func (pub *PublicKey) RawLE() []byte {
-	pointSize := pub.C.PointSize()
+func (pk *PublicKey) RawLE() []byte {
+	pointSize := pk.C.PointSize()
 	raw := append(
-		pad(pub.Y.Bytes(), pointSize),
-		pad(pub.X.Bytes(), pointSize)...,
+		pad(pk.Y.Bytes(), pointSize),
+		pad(pk.X.Bytes(), pointSize)...,
 	)
 	reverse(raw)
 
@@ -77,21 +77,21 @@ func (pub *PublicKey) RawLE() []byte {
 }
 
 // Marshal BE(X)||BE(Y) public key. raw will be 2*pub.C.PointSize() length.
-func (pub *PublicKey) RawBE() []byte {
-	pointSize := pub.C.PointSize()
+func (pk *PublicKey) RawBE() []byte {
+	pointSize := pk.C.PointSize()
 	return append(
-		pad(pub.X.Bytes(), pointSize),
-		pad(pub.Y.Bytes(), pointSize)...,
+		pad(pk.X.Bytes(), pointSize),
+		pad(pk.Y.Bytes(), pointSize)...,
 	)
 }
 
 // This is an alias for RawLE().
-func (pub *PublicKey) Raw() []byte {
-	return pub.RawLE()
+func (pk *PublicKey) Raw() []byte {
+	return pk.RawLE()
 }
 
-func (pub *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
-	pointSize := pub.C.PointSize()
+func (pk *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
+	pointSize := pk.C.PointSize()
 	if len(signature) != 2*pointSize {
 		return false, fmt.Errorf("gogost/gost3410: len(signature)=%d != %d", len(signature), 2*pointSize)
 	}
@@ -100,55 +100,55 @@ func (pub *PublicKey) VerifyDigest(digest, signature []byte) (bool, error) {
 	r := bytes2big(signature[pointSize:])
 
 	if r.Cmp(zero) <= 0 ||
-		r.Cmp(pub.C.Q) >= 0 ||
+		r.Cmp(pk.C.Q) >= 0 ||
 		s.Cmp(zero) <= 0 ||
-		s.Cmp(pub.C.Q) >= 0 {
+		s.Cmp(pk.C.Q) >= 0 {
 		return false, nil
 	}
 
 	e := bytes2big(digest)
-	e.Mod(e, pub.C.Q)
+	e.Mod(e, pk.C.Q)
 
 	if e.Cmp(zero) == 0 {
 		e = big.NewInt(1)
 	}
 
 	v := big.NewInt(0)
-	v.ModInverse(e, pub.C.Q)
+	v.ModInverse(e, pk.C.Q)
 	z1 := big.NewInt(0)
 	z2 := big.NewInt(0)
 	z1.Mul(s, v)
-	z1.Mod(z1, pub.C.Q)
+	z1.Mod(z1, pk.C.Q)
 	z2.Mul(r, v)
-	z2.Mod(z2, pub.C.Q)
-	z2.Sub(pub.C.Q, z2)
+	z2.Mod(z2, pk.C.Q)
+	z2.Sub(pk.C.Q, z2)
 
-	p1x, p1y, err := pub.C.Exp(z1, pub.C.X, pub.C.Y)
+	p1x, p1y, err := pk.C.Exp(z1, pk.C.X, pk.C.Y)
 	if err != nil {
 		return false, err
 	}
 
-	q1x, q1y, err := pub.C.Exp(z2, pub.X, pub.Y)
+	q1x, q1y, err := pk.C.Exp(z2, pk.X, pk.Y)
 	if err != nil {
 		return false, err
 	}
 	// Equal points require doubling; opposite points sum to infinity and
 	// cannot verify a signature. The distinct-point slope has no inverse
 	// when the x coordinates match.
-	if !pub.C.add(p1x, p1y, q1x, q1y) {
+	if !pk.C.add(p1x, p1y, q1x, q1y) {
 		return false, nil
 	}
-	p1x.Mod(p1x, pub.C.Q)
+	p1x.Mod(p1x, pk.C.Q)
 	return p1x.Cmp(r) == 0, nil
 }
 
-func (our *PublicKey) Equal(theirKey crypto.PublicKey) bool {
+func (pk *PublicKey) Equal(theirKey crypto.PublicKey) bool {
 	their, ok := theirKey.(*PublicKey)
 	if !ok {
 		return false
 	}
 
-	return our.X.Cmp(their.X) == 0 && our.Y.Cmp(their.Y) == 0 && our.C.Equal(their.C)
+	return pk.X.Cmp(their.X) == 0 && pk.Y.Cmp(their.Y) == 0 && pk.C.Equal(their.C)
 }
 
 type PublicKeyReverseDigest struct {

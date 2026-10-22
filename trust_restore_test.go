@@ -285,7 +285,11 @@ func TestTrustedCertificateOptionSupportsConcurrentOpen(t *testing.T) {
 			t.Fatalf("concurrent Open: %v", result.err)
 		}
 		clients = append(clients, result.client)
-		defer result.client.Close()
+		t.Cleanup(func() {
+			if err := result.client.Close(); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+		})
 	}
 	for i, client := range clients {
 		if sameByteSliceBacking(client.trusted[0].data, data) {

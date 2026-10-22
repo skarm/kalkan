@@ -49,10 +49,6 @@ func TestNativeFileInputsRejectEmbeddedNUL(t *testing.T) {
 				}
 			})
 		}
-		_, err := client.GetTimeFromSig(input, flags, 0)
-		if code, ok := ckalkan.ErrorCodeOf(err); !ok || code != ckalkan.ErrorParam {
-			t.Fatalf("GetTimeFromSig flags %x: error = %v, want native parameter error", flags, err)
-		}
 	}
 }
 

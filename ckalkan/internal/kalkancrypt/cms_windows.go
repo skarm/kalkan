@@ -8,7 +8,7 @@ import (
 )
 
 func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
-	in, inLen, err := cmsInputBytes(data, flags)
+	in, inLen, err := cmsInputBytes(data, flags&^inFileFlag)
 	if err != nil {
 		return errorParam, 0
 	}

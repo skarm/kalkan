@@ -52,6 +52,8 @@ func (c *Context) SignWSSE(call SignWSSECall) (BufferResult, error) {
 
 // VerifyData verifies a signature and returns the native status, decoded
 // data, verification diagnostics, and selected signer certificate.
+// On Linux, undersized diagnostic/certificate buffers return a buffer-too-small
+// status and safe minimum capacities without entering the SDK.
 func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {
 		return VerifyResult{}, ErrClosed
@@ -60,8 +62,8 @@ func (c *Context) VerifyData(call VerifyDataCall) (VerifyResult, error) {
 	return c.driver.VerifyData(call)
 }
 
-// UVerifyData invokes the native universal file verifier. In Linux SDK
-// 2.0.13, call.Signature is a file path and the SDK detects XML, ZIP, draft, or
+// UVerifyData invokes the native universal file verifier. In the Linux SDK,
+// call.Signature is a file path and the SDK detects XML, ZIP, draft, or
 // CMS input. Outputs retain their native status and reported lengths.
 func (c *Context) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 	if c.closed() {

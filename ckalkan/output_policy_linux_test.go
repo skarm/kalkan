@@ -10,6 +10,22 @@ import (
 	"github.com/skarm/kalkan/ckalkan/internal/kalkancrypt"
 )
 
+func TestSignDataRejectsNativeLastErrorAfterSuccessfulStatus(t *testing.T) {
+	for _, flags := range []Flag{SignCMS, SignCMS | WithTimestamp, SignDraft} {
+		ctx := &fakeNativeContext{
+			lastErrorFunc: func() uint64 { return uint64(ErrorSign) },
+			signDataFunc: func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
+				return kalkancrypt.BufferResult{Code: uint64(ErrorOK), Data: []byte("not a signature"), OutLen: len("not a signature")}, nil
+			},
+		}
+		client := &Client{ctx: ctx, config: defaultConfig()}
+		output, err := client.SignData(SignDataRequest{Flags: flags})
+		if !errors.Is(err, &KalkanError{Code: ErrorSign}) || output != nil {
+			t.Fatalf("SignData(flags=%#x) = %x, %v, want typed signing error without output", flags, output, err)
+		}
+	}
+}
+
 func TestVerifyDataRejectsNativeLastErrorAfterSuccessfulStatus(t *testing.T) {
 	const nativeFailure = ErrorCode(0x0407008a)
 	ctx := &fakeNativeContext{

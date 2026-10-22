@@ -25,7 +25,10 @@ static unsigned long bridge_get_cert_from_zip_file(void *funcsPtr, char *inZipFi
 */
 import "C"
 
-import "runtime"
+import (
+	"os"
+	"runtime"
+)
 
 const zipVerifyOutputGuardCapacity = 64 << 10
 
@@ -80,6 +83,14 @@ func (h *linuxDriver) ZipConSign(call ZipConSignCall) uint64 {
 		return errorParam
 	}
 	defer freeOutDir()
+
+	// The SDK enumerates a directory, but reports KCR_OK for a
+	// regular-file path and creates a container without that file. Reject
+	// unsupported input types before the native call can produce false success.
+	info, err := os.Stat(call.FilePath)
+	if err != nil || !info.IsDir() {
+		return errorParam
+	}
 
 	return uint64(C.bridge_zip_con_sign(h.funcs, alias, filePath, name, outDir, C.int(call.Flags)))
 }

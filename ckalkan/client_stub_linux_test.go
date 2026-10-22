@@ -320,7 +320,7 @@ func TestMethodsAgainstStubLibrary(t *testing.T) {
 	if zipInfo != "ZIPVERIFY" {
 		t.Fatalf("unexpected ZipConVerify result: %q", zipInfo)
 	}
-	if err := cli.ZipConSign(ckalkan.ZipConSignRequest{Alias: "alias", FilePath: "/tmp/a.zip", Name: "a.zip", OutDir: "/tmp", Flags: ckalkan.InFile}); err != nil {
+	if err := cli.ZipConSign(ckalkan.ZipConSignRequest{Alias: "alias", FilePath: t.TempDir(), Name: "a.zip", OutDir: "/tmp", Flags: ckalkan.InFile}); err != nil {
 		t.Fatalf("ZipConSign failed: %v", err)
 	}
 

@@ -7,7 +7,7 @@ import (
 )
 
 // GetCertFromCMS returns a signer certificate extracted from in-memory CMS.
-// Linux SDK 2.0.13 numbers certificates from 1; 0 returns an empty result.
+// The Linux SDK numbers certificates from 1; 0 returns an empty result.
 // This differs from the signer index used by GetTimeFromSig.
 // The CMS argument must contain the container bytes; KC_IN_FILE is ignored by
 // that SDK operation, so callers must read file contents themselves.
@@ -40,8 +40,10 @@ func (c *Client) GetCertFromCMS(cms []byte, signID int, flags Flag) ([]byte, err
 }
 
 // GetTimeFromSig returns the timestamp embedded for CMS signer sigID.
+// This extracts a value; it does not authenticate the CMS or TSA signature.
+// VerifyData must succeed before the timestamp can be trusted.
 // The index is zero-based; a native failure returns the zero time and an error.
-// Linux SDK 2.0.13 expects CMS contents and ignores InFile for this operation;
+// The Linux SDK expects CMS contents and ignores InFile for this operation;
 // callers using that SDK must read file contents before calling it.
 func (c *Client) GetTimeFromSig(data []byte, flags Flag, sigID int) (time.Time, error) {
 	if err := validateNativeSignerID("sigID", sigID); err != nil {

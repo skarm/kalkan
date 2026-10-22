@@ -358,7 +358,7 @@ func TestCoreOutputPathsRejectOversizedNativeLengthBeforeRetry(t *testing.T) {
 			operation: "SignData",
 			install: func(ctx *fakeNativeContext, calls *int) {
 				ctx.signDataFunc = func(kalkancrypt.SignDataCall) (kalkancrypt.BufferResult, error) {
-					(*calls)++
+					*calls++
 
 					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
 				}
@@ -374,7 +374,7 @@ func TestCoreOutputPathsRejectOversizedNativeLengthBeforeRetry(t *testing.T) {
 			operation: "SignXML",
 			install: func(ctx *fakeNativeContext, calls *int) {
 				ctx.signXMLFunc = func(kalkancrypt.SignXMLCall) (kalkancrypt.BufferResult, error) {
-					(*calls)++
+					*calls++
 
 					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
 				}
@@ -390,7 +390,7 @@ func TestCoreOutputPathsRejectOversizedNativeLengthBeforeRetry(t *testing.T) {
 			operation: "X509CertificateGetInfo",
 			install: func(ctx *fakeNativeContext, calls *int) {
 				ctx.x509InfoFunc = func([]byte, int, int) (kalkancrypt.BufferResult, error) {
-					(*calls)++
+					*calls++
 
 					return kalkancrypt.BufferResult{Code: uint64(ErrorBufferTooSmall), OutLen: DefaultMaxOutputBufferSize + 1}, nil
 				}

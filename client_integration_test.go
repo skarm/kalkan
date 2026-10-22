@@ -63,6 +63,83 @@ func TestClientFixtureOperations(t *testing.T) {
 	})
 }
 
+func TestClientPayloadEncodingFlags(t *testing.T) {
+	client := openFixtureSigningClient(t)
+	payload := []byte("encoding flags: binary\x00\xff\r\npayload")
+	wantHash := sha256.Sum256(payload)
+	for _, input := range []struct {
+		name     string
+		encoding Encoding
+		data     []byte
+	}{
+		{"raw", EncodingRaw, payload},
+		{"DER", EncodingDER, payload},
+		{"Base64", EncodingBase64, []byte(base64.StdEncoding.EncodeToString(payload))},
+		{"PEM", EncodingPEM, pem.EncodeToMemory(&pem.Block{Type: "DATA", Bytes: payload})},
+	} {
+		for _, file := range []bool{false, true} {
+			name := input.name + "/memory"
+			source := Bytes(input.data).WithEncoding(input.encoding)
+			if file {
+				name = input.name + "/file"
+				path := filepath.Join(t.TempDir(), "payload")
+				if err := os.WriteFile(path, input.data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				source = File(path).WithEncoding(input.encoding)
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Run("Hash", func(t *testing.T) {
+					digest, err := client.Hash(t.Context(), HashRequest{Data: source})
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := wantHash
+					if input.encoding == EncodingPEM {
+						want = sha256.Sum256(input.data)
+					}
+					if !bytes.Equal(digest.Data, want[:]) {
+						t.Fatalf("Hash = %x, want %x", digest.Data, want)
+					}
+				})
+				for _, detached := range []bool{false, true} {
+					mode := "attached"
+					if detached {
+						mode = "detached"
+					}
+					t.Run(mode, func(t *testing.T) {
+						signed, err := client.SignCMS(t.Context(), SignCMSRequest{
+							Data: source, Detached: detached, IncludeCertificate: true,
+							CertificateTimeCheck: SkipCertificateTimeCheck,
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
+						want := payload
+						if input.encoding == EncodingPEM {
+							want = input.data
+						}
+						request := VerifyCMSRequest{
+							Signature: DER(signed.Data), Detached: detached,
+							CertificateTimeCheck: SkipCertificateTimeCheck,
+						}
+						if detached {
+							request.Data = Bytes(want)
+						}
+						verified, err := client.VerifyCMS(t.Context(), request)
+						if err != nil {
+							t.Fatalf("VerifyCMS: %v", err)
+						}
+						if !detached && !bytes.Equal(verified.Data, want) {
+							t.Fatalf("attached payload = %x, want %x", verified.Data, want)
+						}
+					})
+				}
+			})
+		}
+	}
+}
+
 func TestClientFixtureLargeFileCMSRoundTrip(t *testing.T) {
 	const payloadSize = 8 << 20
 
@@ -277,7 +354,7 @@ func assertHashSigning(t *testing.T, ctx context.Context, client *Client, payloa
 	tampered[0] ^= 1
 	request.Data = Bytes(tampered)
 	_, err = client.VerifyCMS(ctx, request)
-	// SDK 2.0.13 exposes this OpenSSL digest-verification error directly.
+	// The SDK exposes this OpenSSL digest-verification error directly.
 	const cmsDigestVerificationFailure = ckalkan.ErrorCode(0x2E09A09E)
 	requireNativeErrorCode(t, "VerifyCMS(SignHash tampered payload)", err, cmsDigestVerificationFailure)
 }
@@ -464,12 +541,13 @@ func certificateDERForTest(t *testing.T, cert []byte) []byte {
 func assertZIP(t *testing.T, ctx context.Context, client *Client, payload []byte) {
 	t.Helper()
 
-	zipInputPath := filepath.Join(t.TempDir(), "payload.txt")
+	zipInputDir := t.TempDir()
+	zipInputPath := filepath.Join(zipInputDir, "payload.txt")
 	if err := os.WriteFile(zipInputPath, payload, 0o644); err != nil {
 		t.Fatalf("write ZIP payload: %v", err)
 	}
 	signedZIP, err := client.SignZIP(ctx, SignZIPRequest{
-		InputPath:            zipInputPath,
+		InputPath:            zipInputDir,
 		OutputPath:           filepath.Join(t.TempDir(), "signed-root-container.zip"),
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
@@ -482,7 +560,7 @@ func assertZIP(t *testing.T, ctx context.Context, client *Client, payload []byte
 
 	mixedCaseZIPPath := filepath.Join(t.TempDir(), "signed-root-container.ZIP")
 	mixedCaseZIP, err := client.SignZIP(ctx, SignZIPRequest{
-		InputPath:            zipInputPath,
+		InputPath:            zipInputDir,
 		OutputPath:           mixedCaseZIPPath,
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})
@@ -498,7 +576,7 @@ func assertZIP(t *testing.T, ctx context.Context, client *Client, payload []byte
 	}
 
 	_, err = client.SignZIP(ctx, SignZIPRequest{
-		InputPath:            zipInputPath,
+		InputPath:            zipInputDir,
 		OutputPath:           filepath.Join(t.TempDir(), "signed-root-container"),
 		CertificateTimeCheck: SkipCertificateTimeCheck,
 	})

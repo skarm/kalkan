@@ -31,6 +31,25 @@ func TestGetCertFromCMSKeepsBinaryInputWithInFile(t *testing.T) {
 	}
 }
 
+func TestGetTimeFromSigKeepsBinaryInputWithInFile(t *testing.T) {
+	ctx := openContext(t)
+	assets := loadFixtureAssets(t)
+	loadCertificates(t, ctx, assets)
+	block, _ := pem.Decode(readExample(t, assets, "test_CMS_GOST"))
+	if block == nil || bytes.IndexByte(block.Bytes, 0) < 0 {
+		t.Fatal("CMS fixture must decode to binary input with an embedded NUL")
+	}
+	const inDER = 0x00000008
+	code, timestamp := ctx.GetTimeFromSig(block.Bytes, inDER|noCheckCertTime, 0)
+	if timestamp <= 0 {
+		t.Fatalf("positive control = (%#x, %d), want a parsed timestamp", code, timestamp)
+	}
+	gotCode, gotTime := ctx.GetTimeFromSig(block.Bytes, inDER|noCheckCertTime|inFile, 0)
+	if gotCode != code || gotTime != timestamp {
+		t.Fatalf("GetTimeFromSig with InFile = (%#x, %d), want (%#x, %d)", gotCode, gotTime, code, timestamp)
+	}
+}
+
 func TestCMSFixtureOperations(t *testing.T) {
 	ctx := openContext(t)
 	assets := loadFixtureAssets(t)

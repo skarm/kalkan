@@ -23,7 +23,9 @@ import "C"
 import "runtime"
 
 func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int64) {
-	in, inLen, err := cmsInputBytes(data, flags)
+	// Like certificate extraction, timestamp extraction consumes CMS bytes
+	// even when KC_IN_FILE remains in the flags.
+	in, inLen, err := cmsInputBytes(data, flags&^inFileFlag)
 	if err != nil {
 		return errorParam, 0
 	}
@@ -36,7 +38,7 @@ func (h *linuxDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, int
 }
 
 func (h *linuxDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, error) {
-	// SDK 2.0.13 ignores KC_IN_FILE here and always consumes in-memory CMS.
+	// The SDK ignores KC_IN_FILE here and always consumes in-memory CMS.
 	// Binary CMS may contain NUL bytes, so do not validate it as a file path.
 	in, inLen, err := cmsInputBytes(call.CMS, call.Flags&^inFileFlag)
 	if err != nil {

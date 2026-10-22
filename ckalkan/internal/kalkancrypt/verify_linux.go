@@ -27,6 +27,33 @@ func (h *linuxDriver) UVerifyData(call VerifyDataCall) (VerifyResult, error) {
 }
 
 func (h *linuxDriver) verifyData(call VerifyDataCall, universal bool) (VerifyResult, error) {
+	for _, capacity := range []int{call.DataCapacity, call.InfoCapacity, call.CertCapacity} {
+		if err := checkOutputBufferCapacity(capacity); err != nil {
+			return VerifyResult{}, err
+		}
+	}
+
+	// The SDK can corrupt output lengths when both diagnostic and signer
+	// certificate buffers are tiny (reproduced with CertID=1 and capacities=1).
+	// Require the tested default sizes before entering native code. Report a
+	// retry without allocating, so the public layer can enforce its hard cap.
+	const (
+		minimumInfoCapacity = 4 << 10
+		minimumCertCapacity = 8 << 10
+	)
+	if call.InfoCapacity < minimumInfoCapacity || call.CertCapacity < minimumCertCapacity {
+		result := VerifyResult{Code: uint64(C.KCR_BUFFER_TOO_SMALL)}
+		if call.InfoCapacity < minimumInfoCapacity {
+			result.InfoLen = minimumInfoCapacity
+		}
+
+		if call.CertCapacity < minimumCertCapacity {
+			result.CertLen = minimumCertCapacity
+		}
+
+		return result, nil
+	}
+
 	alias, freeAlias, err := cString(call.Alias)
 	if err != nil {
 		return VerifyResult{}, err

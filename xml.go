@@ -102,7 +102,9 @@ type SignWSSERequest struct {
 	BodyID string
 	// WrapSOAP wraps XML into a minimal SOAP envelope before signing.
 	WrapSOAP bool
-	// Canonicalization selects the XML canonicalization algorithm.
+	// Canonicalization selects the XML canonicalization algorithm. Select
+	// XMLCanonicalizationExclusive for compatibility with VerifyXML's SOAP
+	// Body transform policy; other modes remain available for native consumers.
 	Canonicalization XMLCanonicalization
 	// CertificateTimeCheck controls certificate-time validation.
 	CertificateTimeCheck CertificateTimeCheck

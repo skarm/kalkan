@@ -208,16 +208,16 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 	return tx, ty, nil
 }
 
-func (our *Curve) Equal(their *Curve) bool {
-	return our.P.Cmp(their.P) == 0 &&
-		our.Q.Cmp(their.Q) == 0 &&
-		our.A.Cmp(their.A) == 0 &&
-		our.B.Cmp(their.B) == 0 &&
-		our.X.Cmp(their.X) == 0 &&
-		our.Y.Cmp(their.Y) == 0 &&
-		optionalIntEqual(our.E, their.E) &&
-		optionalIntEqual(our.D, their.D) &&
-		our.Co.Cmp(their.Co) == 0
+func (c *Curve) Equal(their *Curve) bool {
+	return c.P.Cmp(their.P) == 0 &&
+		c.Q.Cmp(their.Q) == 0 &&
+		c.A.Cmp(their.A) == 0 &&
+		c.B.Cmp(their.B) == 0 &&
+		c.X.Cmp(their.X) == 0 &&
+		c.Y.Cmp(their.Y) == 0 &&
+		optionalIntEqual(c.E, their.E) &&
+		optionalIntEqual(c.D, their.D) &&
+		c.Co.Cmp(their.Co) == 0
 }
 
 func optionalIntEqual(our, their *big.Int) bool {

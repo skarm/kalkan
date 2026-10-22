@@ -5,10 +5,13 @@ package ckalkan_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -30,7 +33,7 @@ func TestBase64CMSInputsAtGuardPage(t *testing.T) {
 
 	// Isolate a native out-of-bounds read so it fails only this subtest instead
 	// of terminating the entire test binary. No NUL is accessible past the input.
-	for _, operation := range []string{"SignData", "VerifyData", "GetCertFromCMS", "GetTimeFromSig"} {
+	for _, operation := range []string{"HashData", "SignData", "SignDataExistingSignature", "VerifyData", "VerifyDataDetached", "GetCertFromCMS", "GetTimeFromSig"} {
 		t.Run(operation, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -57,6 +60,15 @@ func checkBase64CMSInputAtGuardPage(t *testing.T, operation string) {
 	}
 	payload := []byte("native Base64 boundary\x00payload")
 	flags := ckalkan.SignCMS | ckalkan.OutDER | ckalkan.WithCert | ckalkan.NoCheckCertTime
+	if operation == "HashData" {
+		encoded := []byte(base64.StdEncoding.EncodeToString(payload))
+		digest, err := client.HashData(ckalkan.SHA256, ckalkan.InBase64, bytesAtGuardPage(t, encoded))
+		want := sha256.Sum256(payload)
+		if err != nil || !bytes.Equal(digest, want[:]) {
+			t.Fatalf("guarded HashData = %x, %v, want %x", digest, err, want)
+		}
+		return
+	}
 
 	if operation == "SignData" {
 		encoded := []byte(base64.StdEncoding.EncodeToString(payload))
@@ -77,6 +89,9 @@ func checkBase64CMSInputAtGuardPage(t *testing.T, operation string) {
 		return
 	}
 
+	if operation == "VerifyDataDetached" {
+		flags |= ckalkan.DetachedData
+	}
 	signed, err := client.SignData(ckalkan.SignDataRequest{Flags: flags, Data: payload})
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +99,50 @@ func checkBase64CMSInputAtGuardPage(t *testing.T, operation string) {
 	encoded := []byte(base64.StdEncoding.EncodeToString(signed))
 	input := bytesAtGuardPage(t, encoded)
 	switch operation {
+	case "SignDataExistingSignature":
+		second := generatePKCS12Fixture(t)
+		if err := client.LoadKeyStore(ckalkan.StorePKCS12, second.Password, second.P12Path, ""); err != nil {
+			t.Fatal(err)
+		}
+		appended, err := client.SignData(ckalkan.SignDataRequest{
+			Flags: flags | ckalkan.InBase64, Data: []byte(base64.StdEncoding.EncodeToString(payload)), Signature: input,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envelope struct {
+			OID     asn1.ObjectIdentifier
+			Content asn1.RawValue `asn1:"explicit,tag:0"`
+		}
+		if _, err := asn1.Unmarshal(appended, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		var content struct {
+			Version      int
+			Digests      asn1.RawValue
+			Content      asn1.RawValue
+			Certificates asn1.RawValue   `asn1:"optional,tag:0"`
+			Revocations  asn1.RawValue   `asn1:"optional,tag:1"`
+			Signers      []asn1.RawValue `asn1:"set"`
+		}
+		if _, err := asn1.Unmarshal(envelope.Content.Bytes, &content); err != nil || len(content.Signers) != 2 {
+			t.Fatalf("co-signed CMS has %d signers, %v, want 2", len(content.Signers), err)
+		}
+		verified, err := client.VerifyData(ckalkan.VerifyDataRequest{
+			Flags: ckalkan.SignCMS | ckalkan.InDER | ckalkan.NoCheckCertTime, Signature: appended,
+		})
+		if err != nil || !bytes.Equal(verified.Data, payload) {
+			t.Fatalf("VerifyData after guarded co-signing = %q, %v, want original payload", verified.Data, err)
+		}
+	case "VerifyDataDetached":
+		data := bytesAtGuardPage(t, []byte(base64.StdEncoding.EncodeToString(payload)))
+		verified, err := client.VerifyData(ckalkan.VerifyDataRequest{
+			Flags:     ckalkan.SignCMS | ckalkan.InBase64 | ckalkan.In2Base64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime,
+			Signature: input, Data: data,
+		})
+		if err != nil || !strings.Contains(verified.VerifyInfo, "Verify - OK") {
+			t.Fatalf("guarded detached VerifyData = %+v, %v, want verified original payload", verified, err)
+		}
 	case "VerifyData":
 		verified, err := client.VerifyData(ckalkan.VerifyDataRequest{
 			Flags:     ckalkan.SignCMS | ckalkan.InBase64 | ckalkan.NoCheckCertTime,
@@ -93,7 +152,7 @@ func checkBase64CMSInputAtGuardPage(t *testing.T, operation string) {
 			t.Fatalf("guarded VerifyData = %q, %v, want original binary payload", verified.Data, err)
 		}
 	case "GetCertFromCMS":
-		// Linux SDK 2.0.13 numbers signer certificates from one.
+		// The Linux SDK numbers signer certificates from one.
 		certificate, err := client.GetCertFromCMS(input, 1, ckalkan.InBase64|ckalkan.OutDER)
 		if err != nil || len(certificate) == 0 {
 			t.Fatalf("guarded GetCertFromCMS returned %d bytes, %v, want signer certificate", len(certificate), err)

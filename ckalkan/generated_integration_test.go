@@ -21,6 +21,105 @@ import (
 	ckalkan "github.com/skarm/kalkan/ckalkan"
 )
 
+func TestVerifyDataSmallBuffers(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("small-buffer SDK behavior is verified on Linux")
+	}
+	const payload = "small native output buffers must preserve the complete attached payload"
+	if selected := os.Getenv("KALKAN_TEST_VERIFY_BUFFER_CASE"); selected != "" {
+		var options []ckalkan.Option
+		if selected == "limit" {
+			options = append(options, ckalkan.WithMaxBufferSize(1))
+		}
+		client := newIntegrationClient(t, options...)
+		signed, err := os.ReadFile(os.Getenv("KALKAN_TEST_VERIFY_CMS"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := ckalkan.VerifyDataRequest{
+			Flags:     ckalkan.SignCMS | ckalkan.InDER | ckalkan.NoCheckCertTime,
+			Signature: signed,
+			CertID:    1,
+		}
+		if strings.Contains(selected, "data") {
+			request.DataCapacity = 1
+		}
+		if strings.Contains(selected, "info") {
+			request.VerifyInfoCapacity = 1
+		}
+		if strings.Contains(selected, "cert") {
+			request.CertCapacity = 1
+		}
+		verified, err := client.VerifyData(request)
+		if selected == "limit" {
+			var limit *ckalkan.OutputBufferLimitError
+			if !errors.As(err, &limit) || limit.Limit != 1 || verified.Data != nil || verified.Cert != nil || verified.VerifyInfo != "" {
+				t.Fatalf("VerifyData under hard limit = %+v, %v, want typed limit error without output", verified, err)
+			}
+			return
+		}
+		certificate, readErr := os.ReadFile(os.Getenv("KALKAN_TEST_VERIFY_CMS") + ".cert")
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err != nil || string(verified.Data) != payload || !strings.Contains(verified.VerifyInfo, "Verify - OK") || !bytes.Equal(verified.Cert, certificate) {
+			t.Fatalf("VerifyData(%s) = %+v, %v, want complete verified data", selected, verified, err)
+		}
+		return
+	}
+
+	client := newIntegrationClient(t)
+	fixture := generatePKCS12Fixture(t)
+	assets := loadFixtureAssets(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range []struct{ name, password, store string }{
+		{name: "RSA", password: fixture.Password, store: fixture.P12Path},
+		{name: "GOST", password: fixturePassword, store: chooseStore(t, assets.P12)},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			if err := client.LoadKeyStore(ckalkan.StorePKCS12, profile.password, profile.store, ""); err != nil {
+				t.Fatal(err)
+			}
+			signed, err := client.SignData(ckalkan.SignDataRequest{
+				Flags: ckalkan.SignCMS | ckalkan.OutDER | ckalkan.WithCert | ckalkan.NoCheckCertTime,
+				Data:  []byte(payload),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			control, err := client.VerifyData(ckalkan.VerifyDataRequest{
+				Flags: ckalkan.SignCMS | ckalkan.InDER | ckalkan.NoCheckCertTime, Signature: signed, CertID: 1,
+			})
+			if err != nil || string(control.Data) != payload || !strings.Contains(control.VerifyInfo, "Verify - OK") || len(control.Cert) == 0 {
+				t.Fatalf("positive control = %+v, %v", control, err)
+			}
+			path := filepath.Join(t.TempDir(), "signed.der")
+			if err := os.WriteFile(path, signed, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path+".cert", control.Cert, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, selected := range []string{"data", "info", "cert", "data-info", "data-cert", "info-cert", "data-info-cert", "limit"} {
+				t.Run(selected, func(t *testing.T) {
+					// A native overrun must fail only this child, preserving the rest of
+					// the suite and the positive control in the parent.
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					command := exec.CommandContext(ctx, executable, "-test.run=^TestVerifyDataSmallBuffers$", "-test.v")
+					command.Env = append(os.Environ(), "KALKAN_TEST_VERIFY_BUFFER_CASE="+selected, "KALKAN_TEST_VERIFY_CMS="+path)
+					if output, err := command.CombinedOutput(); err != nil {
+						t.Fatalf("small-buffer subprocess: %v\n%s", err, output)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestVerifyDataRejectsTamperedSignerSignature(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the native last-error fallback is verified only for the Linux SDK")
@@ -402,14 +501,15 @@ func TestGeneratedZIP(t *testing.T) {
 		t.Fatalf("LoadKeyStore(generated PKCS#12) failed: %v", err)
 	}
 
-	inputPath := filepath.Join(fixture.Dir, "payload.txt")
+	inputDir := t.TempDir()
+	inputPath := filepath.Join(inputDir, "payload.txt")
 	if err := os.WriteFile(inputPath, fixture.Data, 0o644); err != nil {
 		t.Fatalf("write payload: %v", err)
 	}
 
 	if err := client.ZipConSign(ckalkan.ZipConSignRequest{
 		Alias:    fixture.Alias,
-		FilePath: inputPath,
+		FilePath: inputDir,
 		Name:     "signed-container",
 		OutDir:   fixture.Dir,
 		Flags:    ckalkan.NoCheckCertTime,
@@ -424,14 +524,11 @@ func TestGeneratedZIP(t *testing.T) {
 		t.Fatalf("ZipConSign succeeded but did not create the expected output in %s", fixture.Dir)
 	}
 
-	if _, err := client.ZipConVerify(zipPath, ckalkan.NoCheckCertTime); err == nil {
-		t.Log("ZipConVerify accepted the generated container")
-	} else {
-		// KalkanCrypt signs the generated test payload but does not reliably
-		// verify that synthetic container back. Treat the native Kalkan error as a
-		// covered call, not as an ABI failure.
-		_ = requireKalkanError(t, "ZipConVerify", err)
+	info, err := client.ZipConVerify(zipPath, ckalkan.NoCheckCertTime)
+	if err != nil {
+		t.Fatalf("ZipConVerify(generated container): %v", err)
 	}
+	requireStringContains(t, "generated ZIP verification", info, "Verify - OK")
 	if _, err := client.GetCertFromZipFile(zipPath, ckalkan.NoCheckCertTime, 0); err == nil {
 		t.Log("GetCertFromZipFile extracted a certificate from the generated container")
 	} else {
