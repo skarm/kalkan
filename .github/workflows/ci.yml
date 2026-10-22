@@ -11,15 +11,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
+  GOTOOLCHAIN: local
   KCSDK_REPOSITORY: skarm/kcsdk
 
 jobs:
   test:
     name: Go tests (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -30,30 +34,33 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Test
-        run: go test ./...
+        run: go test -count=1 -timeout=5m ./...
 
       - name: Benchmark smoke test
-        run: go test -run=^$ -bench=. -benchtime=1x ./...
+        run: go test -run=^$ -bench=. -benchtime=1x -timeout=5m ./...
 
   vet:
     name: Go vet
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Vet
         run: go vet ./...
@@ -61,8 +68,7 @@ jobs:
   race:
     name: Go race tests (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -73,27 +79,30 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Race tests
-        run: go test -race ./...
+        run: go test -race -shuffle=on -count=1 -timeout=5m ./...
 
   fuzz:
     name: Go fuzz tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Fuzz
         run: |
@@ -126,16 +135,18 @@ jobs:
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Lint
         uses: golangci/golangci-lint-action@v9
@@ -146,16 +157,18 @@ jobs:
   vulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -166,6 +179,7 @@ jobs:
   linux:
     name: Linux KalkanCrypto SDK
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: test
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
@@ -220,9 +234,8 @@ jobs:
   windows:
     name: Windows Go tests (Go ${{ matrix.go-version }})
     runs-on: windows-latest
+    timeout-minutes: 15
     needs: test
-    env:
-      GOTOOLCHAIN: local
     strategy:
       fail-fast: false
       matrix:
@@ -233,18 +246,20 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Test
         shell: pwsh
-        run: go test ./...
+        run: go test -count=1 -timeout=5m ./...
 
   required:
     name: required
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - test
       - vet
