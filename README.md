@@ -44,7 +44,7 @@ The `ckalkan` buffer options cover two ABI shapes:
 - `WithBufferSize` sets the global initial capacity for length-aware output calls when a request does not specify its own capacity. Without this option, operation-specific defaults are 32 bytes for raw SHA-256, GOST 34.11-95, and GOST 34.11-2015-256 hashes; 64 bytes for raw GOST 34.11-2015-512; 256 bytes for Base64/PEM hash output with any algorithm; 128 bytes for other raw hash algorithms; 4 KiB for metadata, 8 KiB for certificates, and 64 KiB for signatures and generic outputs. Attached CMS uses the in-memory input or file size plus a conservative signature reserve; CMS Base64 and PEM expansion is included. Signed XML/WSSE uses the in-memory XML size plus the same reserve (`KC_IN_FILE` is not supported by these two SDK calls). These calls initialize an output-length parameter with the capacity and retry after `KCR_BUFFER_TOO_SMALL`.
 - Every output buffer has a 64 MiB hard limit by default (`ckalkan.DefaultMaxOutputBufferSize`). `WithMaxBufferSize(0)` restores that safe default; a positive value deliberately selects a smaller or larger limit, up to the native C `int` maximum of 2^31-1 bytes. A negative value makes `New` return `ErrInvalidOutputBufferSize`. If native code reports that more than the active limit is required, the wrapper returns a typed `OutputBufferLimitError` containing the operation, requested size, and applied limit before retrying with or allocating the oversized capacity.
 
-On Linux, `ZipConVerify` requires a 64 KiB safety allocation because the SDK can write past a smaller reported capacity. If an explicit hard limit is below that safety minimum, the call fails before entering the native library.
+On Linux, `ZipConVerify` requires a 64 KiB safety allocation because the SDK can write past a smaller reported capacity. If an explicit hard limit is below that safety minimum, the call returns `OutputBufferLimitError` before entering the native library.
 
 The Linux SDK can also corrupt `VerifyData` output lengths when verification-info and signer-certificate buffers are tiny. Before entering the SDK, the adapter requests at least the tested default capacities of 4 KiB for verification info and 8 KiB for the signer certificate, including for the universal verifier. The binding retries within the configured hard limit; an insufficient limit returns `OutputBufferLimitError` without calling the verifier or returning partial data.
 
@@ -193,7 +193,7 @@ A source encoding other than `EncodingAuto` takes precedence over request encodi
 
 The in-memory constructors neither copy nor transform the provided byte slice. Operation-specific validation may decode PEM or Base64 before the native call. On Linux and Windows, length-delimited in-memory inputs are normally passed directly to KalkanCrypt without an adapter copy. Base64 data and existing CMS signatures passed to `SignData`, and Base64 CMS signatures passed to `VerifyData`, `GetCertFromCMS`, and `GetTimeFromSig` receive an owned NUL-terminated copy because the Linux SDK reads these inputs as C strings despite accepting an explicit length; the logical length passed to the SDK is unchanged. File paths are checked for empty values and embedded NUL bytes before reading or forwarding them to the SDK. Keep borrowed slices and referenced files unchanged until the call returns.
 
-`WithMaxInputSize` caps high-level in-memory inputs and files read by `GetCertFromCMS` and `GetTimeFromSig`. It does not apply to files read directly by the SDK or native output buffers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
+`WithMaxInputSize` caps high-level in-memory inputs, including expanded PEM certificates and wrapped SOAP, and files read by `GetCertFromCMS` and `GetTimeFromSig`. It does not apply to files read directly by the SDK or native output buffers. Native output buffers have a 64 MiB hard limit by default (`kalkan.DefaultMaxOutputBufferSize`). `WithMaxOutputBufferSize(0)` restores that default; a positive value selects a smaller or larger limit (up to the native C `int` maximum), and a negative value makes `Open` return `ErrInvalidInput`. The option is forwarded to `ckalkan.WithMaxBufferSize`. Exceeding the active limit returns `ckalkan.OutputBufferLimitError` before an oversized retry or allocation.
 
 Native binary outputs are returned strictly according to the SDK-reported `outLen`; zero bytes inside that range are preserved. The returned slice has `len` and `cap` limited to the logical result, so unused buffer capacity is not exposed. Byte-slice results are bounded views rather than copies: keeping a result alive also retains the successful native backing allocation, avoiding a second large allocation and copy. Known textual outputs use C-string semantics and end at the first NUL because some KalkanCrypt methods report a fixed-size block and leave unspecified bytes after the terminator.
 
@@ -286,6 +286,11 @@ Observers run synchronously after the native gate is released, may run concurren
 ```sh
 make check
 ```
+
+`make lint` and CI check every current build-constraint branch: Linux/amd64 with
+and without cgo, Windows/amd64, macOS/arm64, and FreeBSD/amd64. The Linux cgo pass
+requires a local C compiler on Linux/amd64 or Docker on other hosts.
+`make docker-lint` runs all five builds inside Linux/amd64 Docker.
 
 ```sh
 KALKANCRYPT_LIBRARY=/opt/kalkan/lib/libkalkancryptwr-64.so \

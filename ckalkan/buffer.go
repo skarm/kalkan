@@ -334,18 +334,6 @@ func minimumOutputGrowth(current, reported int) uint64 {
 	return value + 1
 }
 
-func outputBufferSafetyMinimumError(operation string, hardMaximum, minimum int) error {
-	return &KalkanError{
-		Code: ErrorBufferTooSmall,
-		Message: fmt.Sprintf(
-			"%s requires a native safety buffer of at least %d bytes, exceeding configured hard limit %d",
-			operation,
-			minimum,
-			hardMaximum,
-		),
-	}
-}
-
 func invalidNativeOutputLength(output string, length int) error {
 	return fmt.Errorf("ckalkan: native %s length is negative: %d", output, length)
 }

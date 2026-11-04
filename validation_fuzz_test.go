@@ -121,6 +121,7 @@ func FuzzCertificateValidationInput(f *testing.F) {
 	f.Add([]byte(" "), uint8(1))
 	f.Add([]byte("-----BEGIN CERTIFICATE-----\nY2VydA==\n-----END CERTIFICATE-----\n"), uint8(2))
 	f.Add([]byte(""), uint8(2))
+	f.Add([]byte(strings.Repeat("d", 48<<10)), uint8(0))
 
 	f.Fuzz(func(t *testing.T, data []byte, kind uint8) {
 		const maxSize = int64(64 << 10)
@@ -151,6 +152,9 @@ func FuzzCertificateValidationInput(f *testing.F) {
 		}
 		if int64(len(data)) > maxSize || len(block.Bytes) > len(data) {
 			t.Fatal("certificate preprocessing exceeded the source input limit")
+		}
+		if int64(len(result)) > maxSize {
+			t.Fatal("certificate preprocessing exceeded the native input limit")
 		}
 	})
 }

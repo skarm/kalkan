@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net"
@@ -76,6 +77,32 @@ func TestValidateCertificateOCSP(t *testing.T) {
 	}
 	if hits.Load() != 8 {
 		t.Fatalf("HTTP requests=%d", hits.Load())
+	}
+}
+
+func TestOCSPIssuerChecksExpandedPEMLimit(t *testing.T) {
+	pki := newTestOCSPPKI(t)
+	issuerPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: pki.ca.Raw})
+	limit := int64(len(issuerPEM) - 1)
+	if int64(len(pki.leaf.Raw)) > limit || int64(len(pki.ca.Raw)) > limit {
+		t.Fatal("both DER inputs must fit the limit before issuer conversion")
+	}
+	calls := 0
+	client := &Client{
+		config: runtimeConfig{customOCSP: true, ocspURL: defaultOCSPURL, maxInputSize: limit},
+		library: &fakeNative{validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+			calls++
+			return ckalkan.ValidateCertificateResult{}, errors.New("unexpected native validation")
+		}},
+	}
+	_, err := client.ValidateCertificate(t.Context(), ValidateCertificateRequest{
+		Certificate: Bytes(pki.leaf.Raw), Issuer: DER(pki.ca.Raw), Mode: CertificateValidationOCSP,
+	})
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "OCSP issuer") {
+		t.Fatalf("oversized issuer = %v, want invalid OCSP issuer", err)
+	}
+	if calls != 0 {
+		t.Fatal("oversized issuer reached native validation")
 	}
 }
 

@@ -30,8 +30,12 @@ make check
 ```
 
 `make check` runs formatting, tests, vet, race tests, and `golangci-lint` when
-the linter is installed locally. GitHub CI also runs `govulncheck` and Windows
-pure-Go tests.
+the linter is installed locally. `make lint` checks Linux/amd64 with and without
+cgo, Windows/amd64, macOS/arm64, and FreeBSD/amd64. These builds cover all current
+build constraints, including unsupported-platform fallbacks. The Linux cgo pass
+uses the local C compiler on Linux/amd64 and Docker on other hosts.
+`make docker-lint` runs the same complete set inside Linux/amd64 Docker.
+GitHub CI uses `make lint` and also runs `govulncheck` and Windows pure-Go tests.
 
 Real native SDK checks:
 

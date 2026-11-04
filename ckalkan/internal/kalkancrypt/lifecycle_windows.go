@@ -40,7 +40,7 @@ func (h *windowsDriver) LastErrorString(capacity int) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(h.funcs.getLastErrorString, uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&outLen)))
 	runtime.KeepAlive(buf)
 

@@ -26,13 +26,13 @@ func (h *windowsDriver) HashData(call HashDataCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.hashData,
 		uintptr(unsafe.Pointer(bytesPtr(cAlgorithm))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 	)

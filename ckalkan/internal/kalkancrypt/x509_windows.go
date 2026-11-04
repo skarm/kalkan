@@ -29,7 +29,7 @@ func (h *windowsDriver) X509LoadCertificateFromBuffer(cert []byte, format int) u
 		return errorParam
 	}
 
-	code := callWindowsStatus(h.funcs.x509LoadCertificateBuffer, uintptr(unsafe.Pointer(bytesPtr(in))), uintptr(uint32(inLen)), intArg(format))
+	code := callWindowsStatus(h.funcs.x509LoadCertificateBuffer, uintptr(unsafe.Pointer(bytesPtr(in))), uintptr(uint32(inLen)), intArg(format)) //nolint:gosec // inputBytes validates the logical length against the native C int range.
 	runtime.KeepAlive(in)
 
 	return code
@@ -48,7 +48,7 @@ func (h *windowsDriver) X509ExportCertificateFromStore(alias string, format, cap
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.x509ExportCertStore,
 		uintptr(unsafe.Pointer(bytesPtr(cAlias))),
@@ -75,11 +75,11 @@ func (h *windowsDriver) X509CertificateGetInfo(cert []byte, prop, capacity int) 
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.x509CertificateGetInfo,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		intArg(prop),
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
@@ -113,14 +113,14 @@ func (h *windowsDriver) X509ValidateCertificate(call ValidateCertificateCall) (V
 		return ValidateResult{}, err
 	}
 
-	infoLen := int32(call.InfoCapacity)
-	ocspLen := int32(call.OCSPCapacity)
+	infoLen := int32(call.InfoCapacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
+	ocspLen := int32(call.OCSPCapacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(h.funcs.x509ValidateCertificate,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		intArg(call.ValidationType),
 		uintptr(unsafe.Pointer(bytesPtr(validPath))),
-		uintptr(uint64(call.CheckTimeUnix)),
+		uintptr(uint64(call.CheckTimeUnix)), //nolint:gosec // Preserve the signed 64-bit timestamp bit pattern on windows/amd64.
 		uintptr(unsafe.Pointer(bytesPtr(infoBuf))),
 		uintptr(unsafe.Pointer(&infoLen)),
 		intArg(call.Flags),

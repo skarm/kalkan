@@ -50,21 +50,23 @@ func (h *windowsDriver) verifyData(call VerifyDataCall, universal bool) (VerifyR
 		return VerifyResult{}, err
 	}
 
-	dataOutLen := int32(call.DataCapacity)
-	infoLen := int32(call.InfoCapacity)
-	certLen := int32(call.CertCapacity)
+	dataOutLen := int32(call.DataCapacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
+	infoLen := int32(call.InfoCapacity)    //nolint:gosec // outputBuffer validates the capacity against the native C int range.
+	certLen := int32(call.CertCapacity)    //nolint:gosec // outputBuffer validates the capacity against the native C int range.
+
 	fn := h.funcs.verifyData
 	if universal {
 		fn = h.funcs.uverifyData
 	}
+
 	code := callWindowsStatus(
 		fn,
 		uintptr(unsafe.Pointer(bytesPtr(alias))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(data))),
-		uintptr(uint32(dataLen)),
+		uintptr(uint32(dataLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(signature))),
-		uintptr(uint32(signatureLen)),
+		uintptr(uint32(signatureLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(dataBuf))),
 		uintptr(unsafe.Pointer(&dataOutLen)),
 		uintptr(unsafe.Pointer(bytesPtr(infoBuf))),

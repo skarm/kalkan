@@ -88,11 +88,11 @@ func openDriverWithLoader(path string, load func(string, uintptr) (*syscall.DLL,
 	if rc != 0 {
 		_ = dll.Release()
 
-		if callErr != syscall.Errno(0) {
-			return nil, fmt.Errorf("KC_GetFunctionList failed with code %d: %w", int32(rc), callErr)
+		if !errors.Is(callErr, syscall.Errno(0)) {
+			return nil, fmt.Errorf("KC_GetFunctionList failed with code %d: %w", int32(rc), callErr) //nolint:gosec // KC_GetFunctionList returns a signed 32-bit C int.
 		}
 
-		return nil, fmt.Errorf("KC_GetFunctionList failed with code %d", int32(rc))
+		return nil, fmt.Errorf("KC_GetFunctionList failed with code %d", int32(rc)) //nolint:gosec // KC_GetFunctionList returns a signed 32-bit C int.
 	}
 
 	if funcs == nil {
@@ -168,7 +168,7 @@ func callWindowsStatus(fn uintptr, args ...uintptr) uint64 {
 
 	code, _, _ := syscall.SyscallN(fn, args...)
 
-	return uint64(uint32(code))
+	return uint64(uint32(code)) //nolint:gosec // Windows unsigned long statuses occupy only the low 32 bits.
 }
 
 // callWindowsVoid calls fn with args and discards its results.

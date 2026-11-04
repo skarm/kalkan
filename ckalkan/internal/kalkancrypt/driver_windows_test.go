@@ -75,7 +75,7 @@ func TestOpenDriverRejectsMissingDLL(t *testing.T) {
 
 func TestCallWindowsStatusRejectsMissingFunction(t *testing.T) {
 	if got := callWindowsStatus(0); got != errorLibraryNotInitialized {
-		t.Fatalf("callWindowsStatus(0) = %#x, want %#x", got, uint64(errorLibraryNotInitialized))
+		t.Fatalf("callWindowsStatus(0) = %#x, want %#x", got, errorLibraryNotInitialized)
 	}
 }
 

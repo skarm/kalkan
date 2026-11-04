@@ -16,10 +16,11 @@ func (h *windowsDriver) GetTimeFromSig(data []byte, flags, sigID int) (uint64, i
 	}
 
 	var out int64
+
 	code := callWindowsStatus(
 		h.funcs.getTimeFromSig,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		intArg(flags),
 		intArg(sigID),
 		uintptr(unsafe.Pointer(&out)),
@@ -44,11 +45,11 @@ func (h *windowsDriver) GetCertFromCMS(call GetCertFromCMSCall) (BufferResult, e
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.getCertFromCMS,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		intArg(call.SignID),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(buf))),

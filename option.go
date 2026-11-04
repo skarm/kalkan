@@ -125,7 +125,8 @@ func WithTrustedCertificate(cert TrustedCertificate) Option {
 }
 
 // WithMaxInputSize sets a byte limit for high-level in-memory byte inputs
-// before native calls. It also bounds CMS files read by GetCertFromCMS and
+// before native calls, including expanded PEM certificates and wrapped SOAP.
+// It also bounds CMS files read by GetCertFromCMS and
 // GetTimeFromSig, whose native operations require in-memory contents. Values
 // less than or equal to zero disable this limit.
 func WithMaxInputSize(size int64) Option {

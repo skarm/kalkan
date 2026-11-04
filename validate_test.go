@@ -623,7 +623,7 @@ func TestValidateCertificateNormalizesExplicitEncodingsToPEM(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			client := &Client{config: runtimeConfig{maxInputSize: int64(len(tc.source.data))}, library: &fakeNative{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+			client := &Client{config: runtimeConfig{maxInputSize: int64(len(encoded))}, library: &fakeNative{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				calls++
 				block, rest := pem.Decode(req.Certificate)
 				if block == nil || block.Type != "CERTIFICATE" || len(rest) != 0 || !bytes.Equal(block.Bytes, der) {
@@ -646,5 +646,52 @@ func TestCertificateValidationRawAndAutoRemainUnchanged(t *testing.T) {
 		if err != nil || !sameByteSliceBacking(result, value) {
 			t.Fatalf("encoding %v: result=%q, error=%v, want borrowed input", encoding, result, err)
 		}
+	}
+}
+
+func TestValidateCertificateChecksExpandedPEMLimit(t *testing.T) {
+	der := testCertificateDER(t, "validation PEM size boundary")
+	encoded := []byte(base64.StdEncoding.EncodeToString(der))
+	expectedPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	compactPEM := []byte("-----BEGIN CERTIFICATE-----\n" + string(encoded) + "\n-----END CERTIFICATE-----\n")
+	for _, test := range []struct {
+		name   string
+		source Source
+	}{
+		{"DER", DER(der)},
+		{"base64", Base64(encoded)},
+		{"compact PEM", PEM(compactPEM)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			limit := int64(len(expectedPEM) - 1)
+			if int64(len(test.source.data)) > limit {
+				t.Fatal("test input must fit the limit before PEM conversion")
+			}
+			calls := 0
+			client := &Client{
+				config: runtimeConfig{maxInputSize: limit},
+				library: &fakeNative{validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
+					calls++
+					if !bytes.Equal(req.Certificate, expectedPEM) {
+						t.Fatal("native input differs from standard PEM encoding")
+					}
+					return ckalkan.ValidateCertificateResult{}, nil
+				}},
+			}
+			req := ValidateCertificateRequest{Certificate: test.source, Mode: CertificateValidationNone}
+			if _, err := client.ValidateCertificate(context.Background(), req); !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expanded PEM above limit = %v, want ErrInvalidInput", err)
+			}
+			if calls != 0 {
+				t.Fatal("oversized PEM reached the native library")
+			}
+			client.config.maxInputSize = int64(len(expectedPEM))
+			if _, err := client.ValidateCertificate(context.Background(), req); err != nil {
+				t.Fatalf("PEM exactly at limit: %v", err)
+			}
+			if calls != 1 {
+				t.Fatalf("native calls = %d, want 1", calls)
+			}
+		})
 	}
 }

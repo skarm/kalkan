@@ -21,6 +21,7 @@ func (h *windowsDriver) GetTokens(storage uint64, bufferSize int) (ListResult, e
 	}
 
 	var count uint32
+
 	code := callWindowsStatus(h.funcs.getTokens, ulongArg(storage), uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&count)))
 	runtime.KeepAlive(buf)
 
@@ -39,6 +40,7 @@ func (h *windowsDriver) GetCertificatesList(bufferSize int) (ListResult, error) 
 	}
 
 	var count uint32
+
 	code := callWindowsStatus(h.funcs.getCertificatesList, uintptr(unsafe.Pointer(bytesPtr(buf))), uintptr(unsafe.Pointer(&count)))
 	runtime.KeepAlive(buf)
 

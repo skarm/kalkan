@@ -14,12 +14,13 @@ func (h *windowsDriver) ZipConVerify(zipFile string, flags, capacity int) (Buffe
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.zipConVerify,
 		uintptr(unsafe.Pointer(bytesPtr(inZip))),
@@ -40,14 +41,17 @@ func (h *windowsDriver) ZipConSign(call ZipConSignCall) uint64 {
 	if err != nil {
 		return errorParam
 	}
+
 	filePath, err := narrowString(call.FilePath)
 	if err != nil {
 		return errorParam
 	}
+
 	name, err := narrowString(call.Name)
 	if err != nil {
 		return errorParam
 	}
+
 	outDir, err := narrowString(call.OutDir)
 	if err != nil {
 		return errorParam
@@ -77,12 +81,13 @@ func (h *windowsDriver) GetCertFromZipFile(call GetCertFromZipFileCall) (BufferR
 	if err != nil {
 		return BufferResult{}, err
 	}
+
 	buf, err := outputBuffer(call.Capacity)
 	if err != nil {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.getCertFromZipFile,
 		uintptr(unsafe.Pointer(bytesPtr(inZip))),

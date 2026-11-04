@@ -251,5 +251,9 @@ func certificateValidationInput(source Source, maxInputSize int64) ([]byte, erro
 		return nil, fmt.Errorf("%w: unknown certificate encoding %d", ErrInvalidInput, source.encoding)
 	}
 
+	if err := validateCertificatePEMInputSize(len(cert), maxInputSize); err != nil {
+		return nil, err
+	}
+
 	return encodeCertificatePEM(cert), nil
 }

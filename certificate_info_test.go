@@ -224,7 +224,7 @@ func TestCertificateInfoChecksExpandedPEMLimit(t *testing.T) {
 }
 
 func TestCertificateInfoInputSizeRejectsNativeOverflow(t *testing.T) {
-	if err := validateCertificateInfoInputSize(math.MaxInt32, 0); !errors.Is(err, ErrInvalidInput) {
+	if err := validateCertificatePEMInputSize(math.MaxInt32, 0); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expanded PEM overflow = %v, want ErrInvalidInput", err)
 	}
 }

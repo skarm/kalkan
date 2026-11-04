@@ -26,13 +26,13 @@ func (h *windowsDriver) SignHash(call SignHashCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.signHash,
 		uintptr(unsafe.Pointer(bytesPtr(cAlias))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 	)
@@ -67,15 +67,15 @@ func (h *windowsDriver) SignData(call SignDataCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.signData,
 		uintptr(unsafe.Pointer(bytesPtr(cAlias))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(inData))),
-		uintptr(uint32(inDataLen)),
+		uintptr(uint32(inDataLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(inSig))),
-		uintptr(uint32(inSigLen)),
+		uintptr(uint32(inSigLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 	)
@@ -121,13 +121,13 @@ func (h *windowsDriver) SignXML(call SignXMLCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.signXML,
 		uintptr(unsafe.Pointer(bytesPtr(alias))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(xml))),
-		uintptr(uint32(xmlLen)),
+		uintptr(uint32(xmlLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 		uintptr(unsafe.Pointer(bytesPtr(signNodeID))),
@@ -168,13 +168,13 @@ func (h *windowsDriver) SignWSSE(call SignWSSECall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.signWSSE,
 		uintptr(unsafe.Pointer(bytesPtr(alias))),
 		ulongArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(xml))),
-		uintptr(uint32(xmlLen)),
+		uintptr(uint32(xmlLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 		uintptr(unsafe.Pointer(bytesPtr(signNodeID))),

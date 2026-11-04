@@ -27,9 +27,9 @@ func bytesPtr(buf []byte) *byte {
 }
 
 func intArg(value int) uintptr {
-	return uintptr(uint32(value))
+	return uintptr(uint32(value)) //nolint:gosec // Preserve the low 32 bits required by the Windows C ABI.
 }
 
 func ulongArg(value uint64) uintptr {
-	return uintptr(uint32(value))
+	return uintptr(uint32(value)) //nolint:gosec // Preserve the low 32 bits required by the Windows C ABI.
 }

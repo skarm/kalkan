@@ -236,7 +236,10 @@ func TestVerifyDataSaturatedAttachedDataHonorsHardLimit(t *testing.T) {
 }
 
 func TestZipConVerifyHonorsHardLimitBelowNativeSafetyBuffer(t *testing.T) {
-	const hardLimit = initialZIPVerifyBuffer - 1
+	const (
+		safetyMinimum = 64 << 10
+		hardLimit     = safetyMinimum - 1
+	)
 
 	ctx := &fakeNativeContext{
 		zipConVerifyFunc: func(string, int, int) (kalkancrypt.BufferResult, error) {
@@ -252,5 +255,13 @@ func TestZipConVerifyHonorsHardLimitBelowNativeSafetyBuffer(t *testing.T) {
 	}
 	if code, ok := ErrorCodeOf(err); !ok || code != ErrorBufferTooSmall {
 		t.Fatalf("error = %v, want ErrorBufferTooSmall", err)
+	}
+
+	var limit *OutputBufferLimitError
+	if !errors.As(err, &limit) {
+		t.Fatalf("error = %T: %v, want OutputBufferLimitError", err, err)
+	}
+	if limit.Operation != "ZipConVerify" || limit.Requested != safetyMinimum || limit.Limit != hardLimit {
+		t.Fatalf("limit error = %+v, want operation=ZipConVerify requested=%d limit=%d", limit, safetyMinimum, hardLimit)
 	}
 }

@@ -297,7 +297,7 @@ func (c *Client) X509CertificateGetInfoFields(ctx context.Context, cert *x509.Ce
 		return nil, fmt.Errorf("%w: unknown certificate info fields %#x", ErrInvalidInput, uint64(unknown))
 	}
 
-	if err := validateCertificateInfoInputSize(len(cert.Raw), c.configuredMaxInputSize()); err != nil {
+	if err := validateCertificatePEMInputSize(len(cert.Raw), c.configuredMaxInputSize()); err != nil {
 		return nil, err
 	}
 
@@ -350,10 +350,10 @@ type entry struct {
 	pem []byte
 }
 
-// validateCertificateInfoInputSize checks raw and expanded input sizes before
+// validateCertificatePEMInputSize checks raw and expanded input sizes before
 // PEM conversion or cache storage.
 // The native C int bound also protects size arithmetic on 32-bit builds.
-func validateCertificateInfoInputSize(derSize int, maxSize int64) error {
+func validateCertificatePEMInputSize(derSize int, maxSize int64) error {
 	limit := int64(math.MaxInt32)
 	if maxSize > 0 {
 		limit = min(limit, maxSize)

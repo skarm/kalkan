@@ -22,8 +22,8 @@ func (c *Client) ZipConVerify(zipFile string, flags Flag) (string, error) {
 	}
 
 	safetyCapacity := platformZIPVerifySafetyCapacity()
-	if c.config.maxBufferSize > 0 && c.config.maxBufferSize < safetyCapacity {
-		return "", outputBufferSafetyMinimumError("ZipConVerify", c.config.maxBufferSize, safetyCapacity)
+	if safetyCapacity > 0 && c.config.maxBufferSize > 0 && c.config.maxBufferSize < safetyCapacity {
+		return "", outputBufferLimitError("ZipConVerify", c.config.maxBufferSize, uint64(safetyCapacity))
 	}
 
 	out, err := c.callBufferWithCapacityLocked("ZipConVerify", c.config.outputInitialCapacity(initialZIPVerifyBuffer), func(capacity int) (kalkancrypt.BufferResult, error) {

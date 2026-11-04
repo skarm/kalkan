@@ -25,13 +25,13 @@ func (h *windowsDriver) VerifyXML(call VerifyXMLCall) (BufferResult, error) {
 		return BufferResult{}, err
 	}
 
-	outLen := int32(call.Capacity)
+	outLen := int32(call.Capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.verifyXML,
 		uintptr(unsafe.Pointer(bytesPtr(cAlias))),
 		intArg(call.Flags),
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 	)
@@ -55,11 +55,11 @@ func (h *windowsDriver) GetCertFromXML(xml []byte, signID, capacity int) (Buffer
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.getCertFromXML,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		intArg(signID),
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
@@ -83,11 +83,11 @@ func (h *windowsDriver) GetSigAlgFromXML(xml []byte, capacity int) (BufferResult
 		return BufferResult{}, err
 	}
 
-	outLen := int32(capacity)
+	outLen := int32(capacity) //nolint:gosec // outputBuffer validates the capacity against the native C int range.
 	code := callWindowsStatus(
 		h.funcs.getSigAlgFromXML,
 		uintptr(unsafe.Pointer(bytesPtr(in))),
-		uintptr(uint32(inLen)),
+		uintptr(uint32(inLen)), //nolint:gosec // inputBytes validates the logical length against the native C int range.
 		uintptr(unsafe.Pointer(bytesPtr(buf))),
 		uintptr(unsafe.Pointer(&outLen)),
 	)

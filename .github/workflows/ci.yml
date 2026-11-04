@@ -153,11 +153,14 @@ jobs:
           cache: true
           cache-dependency-path: go.mod
 
-      - name: Lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-          args: --config .golangci.yml ./...
+          install-only: true
+
+      - name: Lint all build constraints
+        run: make lint
 
   vulncheck:
     name: govulncheck

@@ -36,7 +36,7 @@ func preserveProtocolStreams() (*streams, error) {
 
 		proc := syscall.NewLazyDLL("kernel32.dll").NewProc("SetStdHandle")
 
-		result, _, callErr := proc.Call(uintptr(uint32(stream.id)), null.Fd())
+		result, _, callErr := proc.Call(uintptr(uint32(stream.id)), null.Fd()) //nolint:gosec // SetStdHandle expects the DWORD bit pattern of negative STD_*_HANDLE constants.
 		if result == 0 {
 			_ = null.Close()
 			_ = transport.Close()
