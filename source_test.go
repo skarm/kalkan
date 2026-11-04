@@ -134,7 +134,7 @@ func TestFileSourceValidatesPath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 					t.Error("Hash called native HashData with invalid file source")
 					return nil, nil
@@ -148,7 +148,7 @@ func TestFileSourceValidatesPath(t *testing.T) {
 					return ckalkan.VerifyDataResult{}, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			if err := test.call(client); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("operation error = %v, want %q", err, test.want)
@@ -182,7 +182,7 @@ func TestFileSourceDoesNotStatPath(t *testing.T) {
 func assertHashReceivesFilePath(t *testing.T, path string) {
 	t.Helper()
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			if string(data) != path {
 				t.Fatalf("Hash data = %q, want path %q", data, path)
@@ -190,7 +190,7 @@ func assertHashReceivesFilePath(t *testing.T, path string) {
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	if _, err := client.Hash(context.Background(), HashRequest{Data: File(path)}); err != nil {
 		t.Fatalf("Hash returned error: %v", err)

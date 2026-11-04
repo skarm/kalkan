@@ -12,70 +12,85 @@ import (
 	"testing"
 
 	"github.com/skarm/kalkan/ckalkan"
+	"github.com/skarm/kalkan/internal/testfixture"
 )
 
 func TestSignCMSInputFormatControlsCMSResigning(t *testing.T) {
-	client := openFixtureSigningClient(t)
-	payload := []byte("inner CMS content")
-	inner, err := client.SignCMS(t.Context(), SignCMSRequest{
-		Data: Bytes(payload), IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assets := loadFixtureAssets(t)
-	secondStore := ""
-	for _, path := range assets.P12 {
-		if path != keyStorePath(t, assets) {
-			secondStore = path
-			break
-		}
-	}
-	if secondStore == "" {
-		t.Fatal("need a second signing key")
-	}
-	if err := client.LoadKeyStore(t.Context(), KeyStore{Path: secondStore, Password: fixturePassword}); err != nil {
-		t.Fatal(err)
-	}
-	for _, input := range []struct {
-		name        string
-		data        Source
-		wantPayload []byte
-		wantSigners int
-	}{
-		{"raw", Bytes(inner.Data), inner.Data, 1},
-		{"DER", DER(inner.Data), payload, 2},
-		{"PEM", PEM(pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: inner.Data})), payload, 2},
-		{"Base64", Base64([]byte(base64.StdEncoding.EncodeToString(inner.Data))), payload, 2},
-	} {
-		t.Run(input.name, func(t *testing.T) {
-			signed, err := client.SignCMS(t.Context(), SignCMSRequest{
-				Data: input.data, IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+	for _, backend := range []string{"native", "java"} {
+		t.Run(backend, func(t *testing.T) {
+			client := openBackendCompatibilityClient(t, backend)
+			payload := []byte("inner CMS content")
+			inner, err := client.SignCMS(t.Context(), SignCMSRequest{
+				Data: Bytes(payload), IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			var envelope signHashCMSEnvelope
-			if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != input.wantSigners {
-				t.Fatalf("CMS signer count = %d, %v, want %d", len(envelope.Content.SignerInfos), err, input.wantSigners)
+			assets := loadFixtureAssets(t)
+			secondStore := ""
+			for _, path := range assets.P12 {
+				if path != keyStorePath(t, assets) {
+					secondStore = path
+					break
+				}
 			}
-			request := VerifyCMSRequest{Signature: DER(signed.Data), CertificateTimeCheck: SkipCertificateTimeCheck}
-			verified, err := client.VerifyCMS(t.Context(), request)
-			if err != nil {
+			if secondStore == "" {
+				t.Fatal("need a second signing key")
+			}
+			if err := client.LoadKeyStore(t.Context(), KeyStore{Path: secondStore, Password: fixturePassword}); err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(verified.Data, input.wantPayload) {
-				t.Fatalf("CMS payload = %x, want %x", verified.Data, input.wantPayload)
-			}
-			for _, signer := range envelope.Content.SignerInfos {
-				if len(signer.Signature) == 0 || bytes.Count(signed.Data, signer.Signature) != 1 {
-					t.Fatal("need an unambiguous signer signature")
-				}
-				changed := bytes.Clone(signed.Data)
-				changed[bytes.Index(changed, signer.Signature)] ^= 1
-				request.Signature = DER(changed)
-				if result, err := client.VerifyCMS(t.Context(), request); err == nil || result != nil {
-					t.Fatalf("changed signer = %+v, %v, want verification failure without output", result, err)
+			for _, input := range []struct {
+				name        string
+				data        Source
+				wantPayload []byte
+				wantSigners int
+			}{
+				{"raw", Bytes(inner.Data), inner.Data, 1},
+				{"DER", DER(inner.Data), payload, 2},
+				{"PEM", PEM(pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: inner.Data})), payload, 2},
+				{"Base64", Base64([]byte(base64.StdEncoding.EncodeToString(inner.Data))), payload, 2},
+			} {
+				for _, fileInput := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/file=%t", input.name, fileInput), func(t *testing.T) {
+						data := input.data
+						if fileInput {
+							filename := filepath.Join(t.TempDir(), "input.cms")
+							if err := os.WriteFile(filename, input.data.data, 0o600); err != nil {
+								t.Fatal(err)
+							}
+							data = File(filename).WithEncoding(input.data.encoding)
+						}
+						signed, err := client.SignCMS(t.Context(), SignCMSRequest{
+							Data: data, IncludeCertificate: true, CertificateTimeCheck: SkipCertificateTimeCheck,
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
+						var envelope testfixture.CMSEnvelope
+						if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != input.wantSigners {
+							t.Fatalf("CMS signer count = %d, %v, want %d", len(envelope.Content.SignerInfos), err, input.wantSigners)
+						}
+						request := VerifyCMSRequest{Signature: DER(signed.Data), CertificateTimeCheck: SkipCertificateTimeCheck}
+						verified, err := client.VerifyCMS(t.Context(), request)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !bytes.Equal(verified.Data, input.wantPayload) {
+							t.Fatalf("CMS payload = %x, want %x", verified.Data, input.wantPayload)
+						}
+						for _, signer := range envelope.Content.SignerInfos {
+							if len(signer.Signature) == 0 || bytes.Count(signed.Data, signer.Signature) != 1 {
+								t.Fatal("need an unambiguous signer signature")
+							}
+							changed := bytes.Clone(signed.Data)
+							changed[bytes.Index(changed, signer.Signature)] ^= 1
+							request.Signature = DER(changed)
+							if result, err := client.VerifyCMS(t.Context(), request); err == nil || result != nil {
+								t.Fatalf("changed signer = %+v, %v, want verification failure without output", result, err)
+							}
+						}
+					})
 				}
 			}
 		})
@@ -110,7 +125,7 @@ func TestVerifyCMSRejectsChangedSignatureValue(t *testing.T) {
 				t.Fatal("positive VerifyCMS control returned different attached data")
 			}
 
-			var envelope signHashCMSEnvelope
+			var envelope testfixture.CMSEnvelope
 			if rest, err := asn1.Unmarshal(signed.Data, &envelope); err != nil || len(rest) != 0 || len(envelope.Content.SignerInfos) != 1 {
 				t.Fatalf("decode generated CMS signer: error=%v trailing bytes=%d", err, len(rest))
 			}

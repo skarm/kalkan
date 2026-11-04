@@ -11,7 +11,7 @@ import (
 )
 
 func TestHashPassesRawInput(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			if algorithm != ckalkan.SHA256 {
 				t.Fatalf("algorithm = %q, want SHA256", algorithm)
@@ -25,7 +25,7 @@ func TestHashPassesRawInput(t *testing.T) {
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	digest, err := client.Hash(context.Background(), HashRequest{
 		Algorithm: SHA256,
@@ -48,7 +48,7 @@ func TestHashPassesFilePathAndEncodingFlag(t *testing.T) {
 		t.Fatalf("write hash file source: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			if algorithm != ckalkan.GOST2015_512 {
 				t.Fatalf("algorithm = %q, want GOST2015_512", algorithm)
@@ -63,7 +63,7 @@ func TestHashPassesFilePathAndEncodingFlag(t *testing.T) {
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.Hash(context.Background(), HashRequest{
 		Algorithm: GOST2015_512,
@@ -86,14 +86,14 @@ func TestHashForwardsInputEncodingFlags(t *testing.T) {
 		{"Base64 file", File("payload.b64").WithEncoding(EncodingBase64), ckalkan.InFile | ckalkan.InBase64, "payload.b64"},
 	} {
 		t.Run(input.name, func(t *testing.T) {
-			client := &Client{library: &fakeNative{
+			client := &Client{session: newNativeBackend(&fakeSDK{
 				hashDataFunc: func(_ ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 					if flags != input.flags || string(data) != input.data {
 						t.Fatalf("native input = %#x/%q, want %#x/%q", flags, data, input.flags, input.data)
 					}
 					return []byte("digest"), nil
 				},
-			}}
+			})}
 			result, err := client.Hash(t.Context(), HashRequest{Data: input.source})
 			if err != nil || string(result.Data) != "digest" {
 				t.Fatalf("Hash = %+v, %v, want native digest", result, err)
@@ -103,13 +103,13 @@ func TestHashForwardsInputEncodingFlags(t *testing.T) {
 }
 
 func TestHashRequiresData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			t.Error("Hash called native HashData without Data source")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.Hash(context.Background(), HashRequest{})
 	if err == nil || !strings.Contains(err.Error(), "hash data is required") {
@@ -118,7 +118,7 @@ func TestHashRequiresData(t *testing.T) {
 }
 
 func TestHashAllowsExplicitEmptyData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			if len(data) != 0 {
 				t.Fatalf("hash data length = %d, want explicit empty payload", len(data))
@@ -126,7 +126,7 @@ func TestHashAllowsExplicitEmptyData(t *testing.T) {
 			return []byte("empty-digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	digest, err := client.Hash(context.Background(), HashRequest{
 		Data: Bytes(nil),
@@ -141,11 +141,11 @@ func TestHashAllowsExplicitEmptyData(t *testing.T) {
 
 func TestHashDoesNotCopyDigest(t *testing.T) {
 	nativeDigest := []byte("digest")
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 			return nativeDigest, nil
 		},
-	}}
+	})}
 
 	digest, err := client.Hash(context.Background(), HashRequest{Data: Bytes([]byte("payload"))})
 	if err != nil {
@@ -158,7 +158,7 @@ func TestHashDoesNotCopyDigest(t *testing.T) {
 
 func TestSignHashReturnsRawCMS(t *testing.T) {
 	digest := testDigest()
-	native := &fakeNative{
+	native := &fakeSDK{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			if alias != "signing-key" {
 				t.Fatalf("alias = %q, want signing-key", alias)
@@ -173,7 +173,7 @@ func TestSignHashReturnsRawCMS(t *testing.T) {
 			return []byte("raw-signed-hash"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cms, err := client.SignHash(context.Background(), SignHashRequest{
 		Alias:                "signing-key",
@@ -197,7 +197,7 @@ func TestSignHashUsesCallerDigest(t *testing.T) {
 	releaseNative := make(chan struct{})
 	hashSeen := make(chan []byte, 1)
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			close(enteredNative)
 			<-releaseNative
@@ -205,7 +205,7 @@ func TestSignHashUsesCallerDigest(t *testing.T) {
 			return []byte("signed"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	done := make(chan error, 1)
 	go func() {
@@ -226,7 +226,7 @@ func TestSignHashUsesCallerDigest(t *testing.T) {
 }
 
 func TestSignHashCanRequestBase64Output(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.OutBase64
 			if flags != wantFlags {
@@ -235,7 +235,7 @@ func TestSignHashCanRequestBase64Output(t *testing.T) {
 			return []byte("base64-signed-hash"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cms, err := client.SignHash(context.Background(), SignHashRequest{
 		Digest:       testDigest(),
@@ -250,13 +250,13 @@ func TestSignHashCanRequestBase64Output(t *testing.T) {
 }
 
 func TestSignHashRejectsUnknownOutputFormat(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			t.Error("SignHash called native SignHash for an invalid output format")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignHash(context.Background(), SignHashRequest{
 		Digest:       testDigest(),
@@ -268,13 +268,13 @@ func TestSignHashRejectsUnknownOutputFormat(t *testing.T) {
 }
 
 func TestSignHashRejectsWrongDigestLength(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signHashFunc: func(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {
 			t.Error("SignHash called native SignHash with digest length mismatch")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignHash(context.Background(), SignHashRequest{
 		Digest:          make([]byte, 32),

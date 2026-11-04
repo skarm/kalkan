@@ -1,6 +1,11 @@
 package kalkan
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/skarm/kalkan/ckalkan"
+)
 
 // Encoding identifies the format of input bytes or file contents.
 type Encoding int
@@ -45,7 +50,7 @@ type Source struct {
 // SourceDescriptor describes an input's presence, encoding, and source kind.
 // Data shares the source's byte slice without a copy.
 type SourceDescriptor struct {
-	// Path is the native file path when File is true.
+	// Path is the file path when File is true.
 	Path string
 	// Data contains the in-memory input when File is false.
 	// It shares the source's byte slice.
@@ -71,8 +76,7 @@ func (s Source) Describe() SourceDescriptor {
 	}
 }
 
-// Bytes returns an in-memory raw source. Use File for large payloads that
-// KalkanCrypt should read directly.
+// Bytes returns an in-memory raw source without copying data.
 func Bytes(data []byte) Source {
 	return Source{data: data, encoding: EncodingRaw, set: true}
 }
@@ -92,8 +96,8 @@ func DER(data []byte) Source {
 	return Source{data: data, encoding: EncodingDER, set: true}
 }
 
-// File returns a source with a file path.
-// Operations reject empty paths and embedded NUL bytes before native calls.
+// File returns a file-path source. Empty paths and embedded NUL bytes are
+// rejected before calling the backend.
 func File(path string) Source {
 	return Source{path: path, file: true, encoding: EncodingAuto, set: true}
 }
@@ -144,5 +148,35 @@ func validateEncoding(encoding Encoding) error {
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown encoding %d", ErrInvalidInput, encoding)
+	}
+}
+
+func encodingName(encoding Encoding) string {
+	switch encoding {
+	case EncodingAuto:
+		return "auto"
+	case EncodingRaw:
+		return "raw"
+	case EncodingBase64:
+		return "base64"
+	case EncodingPEM:
+		return "PEM"
+	case EncodingDER:
+		return "DER"
+	default:
+		return strconv.Itoa(int(encoding))
+	}
+}
+
+func inputFlag(encoding Encoding) ckalkan.Flag {
+	switch encoding {
+	case EncodingBase64:
+		return ckalkan.InBase64
+	case EncodingPEM:
+		return ckalkan.InPEM
+	case EncodingDER:
+		return ckalkan.InDER
+	default:
+		return 0
 	}
 }

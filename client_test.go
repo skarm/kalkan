@@ -15,15 +15,15 @@ import (
 func TestOpenUsesBackgroundForNilContext(t *testing.T) {
 	var initCalls int
 
-	client, err := openWithLibraryFactory(nil, []Option{ //nolint:staticcheck
+	client, err := openWithBackendFactory(nil, []Option{ //nolint:staticcheck
 		WithLibraryPath(testLibraryPath()),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			initFunc: func() error {
 				initCalls++
 				return nil
 			},
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		t.Fatalf("Open nil context error = %v, want nil", err)
@@ -40,11 +40,11 @@ func TestOpenCanceledBeforeLowLevelClientCreation(t *testing.T) {
 	cancel()
 
 	var factoryCalls int
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
-	}, func(config) (closer, error) {
+	}, func(config) (backend, error) {
 		factoryCalls++
-		return &fakeNative{}, nil
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -59,11 +59,11 @@ func TestOpenClosesClientWhenCanceledBeforeInit(t *testing.T) {
 	var initCalls int
 	var closeCalls int
 
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
-	}, func(config) (closer, error) {
+	}, func(config) (backend, error) {
 		cancel()
-		return &fakeNative{
+		return newNativeBackend(&fakeSDK{
 			initFunc: func() error {
 				initCalls++
 				return nil
@@ -72,7 +72,7 @@ func TestOpenClosesClientWhenCanceledBeforeInit(t *testing.T) {
 				closeCalls++
 				return nil
 			},
-		}, nil
+		}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -89,10 +89,10 @@ func TestOpenJoinsCloseErrorAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	closeErr := errors.New("close failed")
 
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			initFunc: func() error {
 				cancel()
 				return nil
@@ -100,7 +100,7 @@ func TestOpenJoinsCloseErrorAfterCancellation(t *testing.T) {
 			closeFunc: func() error {
 				return closeErr
 			},
-		}, nil
+		}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -115,12 +115,12 @@ func TestOpenCanceledAfterSetTSAURLClosesClientBeforeProxy(t *testing.T) {
 	var proxyCalls int
 	var closeCalls int
 
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTSAURL("http://tsa.example"),
 		WithProxy(Proxy{Enabled: true, Address: "127.0.0.1", Port: "3128"}),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			setTSAURLFunc: func(tsaURL string) error {
 				cancel()
 				return nil
@@ -133,7 +133,7 @@ func TestOpenCanceledAfterSetTSAURLClosesClientBeforeProxy(t *testing.T) {
 				closeCalls++
 				return nil
 			},
-		}, nil
+		}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -151,12 +151,12 @@ func TestOpenClosesClientWhenCanceledAfterProxy(t *testing.T) {
 	var loadCalls int
 	var closeCalls int
 
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithProxy(Proxy{Enabled: true, Address: "127.0.0.1", Port: "3128"}),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("trusted"), Type: CertificateCA, Format: CertificatePEM}),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			setProxyFunc: func(req ckalkan.ProxyRequest) error {
 				cancel()
 				return nil
@@ -169,7 +169,7 @@ func TestOpenClosesClientWhenCanceledAfterProxy(t *testing.T) {
 				closeCalls++
 				return nil
 			},
-		}, nil
+		}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -187,12 +187,12 @@ func TestOpenClosesClientWhenCanceledDuringCertificateLoad(t *testing.T) {
 	var loadCalls int
 	var closeCalls int
 
-	_, err := openWithLibraryFactory(ctx, []Option{
+	_, err := openWithBackendFactory(ctx, []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("first"), Type: CertificateCA, Format: CertificatePEM}),
 		WithTrustedCertificate(TrustedCertificate{Data: []byte("second"), Type: CertificateCA, Format: CertificatePEM}),
-	}, func(config) (closer, error) {
-		return &fakeNative{
+	}, func(config) (backend, error) {
+		return newNativeBackend(&fakeSDK{
 			loadCertBufferFunc: func(cert []byte, format ckalkan.CertFormat) error {
 				loadCalls++
 				cancel()
@@ -202,7 +202,7 @@ func TestOpenClosesClientWhenCanceledDuringCertificateLoad(t *testing.T) {
 				closeCalls++
 				return nil
 			},
-		}, nil
+		}), nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context canceled", err)
@@ -222,7 +222,7 @@ func TestCloseWaitsForInFlightNativeCall(t *testing.T) {
 		unblockHash := sync.OnceFunc(func() { close(releaseHash) })
 		t.Cleanup(unblockHash)
 		closeCalled := make(chan struct{})
-		native := &fakeNative{
+		native := &fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				close(enteredHash)
 				<-releaseHash
@@ -233,7 +233,7 @@ func TestCloseWaitsForInFlightNativeCall(t *testing.T) {
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		hashDone := make(chan error, 1)
 		go func() {
@@ -278,7 +278,7 @@ func TestCloseContextTimesOutDuringNativeCall(t *testing.T) {
 		closeCalled := make(chan struct{})
 		var closeCalls atomic.Int32
 
-		native := &fakeNative{
+		native := &fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				close(enteredHash)
 				<-releaseHash
@@ -290,7 +290,7 @@ func TestCloseContextTimesOutDuringNativeCall(t *testing.T) {
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		hashDone := make(chan error, 1)
 		go func() {
@@ -343,14 +343,14 @@ func TestCloseContextTimesOutDuringConcurrentClose(t *testing.T) {
 		releaseClose := make(chan struct{})
 		unblockClose := sync.OnceFunc(func() { close(releaseClose) })
 		t.Cleanup(unblockClose)
-		native := &fakeNative{
+		native := &fakeSDK{
 			closeFunc: func() error {
 				close(closeStarted)
 				<-releaseClose
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		firstDone := make(chan error, 1)
 		go func() {
@@ -379,7 +379,7 @@ func TestCloseRejectsQueuedOperationAfterCloseBegins(t *testing.T) {
 		hashWaitingForGate := make(chan struct{})
 		var calls atomic.Int32
 
-		native := &fakeNative{
+		native := &fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				t.Error("queued Hash started after Close began")
 				calls.Add(1)
@@ -391,7 +391,7 @@ func TestCloseRejectsQueuedOperationAfterCloseBegins(t *testing.T) {
 		}
 		client := &Client{
 			gate:    make(chan struct{}, 1),
-			library: native,
+			session: newNativeBackend(native),
 		}
 		ctx := &gateWaitContext{
 			Context: context.Background(),
@@ -436,7 +436,7 @@ func TestCloseRejectsNewOperationAfterCloseBegins(t *testing.T) {
 		closeDone := make(chan error, 1)
 		var calls atomic.Int32
 
-		native := &fakeNative{
+		native := &fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				calls.Add(1)
 				close(enteredHash)
@@ -447,7 +447,7 @@ func TestCloseRejectsNewOperationAfterCloseBegins(t *testing.T) {
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		firstDone := make(chan error, 1)
 		go func() {
@@ -488,14 +488,14 @@ func TestConcurrentCloseCallsCloseNativeOnce(t *testing.T) {
 		unblockClose := sync.OnceFunc(func() { close(releaseClose) })
 		t.Cleanup(unblockClose)
 		var closeCalls atomic.Int32
-		native := &fakeNative{
+		native := &fakeSDK{
 			closeFunc: func() error {
 				closeCalls.Add(1)
 				<-releaseClose
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		const goroutines = 8
 		start := make(chan struct{})
@@ -540,7 +540,7 @@ func TestConcurrentCloseWaitsForNativeCloseToFinish(t *testing.T) {
 		unblockClose := sync.OnceFunc(func() { close(releaseClose) })
 		t.Cleanup(unblockClose)
 		var closeCalls atomic.Int32
-		native := &fakeNative{
+		native := &fakeSDK{
 			closeFunc: func() error {
 				closeCalls.Add(1)
 				close(closeStarted)
@@ -548,7 +548,7 @@ func TestConcurrentCloseWaitsForNativeCloseToFinish(t *testing.T) {
 				return nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		firstDone := make(chan error, 1)
 		go func() {
@@ -585,13 +585,13 @@ func TestOpenSetupNativeCallsWaitForExistingNativeGate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		gate := make(chan struct{}, 1)
 		initStarted := make(chan struct{})
-		native := &fakeNative{
+		native := &fakeSDK{
 			initFunc: func() error {
 				close(initStarted)
 				return nil
 			},
 		}
-		client := &Client{gate: gate, library: native}
+		client := &Client{gate: gate, session: newNativeBackend(native)}
 
 		openDone := make(chan error, 1)
 		go func() {
@@ -620,7 +620,7 @@ func TestLockNativeHonorsContextWhileWaiting(t *testing.T) {
 		t.Cleanup(unblockHash)
 		var calls atomic.Int32
 
-		native := &fakeNative{
+		native := &fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				if calls.Add(1) == 1 {
 					close(enteredHash)
@@ -629,7 +629,7 @@ func TestLockNativeHonorsContextWhileWaiting(t *testing.T) {
 				return []byte("digest"), nil
 			},
 		}
-		client := &Client{library: native}
+		client := &Client{session: newNativeBackend(native)}
 
 		firstDone := make(chan error, 1)
 		go func() {
@@ -663,11 +663,11 @@ func TestLockNativeHonorsContextWhileWaiting(t *testing.T) {
 
 func TestClientMethodUsesBackgroundForNilContext(t *testing.T) {
 	client := &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 				return []byte("digest"), nil
 			},
-		},
+		}),
 	}
 
 	digest, err := client.Hash(nil, HashRequest{Data: Bytes([]byte("payload"))}) //nolint:staticcheck
@@ -683,7 +683,7 @@ func TestClientMethodsHonorCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			t.Error("Hash called native after context cancellation")
 			return nil, nil
@@ -737,7 +737,7 @@ func TestClientMethodsHonorCanceledContext(t *testing.T) {
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	tests := []struct {
 		name string

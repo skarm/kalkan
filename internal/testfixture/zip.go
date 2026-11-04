@@ -21,7 +21,8 @@ const (
 	OverwriteDuplicates
 )
 
-// ExtractZIP extracts an SDK fixture archive into a fresh directory for the // It fails the test on extraction errors.
+// ExtractZIP extracts an SDK fixture archive into a fresh test-owned directory.
+// It fails the test on extraction errors.
 // Test cleanup removes the directory.
 func ExtractZIP(t testing.TB, zipPath string, duplicates DuplicatePolicy) string {
 	t.Helper()
@@ -52,6 +53,16 @@ func extractZIP(zipPath, root string, duplicates DuplicatePolicy) error {
 	}
 	defer reader.Close()
 
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+
+	directory, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+
 	for _, file := range reader.File {
 		name := filepath.Clean(file.Name)
 		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) ||
@@ -63,7 +74,7 @@ func extractZIP(zipPath, root string, duplicates DuplicatePolicy) error {
 			continue
 		}
 
-		if err := extractZIPFile(file, filepath.Join(root, name), flags); err != nil {
+		if err := extractZIPFile(file, directory, name, flags); err != nil {
 			return fmt.Errorf("extract %s from %s: %w", file.Name, zipPath, err)
 		}
 	}
@@ -71,8 +82,8 @@ func extractZIP(zipPath, root string, duplicates DuplicatePolicy) error {
 	return nil
 }
 
-func extractZIPFile(file *zip.File, outPath string, flags int) error {
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+func extractZIPFile(file *zip.File, directory *os.Root, name string, flags int) error {
+	if err := directory.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return err
 	}
 
@@ -81,7 +92,7 @@ func extractZIPFile(file *zip.File, outPath string, flags int) error {
 		return err
 	}
 
-	out, err := os.OpenFile(outPath, flags, file.Mode())
+	out, err := directory.OpenFile(name, flags, file.Mode().Perm())
 	if err != nil {
 		return errors.Join(err, in.Close())
 	}

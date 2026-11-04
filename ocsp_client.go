@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +36,12 @@ func (e *OCSPRevokedError) Error() string {
 // [ckalkan.ErrorCertStatusRevoked].
 func (e *OCSPRevokedError) Unwrap() error {
 	return &ckalkan.KalkanError{Code: ckalkan.ErrorCertStatusRevoked}
+}
+
+// ocspChainValidator supplies native chain validation and an optional trust
+// snapshot under the client's call gate. The backend owns the trust state.
+type ocspChainValidator interface {
+	validateCertificateChain(ckalkan.ValidateCertificateRequest, bool) (ckalkan.ValidateCertificateResult, []trustedCertificate, error)
 }
 
 func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertificateRequest, input []byte, endpoint string, flags ckalkan.Flag) (*CertificateValidation, error) {
@@ -64,25 +69,28 @@ func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertif
 	}
 
 	var (
-		trusted       []loadedTrustedCertificate
+		trusted       []trustedCertificate
 		checkTimeUnix int64
 	)
 	if !req.CheckTime.IsZero() {
 		checkTimeUnix = req.CheckTime.Unix()
 	}
 
-	// Retain native chain and certificate-time validation.
-	// Do not invoke the vendor's OCSP transport.
-	// Copy trust state under the native call gate.
-	result, err := withLockedLibraryResult(c, ctx, "ValidateCertificate", func(native certificates) (ckalkan.ValidateCertificateResult, error) {
-		if issuer == nil {
-			trusted = slices.Clone(c.trusted)
+	// Preserve native chain and certificate-time validation, but never invoke
+	// the vendor's OCSP transport. Snapshot trust while holding its native gate.
+	result, err := withBackendResult(c, ctx, "ValidateCertificate", func(session backend) (ckalkan.ValidateCertificateResult, error) {
+		validator, ok := session.(ocspChainValidator)
+		if !ok {
+			return ckalkan.ValidateCertificateResult{}, unsupportedOperation("Go OCSP")
 		}
 
-		return native.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
-			Certificate: input, ValidationType: ckalkan.UseNothing,
+		result, snapshot, err := validator.validateCertificateChain(ckalkan.ValidateCertificateRequest{
+			Certificate:   input,
 			CheckTimeUnix: checkTimeUnix, Flags: flags,
-		})
+		}, issuer == nil)
+		trusted = snapshot
+
+		return result, err
 	})
 	if err != nil {
 		return nil, err
@@ -144,7 +152,7 @@ func checkOCSPIssuer(certificate, issuer *x509.Certificate) error {
 	return certsig.CheckCertificateSignature(certificate, issuer)
 }
 
-func findOCSPIssuer(certificate *x509.Certificate, trusted []loadedTrustedCertificate) *x509.Certificate {
+func findOCSPIssuer(certificate *x509.Certificate, trusted []trustedCertificate) *x509.Certificate {
 	for _, candidate := range trusted {
 		data, err := ocspTrustedCertificateBytes(candidate)
 		if err != nil {
@@ -160,7 +168,7 @@ func findOCSPIssuer(certificate *x509.Certificate, trusted []loadedTrustedCertif
 	return nil
 }
 
-func ocspTrustedCertificateBytes(certificate loadedTrustedCertificate) ([]byte, error) {
+func ocspTrustedCertificateBytes(certificate trustedCertificate) ([]byte, error) {
 	if certificate.path == "" {
 		return certificate.data, nil
 	}
