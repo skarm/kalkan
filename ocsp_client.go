@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +36,12 @@ func (e *OCSPRevokedError) Error() string {
 // [ckalkan.ErrorCertStatusRevoked].
 func (e *OCSPRevokedError) Unwrap() error {
 	return &ckalkan.KalkanError{Code: ckalkan.ErrorCertStatusRevoked}
+}
+
+// ocspChainValidator supplies native chain validation and an optional trust
+// snapshot under the client's call gate. The backend owns the trust state.
+type ocspChainValidator interface {
+	validateCertificateChain(ckalkan.ValidateCertificateRequest, bool) (ckalkan.ValidateCertificateResult, []trustedCertificate, error)
 }
 
 func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertificateRequest, input []byte, endpoint string, flags ckalkan.Flag) (*CertificateValidation, error) {
@@ -74,24 +79,18 @@ func (c *Client) validateCertificateOCSP(ctx context.Context, req ValidateCertif
 	// Preserve native chain and certificate-time validation, but never invoke
 	// the vendor's OCSP transport. Snapshot trust while holding its native gate.
 	result, err := withBackendResult(c, ctx, "ValidateCertificate", func(session backend) (ckalkan.ValidateCertificateResult, error) {
-		native, ok := session.(*nativeBackend)
+		validator, ok := session.(ocspChainValidator)
 		if !ok {
 			return ckalkan.ValidateCertificateResult{}, unsupportedOperation("Go OCSP")
 		}
 
-		operations, ok := native.sdk.(certificateOperations)
-		if !ok {
-			return ckalkan.ValidateCertificateResult{}, unsupportedOperation("ValidateCertificate")
-		}
-
-		if issuer == nil {
-			trusted = slices.Clone(native.trusted)
-		}
-
-		return operations.X509ValidateCertificate(ckalkan.ValidateCertificateRequest{
-			Certificate: input, ValidationType: ckalkan.UseNothing,
+		result, snapshot, err := validator.validateCertificateChain(ckalkan.ValidateCertificateRequest{
+			Certificate:   input,
 			CheckTimeUnix: checkTimeUnix, Flags: flags,
-		})
+		}, issuer == nil)
+		trusted = snapshot
+
+		return result, err
 	})
 	if err != nil {
 		return nil, err

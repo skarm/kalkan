@@ -45,6 +45,40 @@ func ocspTestClient(t *testing.T, endpoint string) *Client {
 	})}
 }
 
+func TestOCSPWithWrappedBackend(t *testing.T) {
+	pki := newTestOCSPPKI(t)
+	now := time.Now()
+	answer := pki.answer(t, pki.responder, testOCSPResponse{ThisUpdate: now.Add(-time.Minute), NextUpdate: now.Add(time.Hour)})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(answer)
+	}))
+	defer server.Close()
+
+	client := ocspTestClient(t, server.URL)
+	if err := client.LoadTrustedCertificate(t.Context(), TrustedCertificate{Data: pki.ca.Raw, Format: CertificateDER}); err != nil {
+		t.Fatal(err)
+	}
+	// A decorator can forward the backend capabilities without exposing native
+	// implementation fields. Issuer lookup must still use its trust snapshot.
+	validator, ok := client.session.(ocspChainValidator)
+	if !ok {
+		t.Fatal("native backend does not provide chain validation")
+	}
+	client.session = struct {
+		backend
+		ocspChainValidator
+	}{client.session, validator}
+	result, err := client.ValidateCertificate(t.Context(), ValidateCertificateRequest{
+		Certificate: DER(pki.leaf.Raw), Mode: CertificateValidationOCSP, ReturnOCSPResponse: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Info != "chain ok" || !bytes.Equal(result.OCSPResponse, answer) {
+		t.Fatalf("wrapped backend validation = %+v", result)
+	}
+}
+
 func TestValidateCertificateOCSP(t *testing.T) {
 	pki := newTestOCSPPKI(t)
 	now := time.Now()

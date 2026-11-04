@@ -119,6 +119,8 @@ Each Java client owns a persistent child process and exchanges requests through 
 
 ## Packages
 
+See [Architecture](.github/ARCHITECTURE.md) for package ownership, dependencies and execution boundaries.
+
 - [`github.com/skarm/kalkan`](https://pkg.go.dev/github.com/skarm/kalkan): typed CMS, XML, WS-Security, hashing, ZIP, certificate, OCSP/TSA, proxy, and logging APIs
 - [`github.com/skarm/kalkan/ckalkan`](https://pkg.go.dev/github.com/skarm/kalkan/ckalkan): ABI-level binding with native flags, encodings, and buffer controls
 - [`github.com/skarm/kalkan/isolated`](isolated): opt-in local worker processes with independent SDK sessions and cancellation by process termination

@@ -1,13 +1,10 @@
 package kalkan
 
 import (
-	"bytes"
-	"context"
-	"errors"
 	"fmt"
-	"io"
-	"math"
-	"os"
+	"strconv"
+
+	"github.com/skarm/kalkan/ckalkan"
 )
 
 // Encoding identifies the format of input bytes or file contents.
@@ -154,88 +151,32 @@ func validateEncoding(encoding Encoding) error {
 	}
 }
 
-// readCMSInputFile checks cancellation between reads and bounds actual bytes,
-// including files whose reported size is unavailable. Encoded append payloads
-// require regular files; certificate extraction also accepts streams.
-func readCMSInputFile(ctx context.Context, path string, maxSize int64, regularOnly bool) ([]byte, error) {
-	if ctx == nil {
-		ctx = context.Background()
+func encodingName(encoding Encoding) string {
+	switch encoding {
+	case EncodingAuto:
+		return "auto"
+	case EncodingRaw:
+		return "raw"
+	case EncodingBase64:
+		return "base64"
+	case EncodingPEM:
+		return "PEM"
+	case EncodingDER:
+		return "DER"
+	default:
+		return strconv.Itoa(int(encoding))
 	}
+}
 
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if regularOnly {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, fmt.Errorf("kalkan: stat CMS file: %w", err)
-		}
-
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("%w: CMS append payload must be a regular file", ErrInvalidInput)
-		}
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("kalkan: open CMS file: %w", err)
-	}
-	defer file.Close()
-
-	info, statErr := file.Stat()
-	if regularOnly {
-		if statErr != nil {
-			return nil, fmt.Errorf("kalkan: stat CMS file: %w", statErr)
-		}
-
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("%w: CMS append payload must be a regular file", ErrInvalidInput)
-		}
-	}
-
-	var buffer bytes.Buffer
-
-	if statErr == nil && info.Mode().IsRegular() && info.Size() >= 0 {
-		initial := info.Size()
-		if maxSize > 0 && maxSize < math.MaxInt64 {
-			initial = min(initial, maxSize+1)
-		}
-
-		if initial <= int64(math.MaxInt)-bytes.MinRead {
-			buffer.Grow(int(initial) + bytes.MinRead)
-		}
-	}
-
-	var reader io.Reader = file
-	if maxSize > 0 && maxSize < math.MaxInt64 {
-		reader = io.LimitReader(file, maxSize+1)
-	}
-
-	chunk := make([]byte, 32<<10)
-
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		count, readErr := reader.Read(chunk)
-
-		_, _ = buffer.Write(chunk[:count])
-		if err := validateBytesSize(buffer.Bytes(), "CMS input", maxSize); err != nil {
-			return nil, err
-		}
-
-		if errors.Is(readErr, io.EOF) {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-
-			return buffer.Bytes(), nil
-		}
-
-		if readErr != nil {
-			return nil, fmt.Errorf("kalkan: read CMS file: %w", readErr)
-		}
+func inputFlag(encoding Encoding) ckalkan.Flag {
+	switch encoding {
+	case EncodingBase64:
+		return ckalkan.InBase64
+	case EncodingPEM:
+		return ckalkan.InPEM
+	case EncodingDER:
+		return ckalkan.InDER
+	default:
+		return 0
 	}
 }

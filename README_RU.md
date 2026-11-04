@@ -123,6 +123,8 @@ XML ID должны быть уникальны во всём документе
 
 ## Пакеты
 
+[Архитектура](.github/ARCHITECTURE.md) описывает ответственность пакетов, зависимости и границы выполнения.
+
 - [`github.com/skarm/kalkan`](https://pkg.go.dev/github.com/skarm/kalkan): типизированный API для CMS, XML, WS-Security, хеширования, ZIP, сертификатов, OCSP/TSA, прокси и логирования
 - [`github.com/skarm/kalkan/ckalkan`](https://pkg.go.dev/github.com/skarm/kalkan/ckalkan): ABI-уровень с нативными флагами, кодировками и настройками буферов
 - [`github.com/skarm/kalkan/isolated`](isolated): отдельные локальные worker с независимыми сессиями SDK и отменой через завершение процесса

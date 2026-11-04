@@ -1,12 +1,8 @@
 package kalkan
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/pem"
 	"fmt"
-	"strconv"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -221,88 +217,6 @@ func (c *Client) SignCMS(ctx context.Context, req SignCMSRequest) (*CMS, error) 
 	return &CMS{Data: out}, nil
 }
 
-func cmsAppendData(ctx context.Context, data []byte, flags ckalkan.Flag, limit int64) ([]byte, ckalkan.Flag, error) {
-	// Native append shares KC_IN_* flags between the existing CMS and payload.
-	// Decode encoded payloads so both inputs use DER flags.
-	if flags&(ckalkan.InPEM|ckalkan.InBase64) == 0 {
-		return data, flags | ckalkan.InDER, nil
-	}
-
-	if flags&ckalkan.InFile != 0 {
-		var err error
-
-		data, err = readCMSInputFile(ctx, string(data), limit, true)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	if flags&ckalkan.InBase64 != 0 {
-		decoded, err := base64.StdEncoding.DecodeString(string(data))
-		if err != nil {
-			return nil, 0, fmt.Errorf("%w: CMS append payload base64: %w", ErrInvalidInput, err)
-		}
-
-		data = decoded
-	} else {
-		data = bytes.TrimSpace(data)
-
-		block, rest := pem.Decode(data)
-		// pem.Decode can skip a malformed first block and return a later one.
-		if !bytes.HasPrefix(data, []byte("-----BEGIN ")) || bytes.Contains(data, []byte("\n-----BEGIN ")) || block == nil || len(bytes.TrimSpace(rest)) != 0 {
-			return nil, 0, fmt.Errorf("%w: CMS append payload must contain a single PEM block", ErrInvalidInput)
-		}
-
-		data = block.Bytes
-	}
-
-	return data, flags&^(ckalkan.InBase64|ckalkan.InPEM|ckalkan.InFile) | ckalkan.InDER, nil
-}
-
-func existingCMSInput(source Source, limit int64) ([]byte, error) {
-	if source.isZero() {
-		return nil, nil
-	}
-
-	if source.file {
-		return nil, fmt.Errorf("%w: existing CMS must be in memory", ErrInvalidInput)
-	}
-
-	data, flags, err := cmsSignatureInput(source, EncodingDER, limit)
-	if err != nil {
-		return nil, err
-	}
-
-	switch {
-	case flags&ckalkan.InBase64 != 0:
-		data, err = base64.StdEncoding.DecodeString(string(data))
-	case flags&ckalkan.InPEM != 0:
-		data = bytes.TrimSpace(data)
-
-		var (
-			block *pem.Block
-			rest  []byte
-		)
-
-		block, rest = pem.Decode(data)
-		if !bytes.HasPrefix(data, []byte("-----BEGIN ")) || bytes.Contains(data, []byte("\n-----BEGIN ")) || block == nil || len(bytes.TrimSpace(rest)) != 0 {
-			return nil, fmt.Errorf("%w: existing CMS PEM", ErrInvalidInput)
-		}
-
-		data = block.Bytes
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("%w: existing CMS: %w", ErrInvalidInput, err)
-	}
-
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: existing CMS is empty", ErrInvalidInput)
-	}
-
-	return data, nil
-}
-
 // VerifyCMS verifies req.Signature and returns native diagnostics.
 // The result can also contain decoded data and a signer certificate.
 //
@@ -392,105 +306,6 @@ func (c *Client) VerifyCMS(ctx context.Context, req VerifyCMSRequest) (*Verifica
 		Data:       result.Data,
 		SignerCert: result.Cert,
 	}, nil
-}
-
-func cmsSignatureInput(source Source, fallback Encoding, maxInputSize int64) ([]byte, ckalkan.Flag, error) {
-	if source.isZero() {
-		return nil, 0, fmt.Errorf("%w: CMS signature is required", ErrInvalidInput)
-	}
-
-	if err := validateMemorySourceSize(source, "CMS signature", maxInputSize); err != nil {
-		return nil, 0, err
-	}
-
-	value, err := source.bytesOrPath()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if !source.file && len(value) == 0 {
-		return nil, 0, fmt.Errorf("%w: CMS signature is empty", ErrInvalidInput)
-	}
-
-	encoding := effectiveEncoding(source, fallback)
-	switch encoding {
-	case EncodingAuto, EncodingRaw, EncodingDER:
-		return value, ckalkan.InDER, nil
-	case EncodingBase64:
-		return value, ckalkan.InBase64, nil
-	case EncodingPEM:
-		return value, ckalkan.InPEM, nil
-	default:
-		return nil, 0, fmt.Errorf("%w: unknown CMS signature encoding %d", ErrInvalidInput, encoding)
-	}
-}
-
-func cmsDataInput(source Source, maxInputSize int64) ([]byte, ckalkan.Flag, error) {
-	if source.isZero() {
-		return nil, 0, nil
-	}
-
-	if err := validateMemorySourceSize(source, "detached CMS data", maxInputSize); err != nil {
-		return nil, 0, err
-	}
-
-	value, err := source.bytesOrPath()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	encoding := effectiveEncoding(source, EncodingRaw)
-	switch encoding {
-	case EncodingPEM, EncodingDER:
-		return nil, 0, fmt.Errorf("%w: detached CMS data encoding %s is not supported by KalkanCrypt; use raw or base64 data", ErrInvalidInput, encodingName(encoding))
-	}
-
-	if source.file {
-		if encoding == EncodingBase64 {
-			return value, ckalkan.In2Base64, nil
-		}
-
-		return value, 0, nil
-	}
-
-	switch encoding {
-	case EncodingAuto, EncodingRaw:
-		return value, 0, nil
-	case EncodingBase64:
-		return value, ckalkan.In2Base64, nil
-	default:
-		return nil, 0, fmt.Errorf("%w: unknown CMS data encoding %d", ErrInvalidInput, encoding)
-	}
-}
-
-func encodingName(encoding Encoding) string {
-	switch encoding {
-	case EncodingAuto:
-		return "auto"
-	case EncodingRaw:
-		return "raw"
-	case EncodingBase64:
-		return "base64"
-	case EncodingPEM:
-		return "PEM"
-	case EncodingDER:
-		return "DER"
-	default:
-		return strconv.Itoa(int(encoding))
-	}
-}
-
-func inputFlag(encoding Encoding) ckalkan.Flag {
-	switch encoding {
-	case EncodingBase64:
-		return ckalkan.InBase64
-	case EncodingPEM:
-		return ckalkan.InPEM
-	case EncodingDER:
-		return ckalkan.InDER
-	default:
-		return 0
-	}
 }
 
 func cmsOutputFlag(format CMSOutputFormat) (ckalkan.Flag, error) {

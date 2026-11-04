@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 
 	"github.com/skarm/kalkan/ckalkan"
 )
@@ -101,6 +102,25 @@ func (b *nativeBackend) LoadTrustedCertificate(_ context.Context, cert trustedCe
 	b.rememberTrustedCertificate(cert)
 
 	return nil
+}
+
+// validateCertificateChain excludes native revocation transport so the caller
+// can authenticate OCSP in Go. The caller must hold the client call gate.
+func (b *nativeBackend) validateCertificateChain(req ckalkan.ValidateCertificateRequest, snapshotTrust bool) (ckalkan.ValidateCertificateResult, []trustedCertificate, error) {
+	native, ok := b.sdk.(certificateOperations)
+	if !ok {
+		return ckalkan.ValidateCertificateResult{}, nil, unsupportedOperation("ValidateCertificate")
+	}
+
+	var trusted []trustedCertificate
+	if snapshotTrust {
+		trusted = slices.Clone(b.trusted)
+	}
+
+	req.ValidationType = ckalkan.UseNothing
+	result, err := native.X509ValidateCertificate(req)
+
+	return result, trusted, err
 }
 
 func loadNativeTrustedCertificate(native certificateOperations, cert trustedCertificate) error {
