@@ -54,6 +54,10 @@ type CertificateInfo struct {
 	// "signatureAlgorithm=<name>(<OID>)". The Java backend uses native SDK names
 	// for known algorithms and returns the OID alone for unknown algorithms.
 	SignatureAlgorithm string
+	// AlgorithmSignCert contains the same value as SignatureAlgorithm.
+	//
+	// Deprecated: Use SignatureAlgorithm.
+	AlgorithmSignCert string
 	// PublicKey is the public key string.
 	PublicKey string
 	// OCSPURL is the OCSP responder string.
@@ -179,6 +183,11 @@ const (
 	// CertificateInfoSubjectOrganizationalUnit requests the subject organizational unit value.
 	CertificateInfoSubjectOrganizationalUnit
 )
+
+// CertificateInfoAlgorithmSignCert requests the certificate signature algorithm.
+//
+// Deprecated: Use CertificateInfoSignatureAlgorithm.
+const CertificateInfoAlgorithmSignCert = CertificateInfoSignatureAlgorithm
 
 // CertificateInfoAllFields requests the same properties as X509CertificateGetInfo.
 const CertificateInfoAllFields = CertificateInfoSubject |
@@ -465,6 +474,7 @@ func applyCertificateInfoProperty(info *CertificateInfo, field CertificateInfoFi
 		info.SubjKeyID = value
 	case CertificateInfoSignatureAlgorithm:
 		info.SignatureAlgorithm = value
+		info.AlgorithmSignCert = value
 	case CertificateInfoPublicKey:
 		info.PublicKey = value
 	case CertificateInfoOCSPURL:

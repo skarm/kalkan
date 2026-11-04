@@ -2,6 +2,7 @@ package javakalkan
 
 import (
 	"bytes"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
@@ -12,7 +13,11 @@ import (
 )
 
 func encodeFlag(flags ckalkan.Flag, bit ckalkan.Flag) []byte {
-	if flags&bit != 0 {
+	return encodeBool(flags&bit != 0)
+}
+
+func encodeBool(value bool) []byte {
+	if value {
 		return []byte("1")
 	}
 
@@ -33,7 +38,8 @@ func (c *Operation) SetProxy(req ckalkan.ProxyRequest) error {
 }
 
 func (c *Operation) HashData(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
-	input, err := c.inputBytes(data, flags)
+	// The native SDK hashes PEM armor literally; only base64 payloads are decoded.
+	input, err := c.inputBytes(data, flags&^ckalkan.InPEM)
 	if err != nil {
 		return nil, err
 	}
@@ -57,19 +63,49 @@ func (c *Operation) LoadKeyStore(storage ckalkan.Store, password, container, ali
 }
 
 func (c *Operation) SignData(req ckalkan.SignDataRequest) ([]byte, error) {
-	data, err := c.inputBytes(req.Data, req.Flags)
+	// PEM selects CMS recognition, but does not decode an ordinary signing payload.
+	data, err := c.inputBytes(req.Data, req.Flags&^ckalkan.InPEM)
 	if err != nil {
 		return nil, err
 	}
 
+	existing := req.Signature
+	implicit := false
+
+	if len(existing) == 0 && req.Flags&ckalkan.DetachedData == 0 && req.Flags&(ckalkan.InDER|ckalkan.InPEM|ckalkan.InBase64) != 0 {
+		candidate := data
+		if req.Flags&ckalkan.InPEM != 0 {
+			candidate, _ = decodeSinglePEM(data)
+		}
+
+		if isCMSSignedData(candidate) {
+			data, existing, implicit = nil, candidate, true
+		}
+	}
+
 	fields, err := c.call("SignCMS", 3, 1, []byte(req.Alias), data,
 		encodeFlag(req.Flags, ckalkan.DetachedData), encodeFlag(req.Flags, ckalkan.WithCert), encodeFlag(req.Flags, ckalkan.NoCheckCertTime),
-		encodeFlag(req.Flags, ckalkan.WithTimestamp), req.Signature)
+		encodeFlag(req.Flags, ckalkan.WithTimestamp), existing, encodeBool(implicit))
 	if err != nil {
 		return nil, err
 	}
 
 	return c.outputBytes("SignCMS", fields[0], req.Flags)
+}
+
+// Identify only the ContentInfo type here. The worker parses the complete CMS,
+// authenticates its existing signers and extracts its attached content.
+func isCMSSignedData(encoded []byte) bool {
+	var envelope asn1.RawValue
+	if _, err := asn1.Unmarshal(encoded, &envelope); err != nil || envelope.Class != asn1.ClassUniversal || envelope.Tag != asn1.TagSequence || !envelope.IsCompound {
+		return false
+	}
+
+	var contentType asn1.ObjectIdentifier
+
+	_, err := asn1.Unmarshal(envelope.Bytes, &contentType)
+
+	return err == nil && contentType.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2})
 }
 
 func (c *Operation) SignHash(alias string, flags ckalkan.Flag, hash []byte) ([]byte, error) {

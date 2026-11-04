@@ -460,6 +460,9 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	if info.SignatureAlgorithm != "GOST R 34.10-2015" {
 		t.Fatalf("SignatureAlgorithm = %q", info.SignatureAlgorithm)
 	}
+	if info.AlgorithmSignCert != info.SignatureAlgorithm {
+		t.Fatalf("legacy AlgorithmSignCert = %q", info.AlgorithmSignCert)
+	}
 	if info.OCSPURL != "OCSP=http://ocsp.example.test" {
 		t.Fatalf("OCSPURL = %q", info.OCSPURL)
 	}
@@ -489,6 +492,30 @@ func TestX509CertificateGetInfoBuildsStructuredInfo(t *testing.T) {
 	}
 	if info.SubjectType != CertificateSubjectLegalEntity {
 		t.Fatalf("SubjectType = %q, want legal entity fallback from BIN", info.SubjectType)
+	}
+}
+
+func TestCertificateInfoLegacySignatureAlgorithmSelection(t *testing.T) {
+	client := &Client{session: newNativeBackend(&fakeSDK{
+		certificateGetInfoFunc: func(_ []byte, prop ckalkan.CertProp) ([]byte, error) {
+			if prop != ckalkan.CertPropSignatureAlg {
+				t.Fatalf("legacy field selected unexpected property %v", prop)
+			}
+			return []byte("signatureAlgorithm=GOST"), nil
+		},
+	})}
+	if CertificateInfoAlgorithmSignCert != CertificateInfoSignatureAlgorithm {
+		t.Fatal("legacy signature-algorithm alias changed")
+	}
+	if CertificateInfoAlgorithmSignCert != 1<<10 {
+		t.Fatal("legacy signature-algorithm bit changed")
+	}
+	info, err := client.X509CertificateGetInfoFields(t.Context(), &x509.Certificate{Raw: []byte{1}}, CertificateInfoAlgorithmSignCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AlgorithmSignCert != "signatureAlgorithm=GOST" || info.SignatureAlgorithm != info.AlgorithmSignCert {
+		t.Fatalf("signature algorithm aliases disagree: %+v", info)
 	}
 }
 

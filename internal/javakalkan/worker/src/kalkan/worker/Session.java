@@ -89,7 +89,7 @@ final class Session {
     }
 
     private byte[][] sign(byte[][] args) throws Exception {
-        count(args, 7);
+        count(args, 8);
         String alias = string(args[0]);
         byte[] data = args[1];
         boolean detached = bool(args[2]);
@@ -97,10 +97,11 @@ final class Session {
         boolean skipCertificateTime = bool(args[4]);
         boolean timestamp = bool(args[5]);
         byte[] existingCMS = args[6];
+        boolean implicitCMS = bool(args[7]);
         var options =
                 new CmsOperations.SignOptions(
                         detached, includeCertificate, skipCertificateTime, timestamp);
-        return new byte[][] {cms.sign(alias, data, options, existingCMS)};
+        return new byte[][] {cms.sign(alias, data, options, existingCMS, implicitCMS)};
     }
 
     private byte[][] signHash(byte[][] args) throws Exception {

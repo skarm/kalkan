@@ -118,6 +118,18 @@ func TestJavaCMSAppendSigner(t *testing.T) {
 			if _, err := appendCMS(kalkan.Bytes(payload), javaValidationASN1(t, before)); err == nil {
 				t.Fatal("append accepted an invalid existing CMS signature")
 			}
+			if !detached {
+				if result, err := client.SignCMS(t.Context(), kalkan.SignCMSRequest{Data: kalkan.DER(javaValidationASN1(t, before))}); err == nil || result != nil {
+					t.Fatal("implicit append accepted an invalid existing CMS signature")
+				}
+				untrusted := openJavaIntegrationClient(t)
+				if err := untrusted.LoadKeyStore(t.Context(), kalkan.KeyStore{Path: store, Password: "test-password"}); err != nil {
+					t.Fatal(err)
+				}
+				if result, err := untrusted.SignCMS(t.Context(), kalkan.SignCMSRequest{Data: kalkan.DER(original)}); err == nil || result != nil {
+					t.Fatal("implicit append accepted an untrusted existing signer")
+				}
+			}
 		})
 	}
 }

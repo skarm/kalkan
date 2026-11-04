@@ -229,6 +229,31 @@ func TestBinarySourcePreservesPresenceAndEncoding(t *testing.T) {
 	}
 }
 
+//nolint:staticcheck // Verify that deprecated public fields remain usable through IPC.
+func TestCertificateInfoSignatureAlgorithmAliasesRoundTrip(t *testing.T) {
+	for _, input := range []kalkan.CertificateInfo{
+		{AlgorithmSignCert: "legacy algorithm"},
+		{SignatureAlgorithm: "new algorithm"},
+		{SignatureAlgorithm: "new algorithm", AlgorithmSignCert: "new algorithm"},
+	} {
+		payload, err := encodeResult(&input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output *kalkan.CertificateInfo
+		if err := decodeResult("X509CertificateGetInfo", roundTripPayload(t, payload), &output); err != nil {
+			t.Fatal(err)
+		}
+		want := input.SignatureAlgorithm
+		if want == "" {
+			want = input.AlgorithmSignCert
+		}
+		if output.SignatureAlgorithm != want || output.AlgorithmSignCert != want {
+			t.Fatalf("signature algorithm lost through isolated transport: %+v", output)
+		}
+	}
+}
+
 func TestCertificateInfoTransportsOnlyRawAndPreservesNil(t *testing.T) {
 	for _, certificate := range []*x509.Certificate{nil, {}, {Raw: []byte("invalid DER"), DNSNames: []string{"ignored.example"}}} {
 		payload, err := encodeRequest("X509CertificateGetInfo", certificate, 0)

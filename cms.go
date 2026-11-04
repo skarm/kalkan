@@ -51,9 +51,11 @@ type SignCMSRequest struct {
 	Alias string
 	// Data is the payload to sign. The zero-value Source is rejected; use
 	// Bytes(nil) or Bytes([]byte{}) only when an explicit empty payload is
-	// intended. When appending, Base64 and PEM payload files are decoded in
+	// intended. With ExistingSignature, Base64 and PEM payload files are decoded in
 	// memory before signing; raw and DER files are passed directly to the backend.
 	// PEM append payloads must contain exactly one block.
+	// Without ExistingSignature, an attached CMS supplied as DER, PEM or base64
+	// receives an additional signer. Other PEM payloads are signed as literal text.
 	Data Source
 	// ExistingSignature optionally supplies an in-memory CMS to which a signer
 	// is added. DER, base64 and a single PEM block are accepted. Data must be the

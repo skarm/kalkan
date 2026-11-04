@@ -273,7 +273,13 @@ func (e *payloadEncoder) certificateInfo(v kalkan.CertificateInfo) {
 	e.text(v.ExtKeyUsage)
 	e.text(v.AuthKeyID)
 	e.text(v.SubjKeyID)
-	e.text(v.SignatureAlgorithm)
+
+	algorithm := v.SignatureAlgorithm
+	if algorithm == "" {
+		algorithm = v.AlgorithmSignCert //nolint:staticcheck // Preserve results constructed with the legacy public field.
+	}
+
+	e.text(algorithm)
 	e.text(v.PublicKey)
 	e.text(v.OCSPURL)
 	e.text(v.CRLURL)
@@ -292,7 +298,7 @@ func (e *payloadEncoder) certificateInfo(v kalkan.CertificateInfo) {
 }
 
 func (d *payloadDecoder) certificateInfo() kalkan.CertificateInfo {
-	return kalkan.CertificateInfo{
+	result := kalkan.CertificateInfo{
 		Subject:                   d.text(),
 		SerialNumber:              d.text(),
 		ValidFrom:                 d.timestamp(),
@@ -320,4 +326,7 @@ func (d *payloadDecoder) certificateInfo() kalkan.CertificateInfo {
 		SubjectType:               kalkan.CertificateSubjectType(d.text()),
 		Roles:                     decodeStrings[kalkan.CertificateRole](d),
 	}
+	result.AlgorithmSignCert = result.SignatureAlgorithm //nolint:staticcheck // Populate the legacy public field for isolated callers.
+
+	return result
 }

@@ -67,8 +67,16 @@ final class CmsOperations {
         timestamps.setAuthorityURL(url);
     }
 
-    byte[] sign(String alias, byte[] data, SignOptions options, byte[] existingCMS)
+    byte[] sign(
+            String alias, byte[] data, SignOptions options, byte[] existingCMS, boolean implicitCMS)
             throws Exception {
+        if (implicitCMS) {
+            CMSSignedData existing = CmsSupport.parseSignedData(existingCMS);
+            if (options.detached() || existing.getSignedContent() == null) {
+                throw new Failure(INVALID_ARGUMENT, "CMS input must contain an attached payload");
+            }
+            data = CmsSupport.attachedContent(existing);
+        }
         SignedData previous = validatePreviousCMS(existingCMS, data, options);
         KeyStoreState.KeyEntry entry = signingKey(alias, options.skipCertificateTime());
         Algorithm algorithm = algorithm(entry.certificate);
