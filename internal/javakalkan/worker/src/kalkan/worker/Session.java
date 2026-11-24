@@ -118,14 +118,16 @@ final class Session {
     }
 
     private byte[][] verify(byte[][] args) throws Exception {
-        count(args, 6);
+        count(args, 7);
         byte[] cmsData = args[0];
         byte[] content = args[1];
         boolean detached = bool(args[2]);
         int signerID = number(args[3]);
         boolean skipCertificateTime = bool(args[4]);
         String alias = string(args[5]);
-        return cms.verify(cmsData, content, detached, signerID, skipCertificateTime, alias);
+        boolean includeContent = bool(args[6]);
+        return cms.verify(
+                cmsData, content, detached, signerID, skipCertificateTime, alias, includeContent);
     }
 
     private byte[][] cmsCertificate(byte[][] args) throws Exception {

@@ -100,7 +100,8 @@ final class CmsOperations {
             boolean detached,
             int signerID,
             boolean skipTime,
-            String alias)
+            String alias,
+            boolean includeContent)
             throws Exception {
         CMSSignedData parsed = CmsSupport.parseSignedData(encoded);
         boolean hasContent = parsed.getSignedContent() != null;
@@ -134,7 +135,7 @@ final class CmsOperations {
             }
         }
 
-        byte[] content = detached ? EMPTY : CmsSupport.attachedContent(cms);
+        byte[] content = includeContent && !detached ? CmsSupport.attachedContent(cms) : EMPTY;
         String report = verificationReport(signers.size(), skipTime, verifiedTimestamps);
         return new byte[][] {content, selected, utf8(report)};
     }
@@ -181,7 +182,7 @@ final class CmsOperations {
                     INVALID_ARGUMENT, "Data does not match the existing attached CMS content");
         }
 
-        verify(encoded, data, options.detached(), 0, options.skipCertificateTime(), "");
+        verify(encoded, data, options.detached(), 0, options.skipCertificateTime(), "", false);
         ContentInfo content = ContentInfo.getInstance(singleASN1(encoded));
         SignedData previous = SignedData.getInstance(content.getContent());
         if (!CMSObjectIdentifiers.data.equals(previous.getEncapContentInfo().getContentType())) {

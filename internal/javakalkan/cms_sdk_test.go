@@ -6,6 +6,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -13,8 +14,36 @@ import (
 	"testing"
 
 	"github.com/skarm/kalkan"
+	"github.com/skarm/kalkan/ckalkan"
 	"github.com/skarm/kalkan/internal/testfixture"
 )
+
+func TestJavaVerifyCMSFileWithAttachedPayloadAboveOutputLimit(t *testing.T) {
+	requireJavaValidationProvider(t)
+	const outputLimit = 4 << 10
+	pki := newJavaValidationPKI(t, "http://unused.invalid")
+	client := openJavaIntegrationClient(t, append(pki.trust(t), kalkan.WithMaxOutputBufferSize(outputLimit))...)
+	payload := bytes.Repeat([]byte{'a'}, 2*outputLimit)
+	cms := pki.cms(t, payload, "none")
+	path := javaIntegrationFile(t, "attached.der", cms)
+
+	req := kalkan.VerifyCMSRequest{Signature: kalkan.File(path), SignerID: 1}
+	verified, err := client.VerifyCMS(t.Context(), req)
+	if err != nil {
+		t.Fatalf("VerifyCMS from file: %v", err)
+	}
+	if verified.Data != nil || verified.Info == "" || !bytes.Equal(verified.SignerCert, pki.leaf.cert.Raw) {
+		t.Fatalf("file verification returned %d payload bytes, info %q, and %d signer certificate bytes",
+			len(verified.Data), verified.Info, len(verified.SignerCert))
+	}
+
+	req.Signature = kalkan.DER(cms)
+	_, err = client.VerifyCMS(t.Context(), req)
+	var limitErr *ckalkan.OutputBufferLimitError
+	if !errors.As(err, &limitErr) || limitErr.Limit != outputLimit || limitErr.Requested != uint64(len(payload)) {
+		t.Fatalf("VerifyCMS from bytes error = %v, want output limit error for the attached payload", err)
+	}
+}
 
 func TestJavaCMSAppendSigner(t *testing.T) {
 	requireJavaValidationProvider(t)

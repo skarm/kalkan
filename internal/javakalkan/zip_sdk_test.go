@@ -84,6 +84,37 @@ func javaZIPFile(t *testing.T, entries map[string][]byte) string {
 	return javaIntegrationFile(t, "input.zip", encoded.Bytes())
 }
 
+func TestJavaSignZIPWithRepeatedZIPExtension(t *testing.T) {
+	requireJavaValidationProvider(t)
+	pki := newJavaValidationPKI(t, "http://unused.invalid")
+	client := openJavaIntegrationClient(t, pki.trust(t)...)
+	store := javaValidationKeyStore(t, pki.leaf)
+	if err := client.LoadKeyStore(t.Context(), kalkan.KeyStore{Path: store, Password: "test-password"}); err != nil {
+		t.Fatal(err)
+	}
+	input := javaIntegrationFile(t, "payload.txt", []byte("ZIP payload"))
+	outputDir := t.TempDir()
+	output := filepath.Join(outputDir, "report.zip.zip")
+
+	signed, err := client.SignZIP(t.Context(), kalkan.SignZIPRequest{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signed.Path != output {
+		t.Fatalf("SignZIP path = %q, want %q", signed.Path, output)
+	}
+	if _, err := client.VerifyZIP(t.Context(), kalkan.VerifyZIPRequest{Path: output}); err != nil {
+		t.Fatalf("VerifyZIP: %v", err)
+	}
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(output) {
+		t.Fatalf("output directory entries = %v, want only %q", entries, filepath.Base(output))
+	}
+}
+
 func TestJavaZIPContainers(t *testing.T) {
 	requireJavaValidationProvider(t)
 	pki := newJavaValidationPKI(t, "http://unused.invalid")

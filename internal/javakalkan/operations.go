@@ -133,8 +133,12 @@ func (c *Operation) VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDat
 		}
 	}
 
+	// Only in-memory attached CMS returns the extracted payload.
+	includeContent := req.Flags&(ckalkan.DetachedData|ckalkan.InFile) == 0
+
 	fields, err := c.call("VerifyCMS", 4, 3, signature, data, encodeFlag(req.Flags, ckalkan.DetachedData),
-		[]byte(strconv.Itoa(req.CertID)), encodeFlag(req.Flags, ckalkan.NoCheckCertTime), []byte(req.Alias))
+		[]byte(strconv.Itoa(req.CertID)), encodeFlag(req.Flags, ckalkan.NoCheckCertTime),
+		[]byte(req.Alias), encodeBool(includeContent))
 	if err != nil {
 		return result, err
 	}
@@ -145,10 +149,9 @@ func (c *Operation) VerifyData(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDat
 		}
 	}
 
-	result.Data, result.Cert, result.VerifyInfo = fields[0], fields[1], string(fields[2])
-	// Only in-memory attached CMS returns the extracted payload.
-	if req.Flags&(ckalkan.DetachedData|ckalkan.InFile) != 0 {
-		result.Data = nil
+	result.Cert, result.VerifyInfo = fields[1], string(fields[2])
+	if includeContent {
+		result.Data = fields[0]
 	}
 
 	return result, nil

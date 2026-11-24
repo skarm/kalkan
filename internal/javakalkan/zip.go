@@ -609,12 +609,7 @@ func (c *Operation) ZipConSign(req ckalkan.ZipConSignRequest) error {
 		return fmt.Errorf("%w: ZIP output name", ErrInvalidInput)
 	}
 
-	name := req.Name
-	if !strings.HasSuffix(strings.ToLower(name), ".zip") {
-		name += ".zip"
-	}
-
-	destination := filepath.Join(req.OutDir, name)
+	destination := filepath.Join(req.OutDir, req.Name+".zip")
 
 	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
