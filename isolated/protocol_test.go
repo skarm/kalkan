@@ -190,6 +190,47 @@ func TestTruncatedLargeBlocksDoNotAllocateTheirDeclaredSize(t *testing.T) {
 	}
 }
 
+func TestProtocolRejectsInvalidDetailsBeforeReadingBlocks(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		tail []byte
+	}{
+		{"invalid error boolean", []byte{2, 0, 0, 0, 0}},
+		{"invalid observations count", []byte{0, 255, 255, 255, 255}},
+		{"trailing details", []byte{0, 0, 0, 0, 0, 1}},
+		// A generic error with no causes, no sentinel bits, and text in block
+		// two, although the frame declares only one block.
+		{"invalid error reference", []byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := metadataWriter{}
+			h.uint64(1)
+			h.text(opHash)
+			h.raw(nil)
+			h.raw(test.tail)
+			h.uint32(1)
+			h.uint64(1 << 30)
+			reader := &blockDetectingReader{Reader: bytes.NewReader(testFrame(h.data, 1<<30))}
+			_, err := readMessage(reader)
+			if !errors.Is(err, ErrProtocol) || reader.blockRead {
+				t.Fatalf("invalid metadata: error=%v, read raw block=%t", err, reader.blockRead)
+			}
+		})
+	}
+}
+
+type blockDetectingReader struct {
+	*bytes.Reader
+	blockRead bool
+}
+
+func (r *blockDetectingReader) Read(data []byte) (int, error) {
+	if r.Len() == 0 {
+		r.blockRead = true
+	}
+	return r.Reader.Read(data)
+}
+
 func TestReadBlockPreservesBytesAndNextBlock(t *testing.T) {
 	for _, size := range []int{0, 1, 32 << 10, 32<<10 + 1, 96 << 10, 2<<20 + 17} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {

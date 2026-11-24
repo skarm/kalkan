@@ -1,14 +1,21 @@
 KALKANCRYPT_LIBRARY ?=
 KALKANCRYPT_SDK_ASSETS ?= $(CURDIR)/testdata
 KALKANCRYPT_LIVE_TESTS ?= 0
+JAVA_FORMAT ?= google-java-format
 
 # Together with linux/amd64+cgo, these cover every current go:build branch.
 LINT_PLATFORMS := linux/amd64 windows/amd64 darwin/arm64 freebsd/amd64
 
-.PHONY: fmt vet test test-race test-native docker-test docker-lint docker-lint-linux-cgo lint lint-linux-cgo check
+.PHONY: fmt fmt-java vet test test-race test-native docker-test docker-lint docker-lint-linux-cgo lint lint-linux-cgo check
 
 fmt:
 	go fmt ./...
+
+fmt-java:
+	$(JAVA_FORMAT) --aosp --replace \
+		internal/javakalkan/worker/src/Bootstrap.java \
+		internal/javakalkan/worker/src/kalkan/worker/*.java \
+		internal/javakalkan/testdata/*.java
 
 test:
 	go test ./...

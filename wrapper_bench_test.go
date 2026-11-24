@@ -336,7 +336,7 @@ func BenchmarkReadCMSCertificateFile(b *testing.B) {
 			b.SetBytes(int64(len(payload)))
 			b.ReportAllocs()
 			for b.Loop() {
-				data, err := readCMSCertificateFile(path, limit)
+				data, err := readCMSInputFile(b.Context(), path, limit, false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -503,7 +503,7 @@ func TestGoSideAllocsPerRun(t *testing.T) {
 
 func benchmarkClient() *Client {
 	return &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				return benchmarkDigestOutput, nil
 			},
@@ -537,13 +537,13 @@ func benchmarkClient() *Client {
 			getCertFromZipFileFunc: func(string, ckalkan.Flag, int) ([]byte, error) {
 				return benchmarkZIPCert, nil
 			},
-		},
+		}),
 	}
 }
 
 func preNativeBenchmarkClient() *Client {
 	return &Client{
-		library: &fakeNative{
+		session: newNativeBackend(&fakeSDK{
 			hashDataFunc: func(ckalkan.HashAlgorithm, ckalkan.Flag, []byte) ([]byte, error) {
 				return nil, errBenchmarkNativeStop
 			},
@@ -556,7 +556,7 @@ func preNativeBenchmarkClient() *Client {
 			validateCertificateFunc: func(ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 				return ckalkan.ValidateCertificateResult{}, errBenchmarkNativeStop
 			},
-		},
+		}),
 	}
 }
 

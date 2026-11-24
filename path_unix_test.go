@@ -3,6 +3,7 @@
 package kalkan
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -31,7 +32,7 @@ func TestCMSFileInputLimitDoesNotDependOnStatSize(t *testing.T) {
 			}
 			done := make(chan result, 1)
 			go func() {
-				data, err := readCMSCertificateFile(path, limit)
+				data, err := readCMSInputFile(t.Context(), path, limit, false)
 				done <- result{data: data, err: err}
 			}()
 			writer, err := os.OpenFile(path, os.O_WRONLY, 0)
@@ -54,6 +55,52 @@ func TestCMSFileInputLimitDoesNotDependOnStatSize(t *testing.T) {
 				t.Fatalf("CMS = %q, %v; want ABCD", got.data, got.err)
 			}
 		})
+	}
+}
+
+func TestCMSFileReadCancellationDiscardsPartialInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cms.fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		data, err := readCMSInputFile(ctx, path, 0, false)
+		if len(data) != 0 {
+			t.Error("canceled file read returned partial CMS data")
+		}
+		done <- err
+	}()
+	writer, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if _, err := writer.Write(bytes.Repeat([]byte("x"), 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitTestEvent(t, done, "canceled CMS read"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("file read error = %v, want context cancellation", err)
+	}
+}
+
+func TestSignCMSAppendRejectsEncodedFIFO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "payload.fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
+	_, err := client.SignCMS(t.Context(), SignCMSRequest{
+		Data: File(path).WithEncoding(EncodingBase64), ExistingSignature: DER([]byte("existing")),
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("encoded FIFO append = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -133,7 +180,7 @@ func assertVerifyZIPReceivesPath(t *testing.T, path string) {
 	t.Helper()
 
 	var calls int
-	native := &fakeNative{
+	native := &fakeSDK{
 		zipConVerifyFunc: func(zipFile string, flags ckalkan.Flag) (string, error) {
 			calls++
 			if zipFile != path {
@@ -146,7 +193,7 @@ func assertVerifyZIPReceivesPath(t *testing.T, path string) {
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	if _, err := client.VerifyZIP(context.Background(), VerifyZIPRequest{Path: path}); err != nil {
 		t.Fatalf("VerifyZIP returned error: %v", err)
@@ -160,7 +207,7 @@ func assertExtractZIPSignerCertificateReceivesPath(t *testing.T, path string) {
 	t.Helper()
 
 	var called bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		getCertFromZipFileFunc: func(zipFile string, flags ckalkan.Flag, signID int) ([]byte, error) {
 			called = true
 			if zipFile != path {
@@ -169,7 +216,7 @@ func assertExtractZIPSignerCertificateReceivesPath(t *testing.T, path string) {
 			return []byte("zip-cert"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	if _, err := client.ExtractZIPSignerCertificate(context.Background(), ExtractZIPSignerCertificateRequest{Path: path}); err != nil {
 		t.Fatalf("ExtractZIPSignerCertificate returned error: %v", err)
@@ -183,7 +230,7 @@ func assertSignZIPReceivesInputPath(t *testing.T, inputPath, outputPath string) 
 	t.Helper()
 
 	var called bool
-	native := &fakeNative{
+	native := &fakeSDK{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
 			called = true
 			if req.FilePath != inputPath {
@@ -192,7 +239,7 @@ func assertSignZIPReceivesInputPath(t *testing.T, inputPath, outputPath string) 
 			return os.WriteFile(outputPath, []byte("zip"), 0o600)
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	if _, err := client.SignZIP(context.Background(), SignZIPRequest{
 		InputPath:  inputPath,
@@ -212,13 +259,13 @@ func TestSignZIPRejectsExistingDanglingSymlink(t *testing.T) {
 		t.Fatalf("Symlink failed: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		zipConSignFunc: func(req ckalkan.ZipConSignRequest) error {
 			t.Error("SignZIP called native ZipConSign for a pre-existing dangling symlink output")
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignZIP(context.Background(), SignZIPRequest{
 		InputPath:  filepath.Join(dir, "payload.txt"),
@@ -236,7 +283,7 @@ func TestLoadKeyStorePassesFIFOPathToNative(t *testing.T) {
 		t.Fatalf("Mkfifo failed: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadKeyStoreFunc: func(storage ckalkan.Store, password, container, alias string) error {
 			if container != fifoPath {
 				t.Fatalf("container = %q, want %q", container, fifoPath)
@@ -244,7 +291,7 @@ func TestLoadKeyStorePassesFIFOPathToNative(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadKeyStore(context.Background(), KeyStore{
 		Type: PKCS12,
@@ -262,7 +309,7 @@ func TestLoadTrustedCertificatePassesFIFOPathToNative(t *testing.T) {
 		t.Fatalf("Mkfifo failed: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		loadCertFileFunc: func(path string, certType ckalkan.CertType) error {
 			if path != fifoPath {
 				t.Fatalf("path = %q, want %q", path, fifoPath)
@@ -270,7 +317,7 @@ func TestLoadTrustedCertificatePassesFIFOPathToNative(t *testing.T) {
 			return nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	err := client.LoadTrustedCertificate(context.Background(), TrustedCertificate{
 		Path: fifoPath,
@@ -288,7 +335,7 @@ func TestValidateCertificatePassesCRLFIFOPathToNative(t *testing.T) {
 		t.Fatalf("Mkfifo failed: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		validateCertificateFunc: func(req ckalkan.ValidateCertificateRequest) (ckalkan.ValidateCertificateResult, error) {
 			if req.ValidationPath != fifoPath {
 				t.Fatalf("RevocationSource = %q, want %q", req.ValidationPath, fifoPath)
@@ -296,7 +343,7 @@ func TestValidateCertificatePassesCRLFIFOPathToNative(t *testing.T) {
 			return ckalkan.ValidateCertificateResult{Info: "ok"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.ValidateCertificate(context.Background(), ValidateCertificateRequest{
 		Certificate:      Bytes([]byte("cert")),

@@ -32,3 +32,27 @@ func TestWalkFilesSkipsMetadataAndPreservesRootOrder(t *testing.T) {
 		t.Fatalf("files = %q, want %q", got, want)
 	}
 }
+
+func TestLoadSDKUsesSameRootAcrossTestPackages(t *testing.T) {
+	repository := t.TempDir()
+	fixtures := filepath.Join(repository, "testdata")
+	if err := os.Mkdir(fixtures, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keyStore := filepath.Join(fixtures, "identity.p12")
+	if err := os.WriteFile(keyStore, []byte("public fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A nested integration package must not silently skip SDK tests because
+	// go test executes it with a different package working directory.
+	t.Chdir(t.TempDir())
+	for _, configured := range []string{"", "./testdata", fixtures} {
+		t.Run(configured, func(t *testing.T) {
+			t.Setenv("KALKANCRYPT_SDK_ASSETS", configured)
+			assets := testfixture.LoadSDK(t, fixtures)
+			if !reflect.DeepEqual(assets.P12, []string{keyStore}) {
+				t.Fatalf("discovered key stores = %q, want %q", assets.P12, keyStore)
+			}
+		})
+	}
+}

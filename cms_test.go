@@ -3,6 +3,8 @@ package kalkan
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +17,7 @@ import (
 )
 
 func TestSignCMSUsesRawInputAndReturnsRawCMS(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			if alias != "signing-key" {
 				t.Fatalf("alias = %q, want signing-key", alias)
@@ -33,7 +35,7 @@ func TestSignCMSUsesRawInputAndReturnsRawCMS(t *testing.T) {
 			return []byte("raw-cms-bytes"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cms, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Alias:     "signing-key",
@@ -50,7 +52,7 @@ func TestSignCMSUsesRawInputAndReturnsRawCMS(t *testing.T) {
 }
 
 func TestSignCMSIncludesCertificateAndSkipsCertificateTime(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.OutDER | ckalkan.WithCert | ckalkan.NoCheckCertTime
 			if flags != wantFlags {
@@ -59,7 +61,7 @@ func TestSignCMSIncludesCertificateAndSkipsCertificateTime(t *testing.T) {
 			return []byte("raw-cms-with-cert"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cms, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Data:                 Bytes([]byte("payload")),
@@ -93,7 +95,7 @@ func TestSignCMSOutputFormats(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				signDataFunc: func(_ string, flags ckalkan.Flag, _ []byte, _ []byte) ([]byte, error) {
 					wantFlags := ckalkan.SignCMS | test.wantFlag
 					if flags != wantFlags {
@@ -103,7 +105,7 @@ func TestSignCMSOutputFormats(t *testing.T) {
 					return []byte(test.wantOutput), nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			cms, err := client.SignCMS(context.Background(), SignCMSRequest{
 				Data:         Bytes([]byte("payload")),
@@ -120,7 +122,7 @@ func TestSignCMSOutputFormats(t *testing.T) {
 }
 
 func TestSignCMSPassesBase64InputOnlyWhenExplicit(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.OutDER | ckalkan.InBase64
 			if flags != wantFlags {
@@ -132,7 +134,7 @@ func TestSignCMSPassesBase64InputOnlyWhenExplicit(t *testing.T) {
 			return []byte("raw-cms"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Data: Base64([]byte("cGF5bG9hZA==")),
@@ -142,14 +144,109 @@ func TestSignCMSPassesBase64InputOnlyWhenExplicit(t *testing.T) {
 	}
 }
 
+func TestSignCMSForwardsExistingSignatureAsDER(t *testing.T) {
+	existing := []byte("existing CMS")
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "DATA", Bytes: []byte("payload")})
+	pemFile := filepath.Join(t.TempDir(), "payload.pem")
+	if err := os.WriteFile(pemFile, pemData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, signature := range []struct {
+		name   string
+		source Source
+	}{
+		{"DER", DER(existing)},
+		{"base64", Base64([]byte(base64.StdEncoding.EncodeToString(existing)))},
+		{"PEM", PEM(pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: existing}))},
+	} {
+		t.Run(signature.name, func(t *testing.T) {
+			for _, payload := range []struct {
+				name     string
+				source   Source
+				flags    ckalkan.Flag
+				wantData []byte
+			}{
+				{"raw", Bytes([]byte("payload")), ckalkan.InDER, []byte("payload")},
+				{"base64", Base64([]byte("cGF5bG9hZA==")), ckalkan.InDER, []byte("payload")},
+				{"PEM", PEM(pemData), ckalkan.InDER, []byte("payload")},
+				{"PEM file", File(pemFile).WithEncoding(EncodingPEM), ckalkan.InDER, []byte("payload")},
+			} {
+				t.Run(payload.name, func(t *testing.T) {
+					native := &fakeSDK{signDataFunc: func(_ string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
+						if !bytes.Equal(signature, existing) || !bytes.Equal(data, payload.wantData) {
+							t.Fatalf("SignData inputs = %q, %q; want original payload and DER existing signature", data, signature)
+						}
+						if flags != ckalkan.SignCMS|ckalkan.OutDER|payload.flags {
+							t.Fatalf("SignData flags = %#x, want DER existing CMS and preserved payload flags", flags)
+						}
+						return []byte("appended CMS"), nil
+					}}
+					client := &Client{session: newNativeBackend(native)}
+					if _, err := client.SignCMS(t.Context(), SignCMSRequest{Data: payload.source, ExistingSignature: signature.source}); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestSignCMSRejectsInvalidAppendPayload(t *testing.T) {
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "DATA", Bytes: []byte("payload")})
+	oversized := filepath.Join(t.TempDir(), "large.b64")
+	if err := os.WriteFile(oversized, bytes.Repeat([]byte("eA=="), 32), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		data Source
+	}{
+		{"invalid base64", Base64([]byte("invalid*"))},
+		{"PEM leading junk", PEM(append([]byte("junk\n"), pemData...))},
+		{"PEM malformed first block", PEM(append([]byte("-----BEGIN DATA-----\ninvalid*\n-----END DATA-----\n"), pemData...))},
+		{"multiple PEM blocks", PEM(bytes.Repeat(pemData, 2))},
+		{"directory", File(t.TempDir()).WithEncoding(EncodingPEM)},
+		{"oversized encoded file", File(oversized).WithEncoding(EncodingBase64)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			native := &fakeSDK{signDataFunc: func(string, ckalkan.Flag, []byte, []byte) ([]byte, error) {
+				t.Fatal("invalid append payload reached native signing")
+				return nil, nil
+			}}
+			client := &Client{session: newNativeBackend(native), config: runtimeConfig{maxInputSize: 120}}
+			_, err := client.SignCMS(t.Context(), SignCMSRequest{Data: tc.data, ExistingSignature: DER([]byte("existing"))})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("append error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+func TestSignCMSRejectsAmbiguousExistingPEM(t *testing.T) {
+	valid := pem.EncodeToMemory(&pem.Block{Type: "CMS", Bytes: []byte("existing CMS")})
+	for _, prefix := range []string{"junk\n", "-----BEGIN CMS-----\ninvalid*\n-----END CMS-----\n"} {
+		native := &fakeSDK{signDataFunc: func(string, ckalkan.Flag, []byte, []byte) ([]byte, error) {
+			t.Error("ambiguous existing CMS reached signing")
+			return []byte("signed"), nil
+		}}
+		client := &Client{session: newNativeBackend(native)}
+		_, err := client.SignCMS(t.Context(), SignCMSRequest{
+			Data: Bytes([]byte("payload")), ExistingSignature: PEM(append([]byte(prefix), valid...)),
+		})
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("prefix %q: error = %v, want ErrInvalidInput", prefix, err)
+		}
+	}
+}
+
 func TestSignCMSRejectsUnknownOutputFormat(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Error("SignCMS called native SignData for an invalid output format")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Data:         Bytes([]byte("payload")),
@@ -161,13 +258,13 @@ func TestSignCMSRejectsUnknownOutputFormat(t *testing.T) {
 }
 
 func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Error("SignCMS called native SignData for an invalid data encoding")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Data: Bytes([]byte("payload")).WithEncoding(Encoding(99)),
@@ -179,7 +276,7 @@ func TestSignCMSRejectsUnknownDataEncoding(t *testing.T) {
 
 func TestSignCMSForwardsPEMInputFlag(t *testing.T) {
 	for _, source := range []Source{PEM([]byte("PEM data")), File("payload.pem").WithEncoding(EncodingPEM)} {
-		client := &Client{library: &fakeNative{
+		client := &Client{session: newNativeBackend(&fakeSDK{
 			signDataFunc: func(_ string, flags ckalkan.Flag, data, _ []byte) ([]byte, error) {
 				want := ckalkan.SignCMS | ckalkan.OutDER | ckalkan.InPEM
 				wantData := "PEM data"
@@ -192,7 +289,7 @@ func TestSignCMSForwardsPEMInputFlag(t *testing.T) {
 				}
 				return []byte("cms"), nil
 			},
-		}}
+		})}
 		result, err := client.SignCMS(t.Context(), SignCMSRequest{Data: source})
 		if err != nil || string(result.Data) != "cms" {
 			t.Fatalf("SignCMS = %+v, %v, want native CMS output", result, err)
@@ -201,13 +298,13 @@ func TestSignCMSForwardsPEMInputFlag(t *testing.T) {
 }
 
 func TestSignCMSRequiresData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			t.Error("SignCMS called native SignData without Data source")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.SignCMS(context.Background(), SignCMSRequest{})
 	if err == nil || !strings.Contains(err.Error(), "CMS data is required") {
@@ -216,7 +313,7 @@ func TestSignCMSRequiresData(t *testing.T) {
 }
 
 func TestSignCMSAllowsExplicitEmptyData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signDataFunc: func(alias string, flags ckalkan.Flag, data, signature []byte) ([]byte, error) {
 			if len(data) != 0 {
 				t.Fatalf("native data length = %d, want explicit empty payload", len(data))
@@ -224,7 +321,7 @@ func TestSignCMSAllowsExplicitEmptyData(t *testing.T) {
 			return []byte("raw-empty-cms"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	cms, err := client.SignCMS(context.Background(), SignCMSRequest{
 		Data: Bytes([]byte{}),
@@ -239,7 +336,7 @@ func TestSignCMSAllowsExplicitEmptyData(t *testing.T) {
 
 func TestVerifyCMSPassesRawSignatureBytesWithoutBase64(t *testing.T) {
 	rawSignature := []byte{0x30, 0x82, 0x01, 0x00, 0xff}
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InDER
 			if req.Flags != wantFlags {
@@ -254,7 +351,7 @@ func TestVerifyCMSPassesRawSignatureBytesWithoutBase64(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes(rawSignature),
@@ -265,7 +362,7 @@ func TestVerifyCMSPassesRawSignatureBytesWithoutBase64(t *testing.T) {
 }
 
 func TestVerifyCMSMapsBase64Signature(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InBase64
 			if req.Flags != wantFlags {
@@ -277,7 +374,7 @@ func TestVerifyCMSMapsBase64Signature(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Base64([]byte("YmFzZTY0LWNtcw==")),
@@ -293,7 +390,7 @@ func TestVerifyCMSPassesRawSignatureFileWithoutBase64Flag(t *testing.T) {
 		t.Fatalf("write signature file source: %v", err)
 	}
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InFile | ckalkan.InDER
 			if req.Flags != wantFlags {
@@ -305,7 +402,7 @@ func TestVerifyCMSPassesRawSignatureFileWithoutBase64Flag(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: File(signaturePath),
@@ -323,7 +420,7 @@ func TestVerifyCMSPassesDetachedSignatureFileAndInFileFlag(t *testing.T) {
 	}
 	payload := []byte("payload")
 
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InFile | ckalkan.InBase64 | ckalkan.DetachedData | ckalkan.NoCheckCertTime
 			if req.Flags != wantFlags {
@@ -341,7 +438,7 @@ func TestVerifyCMSPassesDetachedSignatureFileAndInFileFlag(t *testing.T) {
 			}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature:            File(signaturePath),
@@ -366,12 +463,12 @@ func TestVerifyCMSRejectsDetachedDataFile(t *testing.T) {
 	if err := os.WriteFile(payloadPath, []byte("payload"), 0o600); err != nil {
 		t.Fatalf("write payload file source: %v", err)
 	}
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Error("VerifyCMS called native VerifyData with a detached data file")
 			return ckalkan.VerifyDataResult{}, nil
 		},
-	}}
+	})}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("detached cms")),
@@ -386,7 +483,7 @@ func TestVerifyCMSRejectsDetachedDataFile(t *testing.T) {
 func TestVerifyCMSDoesNotCopyOutputs(t *testing.T) {
 	nativeData := []byte("attached-data")
 	nativeCert := []byte("signer-cert")
-	client := &Client{library: &fakeNative{
+	client := &Client{session: newNativeBackend(&fakeSDK{
 		verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			return ckalkan.VerifyDataResult{
 				VerifyInfo: "Verify - OK",
@@ -394,7 +491,7 @@ func TestVerifyCMSDoesNotCopyOutputs(t *testing.T) {
 				Cert:       nativeCert,
 			}, nil
 		},
-	}}
+	})}
 
 	verification, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("cms")),
@@ -411,7 +508,7 @@ func TestVerifyCMSDoesNotCopyOutputs(t *testing.T) {
 }
 
 func TestVerifyCMSPassesBase64DetachedDataEncoding(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			wantFlags := ckalkan.SignCMS | ckalkan.InDER | ckalkan.In2Base64 | ckalkan.DetachedData
 			if req.Flags != wantFlags {
@@ -426,7 +523,7 @@ func TestVerifyCMSPassesBase64DetachedDataEncoding(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("raw cms")),
@@ -450,13 +547,13 @@ func TestVerifyCMSRejectsDetachedDataEncoding(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			native := &fakeNative{
+			native := &fakeSDK{
 				verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 					t.Error("VerifyCMS called native VerifyData with unsupported detached data encoding")
 					return ckalkan.VerifyDataResult{}, nil
 				},
 			}
-			client := &Client{library: native}
+			client := &Client{session: newNativeBackend(native)}
 
 			_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 				Signature: Bytes([]byte("raw cms")),
@@ -471,7 +568,7 @@ func TestVerifyCMSRejectsDetachedDataEncoding(t *testing.T) {
 }
 
 func TestVerifyCMSRejectsDataForAttachedSignature(t *testing.T) {
-	client := &Client{library: &fakeNative{}}
+	client := &Client{session: newNativeBackend(&fakeSDK{})}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("attached cms")),
@@ -483,13 +580,13 @@ func TestVerifyCMSRejectsDataForAttachedSignature(t *testing.T) {
 }
 
 func TestVerifyCMSRequiresDetachedData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Error("VerifyCMS called native VerifyData without detached data")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("detached cms")),
@@ -501,7 +598,7 @@ func TestVerifyCMSRequiresDetachedData(t *testing.T) {
 }
 
 func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			if len(req.Data) != 0 {
 				t.Fatalf("detached data length = %d, want explicit empty payload", len(req.Data))
@@ -509,7 +606,7 @@ func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("detached cms")),
@@ -522,13 +619,13 @@ func TestVerifyCMSAllowsExplicitEmptyDetachedData(t *testing.T) {
 }
 
 func TestVerifyCMSRejectsNegativeSignerID(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Error("VerifyCMS called native VerifyData for negative SignerID")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("cms")),
@@ -540,13 +637,13 @@ func TestVerifyCMSRejectsNegativeSignerID(t *testing.T) {
 }
 
 func TestVerifyCMSRejectsSignerIDOverflow(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			t.Error("VerifyCMS called native VerifyData for overflowing SignerID")
 			return ckalkan.VerifyDataResult{}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("cms")),
@@ -558,7 +655,7 @@ func TestVerifyCMSRejectsSignerIDOverflow(t *testing.T) {
 }
 
 func TestVerifyCMSAcceptsMaxSignerID(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		verifyDataFunc: func(req ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 			if req.CertID != maxSignerID {
 				t.Fatalf("CertID = %d, want max SignerID %d", req.CertID, maxSignerID)
@@ -567,7 +664,7 @@ func TestVerifyCMSAcceptsMaxSignerID(t *testing.T) {
 			return ckalkan.VerifyDataResult{VerifyInfo: "Verify - OK"}, nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	_, err := client.VerifyCMS(context.Background(), VerifyCMSRequest{
 		Signature: Bytes([]byte("cms")),
@@ -581,14 +678,14 @@ func TestVerifyCMSAcceptsMaxSignerID(t *testing.T) {
 func TestVerifyCMSValidatesBeforeNativeLock(t *testing.T) {
 	enteredHash := make(chan struct{})
 	releaseHash := make(chan struct{})
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			close(enteredHash)
 			<-releaseHash
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native}
+	client := &Client{session: newNativeBackend(native)}
 
 	hashDone := make(chan error, 1)
 	go func() {
@@ -682,7 +779,7 @@ func TestVerifyCMSMemoryInputFlags(t *testing.T) {
 func assertCMSNativeInput(t *testing.T, req VerifyCMSRequest, flags ckalkan.Flag, signature, data []byte) {
 	t.Helper()
 	calls := 0
-	client := &Client{library: &fakeNative{verifyDataFunc: func(got ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+	client := &Client{session: newNativeBackend(&fakeSDK{verifyDataFunc: func(got ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 		calls++
 		if got.Flags != flags || got.Alias != req.Alias || got.CertID != req.SignerID {
 			t.Errorf("native flags/alias/signer = %#x/%q/%d, want %#x/%q/%d", got.Flags, got.Alias, got.CertID, flags, req.Alias, req.SignerID)
@@ -691,17 +788,17 @@ func assertCMSNativeInput(t *testing.T, req VerifyCMSRequest, flags ckalkan.Flag
 			t.Error("native verifier did not receive the original input bytes")
 		}
 		return ckalkan.VerifyDataResult{}, nil
-	}}}
+	}})}
 	if _, err := client.VerifyCMS(context.Background(), req); err != nil || calls != 1 {
 		t.Fatalf("VerifyCMS: calls=%d, error=%v", calls, err)
 	}
 }
 
 func TestVerifyCMSRejectsNativeFlagInjection(t *testing.T) {
-	client := &Client{library: &fakeNative{verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
+	client := &Client{session: newNativeBackend(&fakeSDK{verifyDataFunc: func(ckalkan.VerifyDataRequest) (ckalkan.VerifyDataResult, error) {
 		t.Fatal("invalid public option reached the native verifier")
 		return ckalkan.VerifyDataResult{}, nil
-	}}}
+	}})}
 	for _, value := range []int{-1, 99, int(ckalkan.InFile), int(ckalkan.InFile | ckalkan.In2Base64)} {
 		for _, field := range []string{"signature encoding", "request encoding", "data encoding", "certificate time check"} {
 			t.Run(fmt.Sprintf("%s/%d", field, value), func(t *testing.T) {

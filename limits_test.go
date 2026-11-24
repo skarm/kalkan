@@ -81,13 +81,13 @@ func TestLimitOptionsUseLastValue(t *testing.T) {
 
 func TestNegativeMaxOutputBufferSizeIsRejected(t *testing.T) {
 	factoryCalled := false
-	_, err := openWithLibraryFactory(context.Background(), []Option{
+	_, err := openWithBackendFactory(context.Background(), []Option{
 		WithLibraryPath(testLibraryPath()),
 		WithMaxOutputBufferSize(-1),
-	}, func(config) (closer, error) {
+	}, func(config) (backend, error) {
 		factoryCalled = true
 
-		return &fakeNative{}, nil
+		return newNativeBackend(&fakeSDK{}), nil
 	})
 	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "output buffer") {
 		t.Fatalf("Open error = %v, want ErrInvalidInput for output buffer", err)
@@ -98,7 +98,7 @@ func TestNegativeMaxOutputBufferSizeIsRejected(t *testing.T) {
 }
 
 func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			t.Error("Hash called native with oversized memory input")
 			return nil, nil
@@ -132,7 +132,7 @@ func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
 			return nil, nil
 		},
 	}
-	client := &Client{library: native, config: runtimeConfig{maxInputSize: 3}}
+	client := &Client{session: newNativeBackend(native), config: runtimeConfig{maxInputSize: 3}}
 	cert, err := x509.ParseCertificate(testCertificateDER(t, "Max Input Test"))
 	if err != nil {
 		t.Fatalf("parse test certificate: %v", err)
@@ -217,13 +217,13 @@ func TestMaxInputSizeRejectsMemorySources(t *testing.T) {
 }
 
 func TestMaxInputSizeRejectsWrappedWSSE(t *testing.T) {
-	native := &fakeNative{
+	native := &fakeSDK{
 		signWSSEFunc: func(req ckalkan.SignWSSERequest) ([]byte, error) {
 			t.Error("SignWSSE called native with oversized wrapped XML input")
 			return nil, nil
 		},
 	}
-	client := &Client{library: native, config: runtimeConfig{maxInputSize: 10}}
+	client := &Client{session: newNativeBackend(native), config: runtimeConfig{maxInputSize: 10}}
 
 	_, err := client.SignWSSE(context.Background(), SignWSSERequest{
 		XML:      Bytes([]byte("<a/>")),
@@ -237,7 +237,7 @@ func TestMaxInputSizeRejectsWrappedWSSE(t *testing.T) {
 
 func TestMaxInputSizeAllowsFileSources(t *testing.T) {
 	path := writeTestFile(t, t.TempDir(), "payload.txt", []byte("1234"))
-	native := &fakeNative{
+	native := &fakeSDK{
 		hashDataFunc: func(algorithm ckalkan.HashAlgorithm, flags ckalkan.Flag, data []byte) ([]byte, error) {
 			if string(data) != path {
 				t.Fatalf("Hash data = %q, want file path %q", data, path)
@@ -246,7 +246,7 @@ func TestMaxInputSizeAllowsFileSources(t *testing.T) {
 			return []byte("digest"), nil
 		},
 	}
-	client := &Client{library: native, config: runtimeConfig{maxInputSize: 3}}
+	client := &Client{session: newNativeBackend(native), config: runtimeConfig{maxInputSize: 3}}
 
 	if _, err := client.Hash(context.Background(), HashRequest{Data: File(path)}); err != nil {
 		t.Fatalf("Hash returned error for file source: %v", err)

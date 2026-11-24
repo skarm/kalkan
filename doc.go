@@ -11,23 +11,17 @@
 // envelopes.
 // The client passes accepted non-SOAP input to KalkanCrypt unchanged.
 //
-// KalkanCrypt shares native state across the process.
-// The client serializes individual native calls.
-// Synchronize sequences that load a key store and then sign with that key
-// store.
-// Context cancellation stops a wait for the client call gate.
-// It cannot interrupt low-level mutex waits or active native calls.
-// [Open] cannot cancel library loads or cleanup.
+// [Open] selects a native backend with [WithLibraryPath] or a Java backend with
+// [WithJavaProvider]. Each client serializes individual calls. Sequences such as
+// [Client.LoadKeyStore] followed by signing require external synchronization.
 //
-// Use process isolation when native calls require hard deadlines.
-// The isolated package provides a client with a separate worker process.
-//
-// OCSP uses KalkanCrypt by default.
-// [WithCustomOCSP] enables Go HTTP requests and response verification after
-// native chain validation.
-// The Go HTTP exchange respects context cancellation and [WithOCSPTimeout].
-//
-// [Open] requires [WithLibraryPath] with an absolute path to the native
-// library.
-// The package cannot erase passwords from Go strings.
+// The native SDK has process-global state. Context cancellation stops waiting
+// for the client call gate, but cannot interrupt library loading, low-level
+// mutex waits, or active SDK calls. Hard deadlines require process isolation.
+// [WithCustomOCSP] optionally runs OCSP HTTP requests and response verification
+// in Go after native chain validation. Its HTTP exchange honors cancellation
+// and [WithOCSPTimeout]. By default, OCSP uses the native implementation.
+// Java clients own independent worker processes; canceling an active worker
+// request terminates its session. Cleanup waits without a context.
+// Passwords passed as Go strings cannot be zeroized by this package.
 package kalkan
